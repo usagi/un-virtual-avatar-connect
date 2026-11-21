@@ -32,3 +32,16 @@ cargo xtask docs bless-node-catalog
 ## Rust ビルド環境
 
 ビルドには **Rust 1.100.0** を使用します。`rust-toolchain.toml` に従って rustup が選択します（最低対応バージョン: 1.100、プロジェクト内コードの Edition: 2024）。依存関係は `Cargo.lock` を維持し、検証時は `cargo check --locked` / `cargo test --locked` を使用してください。 Cargoの中間生成先 `build-dir` を実行ファイルの出力先と分離する場合は、`UN_BUILD_PROFILE_DIR` に実行ファイルを配置するディレクトリの絶対パスを指定してください。
+
+## v2の構成
+
+v2 は **Flowgraph + Control API + GUI Runtime Cockpit** を中心にしています。
+
+- `/api/v1/control/*` は GUI / 外部ツール向けの認証付き control plane です。
+  - `snapshot` / `events` / pause / reload / restart / profile edit
+  - Flowgraph tree / node catalog / diagnostics / fragment copy-paste / ZIP import-export
+  - Managed App / OBS Browser Source / Quick Effects / AI persona config
+  - UN App API over Zenoh (UNAA/Z) discovery / command / diagnostics
+- GUI は `gui/` の Svelte 5 + Vite 実装です。Now、Live、Modes、Flowgraph Studio、Resources、Observability、Settings を持ちます。
+- Motion は **UNMF / UNMF/Z** を core data plane とし、VMC は互換 adapter として扱います。
+- U.N. シリーズアプリ連携の control plane は **UN App API over Zenoh (UNAA/Z)** です。
