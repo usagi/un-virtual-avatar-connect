@@ -172,7 +172,7 @@ impl ResponsesClient {
 	pub async fn create_stream(
 		&self,
 		mut request: CreateResponseRequest,
-	) -> Result<impl Stream<Item = Result<StreamEvent, ResponsesClientError>> + Send + 'static, ResponsesClientError> {
+	) -> Result<impl Stream<Item = Result<StreamEvent, ResponsesClientError>> + Send + 'static + use<>, ResponsesClientError> {
 		request.stream = Some(true);
 		let url = format!("{}/responses", self.cfg.base_url.trim_end_matches('/'));
 		let body = serde_json::to_vec(&request).map_err(|e| ResponsesClientError::Encode(e.to_string()))?;

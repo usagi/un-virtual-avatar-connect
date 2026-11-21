@@ -11,9 +11,14 @@
 //! - [`runtime`] (δ-6): ロード結果を `State` から共有するためのハンドル（`FlowgraphRuntime`）。
 
 pub mod activation;
+#[cfg(test)]
+mod asset_portability_tests;
+#[cfg(test)]
+mod dictionary_command_tests;
 pub mod config;
 pub mod docs;
 pub mod engine;
+pub mod trigger_receipt;
 pub mod fixture_runner;
 pub mod fragment;
 pub mod loader;
@@ -25,6 +30,9 @@ pub mod quantity;
 pub mod registry;
 pub mod runtime;
 pub mod socket;
+pub mod speech_routes;
+pub mod speech_route_sources;
+pub mod source_transaction;
 pub mod spawn;
 pub mod state_model;
 pub mod state_snapshot_file;
@@ -48,7 +56,8 @@ pub use loader::{
 };
 pub use node::{
 	EffectfulNode, ExecCtx, ExecFireSet, InputMap, NodeDescriptor, NodeExecError, NodeImpl, NodeOutput, NodeSpec, OutputMap, PortDirection,
-	PortSpec, PropertySpec, PureEvalHost, PureNode, SocketValueRepr, StatefulNode,
+	PortSpec, PropertySpec, PureEvalHost, PureNode, RuntimeTraceBuffer, RuntimeTraceEvent, RuntimeTracePhase, SocketValueRepr,
+	StatefulNode,
 };
 pub use package_lock_file::{
 	read_package_lock_file, write_package_lock_file, PackageLockFile, PackageLockFileError, FLOWGRAPH_PACKAGE_LOCK_FILE_KIND,
@@ -67,3 +76,5 @@ pub use state_snapshot_file::{
 	FLOWGRAPH_STATE_SNAPSHOT_FILE_NAME, FLOWGRAPH_STATE_SNAPSHOT_FILE_SCHEMA_VERSION,
 };
 pub use table::{ColumnSpec, Row, Table, TableFromJsonError, TableSchema};
+
+pub(crate) mod write_lock;

@@ -24,7 +24,7 @@ un-avatar
 
 ## VAC 側 conf
 
-[`conf.example-un-suite.toml`](../../../conf.example-un-suite.toml) をコピーし、`run_with.command` を実際の `un-motion-supervisor.exe` / `un-avatar-supervisor.exe` のパスへ変更します。
+`conf.example-un-suite.toml` をコピーし、`run_with.command` を実際の `un-motion-supervisor.exe` / `un-avatar-supervisor.exe` のパスへ変更します。
 
 ```toml
 [[motion.vmc_passthrough]]
@@ -48,11 +48,11 @@ VMC packet を Flowgraph に入れる場合は、`flowgraph.ingress.vmc_udp` と
 
 既存 example:
 
-- [`flowgraph.example/un-suite-vmc-monitor`](../../../flowgraph.example/un-suite-vmc-monitor)
-- [`flowgraph.example/vmc-udp-ingress`](../../../flowgraph.example/vmc-udp-ingress)
-- [`flowgraph.example/vmc-blendshape-trigger`](../../../flowgraph.example/vmc-blendshape-trigger)
-- [`flowgraph.example/vmc-ai-mode-control`](../../../flowgraph.example/vmc-ai-mode-control)
-- [`flowgraph.example/vmc-obs-scene-control`](../../../flowgraph.example/vmc-obs-scene-control)
+- `flowgraph.example/un-suite-vmc-monitor`
+- `flowgraph.example/vmc-udp-ingress`
+- `flowgraph.example/vmc-blendshape-trigger`
+- `flowgraph.example/vmc-ai-mode-control`
+- `flowgraph.example/vmc-obs-scene-control`
 
 `un-suite-vmc-monitor` は passthrough と同じ port を使わないよう、既定で `127.0.0.1:39543` を bind します。un-motion 側で monitor 用の VMC output を追加して使います。
 

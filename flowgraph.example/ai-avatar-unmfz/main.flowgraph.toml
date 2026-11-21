@@ -1,0 +1,130 @@
+# UNVAC 2.0: AI avatar intent -> UNMF/Z first slice。
+#
+# この例は既定で dry-run にしてある。UNAvatar / UNMotion / Zenoh を起動せず、
+# v2.0 の身体制御経路だけを検証するための構成。
+#
+# 経路:
+#   vac_emit_avatar_intent tool -> ChannelDatum -> AvatarIntent -> 時系列 UNMF/Z 再生 dry-run
+#
+# 実際の UNAvatar Renderer へ送る場合:
+#   1. UNAvatar Renderer profile の UNMF/Z input key を `unmfz_base_key.value` と一致させる
+#   2. `dry_run.value = false` にする
+#   3. `conf.example-avatar-ai-control.toml` の `[un_avatar.links.<id>.unmfz]` と同じ key にする
+
+[meta]
+title = "ai avatar unmfz"
+description = "AvatarIntent JSON -> timed UNMF/Z playback dry-run"
+tags = ["example", "avatar", "ai", "unmf", "unmfz"]
+
+[[nodes]]
+id = "avatar_intent_in"
+feature = "flowgraph.ingress.ai_avatar_intent"
+position = [80, 100]
+
+[[nodes]]
+id = "parse_intent"
+feature = "flowgraph.json.parse"
+position = [320, 100]
+
+[[nodes]]
+id = "play_intent"
+feature = "flowgraph.avatar.intent_play_unmfz"
+position = [600, 100]
+
+[[nodes]]
+id = "unmfz_base_key"
+feature = "flowgraph.literal.string"
+position = [600, 360]
+# conf.example-avatar-ai-control.toml の [un_avatar.links.kaltsit_ai.unmfz].base_key_expr と揃える。
+properties.value = "un-motion/frame/kaltsit-ai"
+
+[[nodes]]
+id = "unmfz_topic_mode"
+feature = "flowgraph.literal.string"
+position = [600, 440]
+properties.value = "frame"
+
+[[nodes]]
+id = "unmfz_schema_major"
+feature = "flowgraph.literal.int"
+position = [600, 520]
+properties.value = 1
+
+[[nodes]]
+id = "dry_run"
+feature = "flowgraph.literal.bool"
+position = [600, 600]
+properties.value = true
+
+[[nodes]]
+id = "playback_fps"
+feature = "flowgraph.literal.int"
+position = [600, 680]
+properties.value = 30
+
+[[nodes]]
+id = "frames_sent_text"
+feature = "flowgraph.convert.int_to_string"
+position = [1120, 320]
+
+[[nodes]]
+id = "log_key"
+feature = "flowgraph.util.log"
+position = [1120, 100]
+
+[[nodes]]
+id = "log_frames_sent"
+feature = "flowgraph.util.log"
+position = [1360, 320]
+
+[[edges]]
+from = "avatar_intent_in:exec_out"
+to = "play_intent:exec_in"
+
+[[edges]]
+from = "avatar_intent_in:content"
+to = "parse_intent:text"
+
+[[edges]]
+from = "parse_intent:value"
+to = "play_intent:intent"
+
+[[edges]]
+from = "unmfz_base_key:value"
+to = "play_intent:base_key_expr"
+
+[[edges]]
+from = "unmfz_topic_mode:value"
+to = "play_intent:topic_mode"
+
+[[edges]]
+from = "unmfz_schema_major:value"
+to = "play_intent:schema_major"
+
+[[edges]]
+from = "dry_run:value"
+to = "play_intent:dry_run"
+
+[[edges]]
+from = "playback_fps:value"
+to = "play_intent:fps"
+
+[[edges]]
+from = "play_intent:frames_sent"
+to = "frames_sent_text:value"
+
+[[edges]]
+from = "play_intent:on_success"
+to = "log_key:exec_in"
+
+[[edges]]
+from = "play_intent:key_expr"
+to = "log_key:value"
+
+[[edges]]
+from = "play_intent:on_success"
+to = "log_frames_sent:exec_in"
+
+[[edges]]
+from = "frames_sent_text:result"
+to = "log_frames_sent:value"

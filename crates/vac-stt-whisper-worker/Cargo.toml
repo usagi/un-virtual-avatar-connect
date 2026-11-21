@@ -1,0 +1,21 @@
+[package]
+rust-version = "1.100"
+name = "vac-stt-whisper-worker"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "vac-stt-worker"
+path = "src/main.rs"
+
+[features]
+default = []
+vulkan = ["dep:ash", "whisper-rs/vulkan"]
+
+[dependencies]
+anyhow = "1.0"
+ash = { version = "0.38", optional = true }
+clap = { version = "4.6", features = ["derive"] }
+num_cpus = "1.17"
+vac-stt-protocol = { path = "../vac-stt-protocol" }
+whisper-rs = { version = "0.16.0", features = ["log_backend"] }

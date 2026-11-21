@@ -1,27 +1,17 @@
-# Phase λ 最小例: ユーザ定義 [[enums]] + ライブラリ境界スタブ
 [meta]
-title = "lambda-demo"
-description = "enums / library.input / library.output の構文サンプル（実行用途は任意）"
-
-[[enums]]
-id = "demo_lang"
-variants = ["ja", "en"]
+title = "lambda-demo entry"
+description = "typed moduleをgraph-as-nodeとして配置する最小entry。"
 
 [[nodes]]
-id = "lang"
+id = "text"
 feature = "flowgraph.literal.string"
-properties.value = "ja"
+properties.value = "hello module"
 
-[[nodes]]
-id = "lib_in"
-feature = "flowgraph.library.input"
-[nodes.properties]
-value = ""
-
-[[nodes]]
-id = "lib_out"
-feature = "flowgraph.library.output"
+[[instances]]
+id = "child"
+graph = "./module"
+position = [360.0, 180.0]
 
 [[edges]]
-from = "lang:value"
-to = "lib_out:value"
+from = "text:value"
+to = "child:text"

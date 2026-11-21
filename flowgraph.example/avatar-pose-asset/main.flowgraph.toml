@@ -1,0 +1,212 @@
+# AIが選んだ名前付きpresetから、UNMotionの静止画入力で作成したUNMF pose assetを安全に適用・解除する例。
+# poseとreleaseは同じowned_bonesをすべて含む必要がある。
+
+[meta]
+title = "avatar pose asset"
+description = "Named pose channel -> saved UNMF pose -> AvatarLink compositor -> explicit neutral baseline"
+tags = ["example", "avatar", "unmf", "pose", "asset"]
+
+[[nodes]]
+id = "in"
+feature = "flowgraph.ingress.ai_avatar_pose"
+position = [80, 120]
+
+[[nodes]]
+id = "catalog_path"
+feature = "flowgraph.literal.string"
+position = [300, 280]
+properties.value = "flowgraph.example/avatar-pose-asset/catalog.json"
+
+[[nodes]]
+id = "asset_root"
+feature = "flowgraph.literal.string"
+position = [540, 360]
+properties.value = "flowgraph.example/avatar-pose-asset"
+
+[[nodes]]
+id = "read_catalog"
+feature = "flowgraph.file.read_json"
+position = [300, 120]
+
+[[nodes]]
+id = "lookup_pose"
+feature = "flowgraph.avatar.pose_catalog_lookup"
+position = [540, 120]
+
+[[nodes]]
+id = "read_pose"
+feature = "flowgraph.file.read_json"
+position = [760, 120]
+
+[[nodes]]
+id = "read_release"
+feature = "flowgraph.file.read_json"
+position = [980, 120]
+
+[[nodes]]
+id = "play_pose"
+feature = "flowgraph.avatar.pose_asset_play_unmfz"
+position = [1200, 120]
+
+[[nodes]]
+id = "target_link_id"
+feature = "flowgraph.literal.string"
+position = [760, 480]
+properties.value = "kaltsit_ai"
+
+[[nodes]]
+id = "base_key"
+feature = "flowgraph.literal.string"
+position = [760, 560]
+properties.value = "un-motion/frame/kaltsit-ai"
+
+[[nodes]]
+id = "topic_mode"
+feature = "flowgraph.literal.string"
+position = [760, 640]
+properties.value = "frame"
+
+[[nodes]]
+id = "schema_major"
+feature = "flowgraph.literal.int"
+position = [760, 720]
+properties.value = 1
+
+[[nodes]]
+id = "fps"
+feature = "flowgraph.literal.int"
+position = [1040, 640]
+properties.value = 30
+
+[[nodes]]
+id = "dry_run"
+feature = "flowgraph.literal.bool"
+position = [1040, 720]
+properties.value = true
+
+[[nodes]]
+id = "frames_text"
+feature = "flowgraph.convert.int_to_string"
+position = [1160, 320]
+
+[[nodes]]
+id = "log_key"
+feature = "flowgraph.util.log"
+position = [1400, 120]
+
+[[nodes]]
+id = "log_frames"
+feature = "flowgraph.util.log"
+position = [1400, 320]
+
+[[edges]]
+from = "in:exec_out"
+to = "read_catalog:exec_in"
+
+[[edges]]
+from = "catalog_path:value"
+to = "read_catalog:path"
+
+[[edges]]
+from = "read_catalog:json"
+to = "lookup_pose:catalog"
+
+[[edges]]
+from = "in:content"
+to = "lookup_pose:preset"
+
+[[edges]]
+from = "asset_root:value"
+to = "lookup_pose:asset_root"
+
+[[edges]]
+from = "read_catalog:on_success"
+to = "read_pose:exec_in"
+
+[[edges]]
+from = "lookup_pose:pose_path"
+to = "read_pose:path"
+
+[[edges]]
+from = "read_pose:on_success"
+to = "read_release:exec_in"
+
+[[edges]]
+from = "lookup_pose:release_path"
+to = "read_release:path"
+
+[[edges]]
+from = "read_release:on_success"
+to = "play_pose:exec_in"
+
+[[edges]]
+from = "read_pose:json"
+to = "play_pose:pose"
+
+[[edges]]
+from = "read_release:json"
+to = "play_pose:release"
+
+[[edges]]
+from = "lookup_pose:owned_bones"
+to = "play_pose:owned_bones"
+
+[[edges]]
+from = "lookup_pose:owned_fingers"
+to = "play_pose:owned_fingers"
+
+[[edges]]
+from = "target_link_id:value"
+to = "play_pose:target_link_id"
+
+[[edges]]
+from = "base_key:value"
+to = "play_pose:base_key_expr"
+
+[[edges]]
+from = "topic_mode:value"
+to = "play_pose:topic_mode"
+
+[[edges]]
+from = "schema_major:value"
+to = "play_pose:schema_major"
+
+[[edges]]
+from = "lookup_pose:attack_ms"
+to = "play_pose:attack_ms"
+
+[[edges]]
+from = "lookup_pose:hold_ms"
+to = "play_pose:hold_ms"
+
+[[edges]]
+from = "lookup_pose:release_ms"
+to = "play_pose:release_ms"
+
+[[edges]]
+from = "fps:value"
+to = "play_pose:fps"
+
+[[edges]]
+from = "dry_run:value"
+to = "play_pose:dry_run"
+
+[[edges]]
+from = "play_pose:frames_sent"
+to = "frames_text:value"
+
+[[edges]]
+from = "play_pose:on_success"
+to = "log_key:exec_in"
+
+[[edges]]
+from = "play_pose:key_expr"
+to = "log_key:value"
+
+[[edges]]
+from = "play_pose:on_success"
+to = "log_frames:exec_in"
+
+[[edges]]
+from = "frames_text:result"
+to = "log_frames:value"

@@ -176,14 +176,14 @@ impl OAuthSessions {
 
 	pub async fn remove_and_abort(&self, account: OAuthAccount) -> bool {
 		let mut map = self.inner.write().await;
-		if let Some(session) = map.remove(&account) {
+		match map.remove(&account) { Some(session) => {
 			if let Some(h) = session.cancel_handle {
 				h.abort();
 			}
 			true
-		} else {
+		} _ => {
 			false
-		}
+		}}
 	}
 }
 

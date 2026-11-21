@@ -182,9 +182,18 @@ mod tests {
 
 	#[tokio::test]
 	async fn missing_script_id_yields_on_error() {
-		// 環境変数を一時的に unset
-		let saved = std::env::var(ENV_GAS_TRANSLATION_SCRIPT_ID).ok();
-		std::env::remove_var(ENV_GAS_TRANSLATION_SCRIPT_ID);
+		const TEST: &str = "flowgraph::nodes::translate_gas::tests::missing_script_id_yields_on_error";
+		const CASE: &str = "VAC_ISOLATED_GAS_ENV_TEST";
+		if std::env::var(CASE).as_deref() != Ok(TEST) {
+			let output = std::process::Command::new(std::env::current_exe().unwrap())
+				.args([TEST, "--exact", "--test-threads=1"])
+				.env(CASE, TEST)
+				.env_remove(ENV_GAS_TRANSLATION_SCRIPT_ID)
+				.output().expect("isolated environment test");
+			assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stdout));
+			assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+			return;
+		}
 
 		let node = TranslateGasNode;
 		let mut ctx = ExecCtx::default();
@@ -209,9 +218,6 @@ mod tests {
 			other => panic!("expected result, got {other:?}"),
 		}
 
-		if let Some(v) = saved {
-			std::env::set_var(ENV_GAS_TRANSLATION_SCRIPT_ID, v);
-		}
 	}
 
 	#[test]

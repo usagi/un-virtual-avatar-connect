@@ -1,0 +1,14 @@
+[package]
+rust-version = "1.100"
+name = "vac-ocr-onnx-eval"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "vac-ocr-onnx-eval"
+path = "src/main.rs"
+
+[dependencies]
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+ort = "2.0.0-rc.12"

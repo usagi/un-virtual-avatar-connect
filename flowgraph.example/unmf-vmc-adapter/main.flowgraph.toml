@@ -1,0 +1,259 @@
+# Phase M6: VMC を互換入力として受け、UNMF を内部処理の標準形にする例。
+#
+# 標準形:
+# VMC -> UNMF -> Flowgraph processing -> UNMF/Z or VMC
+#
+# 実運用では `vmc_in` を有効にして UDP から受ける。fixture では `sample_vmc_b64`
+# の VMC OSC payload を使い、UNMF/Z publish は dry-run で検証する。
+
+[meta]
+title = "unmf vmc adapter standard demo"
+description = "VMC -> UNMF -> filter/map -> UNMF/Z dry-run publish + VMC adapter"
+tags = ["example", "vmc", "unmf", "unmfz", "adapter", "motion"]
+
+[[nodes]]
+id = "trigger"
+feature = "flowgraph.ingress.web_input"
+position = [80, 80]
+properties.path = "/input/unmf-vmc-adapter"
+properties.method = "POST"
+properties.body_format = "plain"
+properties.fixed_channel = "unmf_vmc_adapter_demo"
+
+[[nodes]]
+id = "vmc_in"
+feature = "flowgraph.ingress.vmc_udp"
+position = [80, 300]
+properties.bind = "127.0.0.1:39544"
+properties.fixed_channel = ""
+
+[[nodes]]
+id = "sample_vmc_b64"
+feature = "flowgraph.literal.string"
+position = [320, 80]
+properties.value = "L1ZNQy9FeHQvQmxlbmQvVmFsAAAsc2YASm95AD9AAAA="
+
+[[nodes]]
+id = "decode_payload"
+feature = "flowgraph.bytes.from_base64"
+position = [560, 80]
+
+[[nodes]]
+id = "parse_vmc"
+feature = "flowgraph.motion.vmc_parse"
+position = [800, 80]
+
+[[nodes]]
+id = "to_unmf"
+feature = "flowgraph.unmf.from_vmc"
+position = [1040, 80]
+
+[[nodes]]
+id = "expression_filter"
+feature = "flowgraph.literal.string"
+position = [1040, 260]
+properties.value = "Joy"
+
+[[nodes]]
+id = "filter_unmf"
+feature = "flowgraph.unmf.filter"
+position = [1280, 80]
+
+[[nodes]]
+id = "expression_scale"
+feature = "flowgraph.literal.float"
+position = [1280, 260]
+properties.value = 1.0
+
+[[nodes]]
+id = "scale_unmf"
+feature = "flowgraph.unmf.map"
+position = [1520, 80]
+
+[[nodes]]
+id = "unmfz_base_key"
+feature = "flowgraph.literal.string"
+position = [1520, 300]
+properties.value = "un-motion/frame/example"
+
+[[nodes]]
+id = "unmfz_topic_mode"
+feature = "flowgraph.literal.string"
+position = [1520, 380]
+properties.value = "frame"
+
+[[nodes]]
+id = "unmfz_schema_major"
+feature = "flowgraph.literal.int"
+position = [1520, 460]
+properties.value = 1
+
+[[nodes]]
+id = "dry_run"
+feature = "flowgraph.literal.bool"
+position = [1520, 540]
+properties.value = true
+
+[[nodes]]
+id = "publish_unmfz"
+feature = "flowgraph.unmfz.publish"
+position = [1760, 80]
+
+[[nodes]]
+id = "encode_unmfz"
+feature = "flowgraph.unmfz.encode"
+position = [1760, 300]
+
+[[nodes]]
+id = "payload_len"
+feature = "flowgraph.bytes.len"
+position = [2000, 300]
+
+[[nodes]]
+id = "payload_len_text"
+feature = "flowgraph.convert.int_to_string"
+position = [2240, 300]
+
+[[nodes]]
+id = "to_vmc"
+feature = "flowgraph.unmf.to_vmc"
+position = [1760, 520]
+
+[[nodes]]
+id = "extract_vmc_joy"
+feature = "flowgraph.vmc.extract_blendshape"
+position = [2000, 520]
+
+[[nodes]]
+id = "joy_name"
+feature = "flowgraph.literal.string"
+position = [2000, 700]
+properties.value = "Joy"
+
+[[nodes]]
+id = "joy_value_text"
+feature = "flowgraph.convert.float_to_string"
+position = [2240, 520]
+
+[[nodes]]
+id = "log_key"
+feature = "flowgraph.util.log"
+position = [2480, 80]
+
+[[nodes]]
+id = "log_payload_len"
+feature = "flowgraph.util.log"
+position = [2480, 300]
+
+[[nodes]]
+id = "log_vmc_joy"
+feature = "flowgraph.util.log"
+position = [2480, 520]
+
+[[edges]]
+from = "trigger:exec_out"
+to = "publish_unmfz:exec_in"
+
+[[edges]]
+from = "sample_vmc_b64:value"
+to = "decode_payload:text"
+
+[[edges]]
+from = "decode_payload:bytes"
+to = "parse_vmc:payload"
+
+[[edges]]
+from = "sample_vmc_b64:value"
+to = "parse_vmc:payload_b64"
+
+[[edges]]
+from = "parse_vmc:frame"
+to = "to_unmf:frame"
+
+[[edges]]
+from = "to_unmf:unmf"
+to = "filter_unmf:unmf"
+
+[[edges]]
+from = "expression_filter:value"
+to = "filter_unmf:expression_contains"
+
+[[edges]]
+from = "filter_unmf:unmf"
+to = "scale_unmf:unmf"
+
+[[edges]]
+from = "expression_scale:value"
+to = "scale_unmf:expression_scale"
+
+[[edges]]
+from = "scale_unmf:unmf"
+to = "publish_unmfz:unmf"
+
+[[edges]]
+from = "unmfz_base_key:value"
+to = "publish_unmfz:base_key_expr"
+
+[[edges]]
+from = "unmfz_topic_mode:value"
+to = "publish_unmfz:topic_mode"
+
+[[edges]]
+from = "unmfz_schema_major:value"
+to = "publish_unmfz:schema_major"
+
+[[edges]]
+from = "dry_run:value"
+to = "publish_unmfz:dry_run"
+
+[[edges]]
+from = "scale_unmf:unmf"
+to = "encode_unmfz:unmf"
+
+[[edges]]
+from = "encode_unmfz:payload"
+to = "payload_len:bytes"
+
+[[edges]]
+from = "payload_len:len"
+to = "payload_len_text:value"
+
+[[edges]]
+from = "scale_unmf:unmf"
+to = "to_vmc:unmf"
+
+[[edges]]
+from = "to_vmc:frame"
+to = "extract_vmc_joy:frame"
+
+[[edges]]
+from = "joy_name:value"
+to = "extract_vmc_joy:blendshape_name"
+
+[[edges]]
+from = "extract_vmc_joy:value"
+to = "joy_value_text:value"
+
+[[edges]]
+from = "publish_unmfz:on_success"
+to = "log_key:exec_in"
+
+[[edges]]
+from = "publish_unmfz:key_expr"
+to = "log_key:value"
+
+[[edges]]
+from = "publish_unmfz:on_success"
+to = "log_payload_len:exec_in"
+
+[[edges]]
+from = "payload_len_text:result"
+to = "log_payload_len:value"
+
+[[edges]]
+from = "publish_unmfz:on_success"
+to = "log_vmc_joy:exec_in"
+
+[[edges]]
+from = "joy_value_text:result"
+to = "log_vmc_joy:value"

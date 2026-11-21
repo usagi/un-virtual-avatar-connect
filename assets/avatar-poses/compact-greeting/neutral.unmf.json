@@ -1,0 +1,109 @@
+{
+  "header": {
+    "magic": [
+      85,
+      78,
+      77,
+      70
+    ],
+    "version_major": 1,
+    "version_minor": 1,
+    "sequence": 0,
+    "timestamp_basis": "SourceLocal",
+    "capture_timestamp_ns": 0,
+    "frame_timestamp_ns": 0,
+    "processed_timestamp_ns": 0,
+    "coordinate_space": "UNMotion",
+    "handedness": "Unknown",
+    "length_unit": "Normalized",
+    "stream_id": "unvac-still-poc",
+    "expected_dt_ns": 201101900
+  },
+  "sources": [
+    {
+      "source_id": "file-image:mediapipe-main",
+      "source_kind": "WebcamPose",
+      "display_name": "MediaPipe Native File Image",
+      "confidence": 0.98370403,
+      "latency_ns": 31807700,
+      "state": "Valid"
+    }
+  ],
+  "body": {
+    "tracking_state": "Valid",
+    "confidence": 1,
+    "humanoid": {
+      "root": null,
+      "bones": [
+        {
+          "bone": "LeftUpperArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0.70710677,
+              "w": 0.70710677
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "LeftLowerArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "w": 1
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "LeftHand",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "w": 1
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1,
+          "source_index": 0,
+          "state": "Valid"
+        }
+      ]
+    }
+  },
+  "face": null,
+  "eyes": null,
+  "left_hand": null,
+  "right_hand": null,
+  "signals": [],
+  "metadata": {
+    "schema_name": "UNMotionFrame",
+    "schema_version": "1.1.0",
+    "producer": "un-virtual-avatar-connect",
+    "notes": [
+      "Compact greeting: left arm only; current streaming camera unchanged."
+    ],
+    "extensions": []
+  }
+}

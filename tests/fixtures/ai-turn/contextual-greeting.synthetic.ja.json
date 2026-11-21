@@ -1,0 +1,98 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "contextual-greeting-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "heavy-aircraft-context",
+      "content": "このA10Cで旋回戦をするのつらい。機体が重い！",
+      "allowed_actions": [
+        "react",
+        "respond",
+        "observe"
+      ],
+      "speech": "any",
+      "avatar_pose": "forbidden",
+      "speech_forbids": [
+        "おはよう",
+        "始めよう"
+      ]
+    },
+    {
+      "id": "ambiguous-asr-greeting",
+      "content": "おはーい！",
+      "allowed_actions": [
+        "react",
+        "respond",
+        "observe"
+      ],
+      "speech": "any",
+      "speech_forbids": [
+        "今日も始め",
+        "配信を始め",
+        "おかえり"
+      ]
+    },
+    {
+      "id": "explicit-correction",
+      "content": "重いって言ってる。おはーいじゃない、字幕が違う！",
+      "allowed_actions": [
+        "react",
+        "respond"
+      ],
+      "speech": "required",
+      "avatar_pose": "forbidden",
+      "speech_forbids": [
+        "おはよう",
+        "今日も始め"
+      ]
+    },
+    {
+      "id": "genuine-midstream-greeting",
+      "content": "あ、ケルシー先生にまだ挨拶してなかった。おはよう！",
+      "allowed_actions": [
+        "react",
+        "respond"
+      ],
+      "speech": "required",
+      "speech_forbids": [
+        "重いという",
+        "字幕の間違い",
+        "今日も始めよう"
+      ]
+    },
+    {
+      "id": "viewer-arrival",
+      "content": "視聴者のミカさんが今来た。ケルシー先生も挨拶して。",
+      "allowed_actions": [
+        "react",
+        "respond"
+      ],
+      "speech": "required",
+      "speech_forbids": [
+        "字幕の間違い",
+        "今日も始めよう"
+      ]
+    },
+    {
+      "id": "intentional-joking-greeting",
+      "content": "機体が重いのはそのままだけど、おはーいって挨拶する冗談もちょっと面白いな。おはーい！",
+      "allowed_actions": [
+        "react",
+        "respond"
+      ],
+      "speech": "required",
+      "speech_forbids": [
+        "字幕の間違い",
+        "重いと言いたかった",
+        "今日も始めよう"
+      ]
+    }
+  ]
+}

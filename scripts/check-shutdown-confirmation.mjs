@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import ts from '../gui/node_modules/typescript/lib/typescript.js';
+
+const source = fs.readFileSync(new URL('../gui/src/App.svelte', import.meta.url), 'utf8');
+const ast = ts.createSourceFile('app.ts', source.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1], ts.ScriptTarget.Latest, true);
+const names = ['canShutdown', 'handleShutdownClick', 'confirmShutdown'];
+const functions = names.map(name => ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === name).getText(ast)).join('\n');
+assert.ok(!functions.includes('window.confirm'), 'Exit must not open a host-blocking browser prompt');
+const code = ts.transpileModule(functions, {compilerOptions:{target:ts.ScriptTarget.ESNext}}).outputText;
+let block = false, calls = 0, reject;
+const window = {dispatchEvent(event) { if (event.type === 'beforeunload' && block) event.preventDefault(); }};
+const document = {documentElement:{inert:false}};
+const h = new Function('window', 'document', 'api', 'toastStore', `
+ let shutdownInFlight=false,shutdownDialogOpen=false,shutdownError=null;
+ ${code}
+ return {handleShutdownClick,confirmShutdown,state:()=>({shutdownInFlight,shutdownDialogOpen,shutdownError})};
+`)(window,document,{shutdown(){calls++; return new Promise((_,r)=>{reject=r;});}},{info(){},error(){}});
+block = true;
+h.handleShutdownClick();
+assert.equal(h.state().shutdownDialogOpen,false);
+block = false;
+h.handleShutdownClick();
+assert.equal(h.state().shutdownDialogOpen,true);
+assert.equal(calls,0,'Opening confirmation must not stop VAC');
+block = true;
+await h.confirmShutdown();
+assert.equal(calls,0,'Drafts added after opening must still block exit');
+assert.equal(h.state().shutdownDialogOpen,false);
+block = false;
+h.handleShutdownClick();
+const pending = h.confirmShutdown();
+await h.confirmShutdown();
+assert.equal(calls,1,'Double confirmation must not duplicate shutdown');
+assert.equal(document.documentElement.inert,true);
+reject(Error('offline'));
+await pending;
+assert.equal(document.documentElement.inert,false,'Failed shutdown must restore interaction');
+assert.equal(h.state().shutdownInFlight,false);
+assert.equal(h.state().shutdownDialogOpen,true,'Failure leaves cancellation/retry available');
+assert.match(h.state().shutdownError,/offline/,'Failure must also be visible inside the modal');
+console.log('Shutdown confirmation: no browser prompt, draft recheck, duplicate guard and error recovery passed');

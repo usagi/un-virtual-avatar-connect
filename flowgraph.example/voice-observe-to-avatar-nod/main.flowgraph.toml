@@ -1,0 +1,125 @@
+# UNVAC 2.0: Voice observe -> AvatarIntent -> UNMF/Z dry-run。
+#
+# 配信者の音声入力を「AI が聞いている」軽い身体反応に変換する最小例。
+# 意味判断は AI persona 側で行うが、v2.0 では voice ingress から preset nod を
+# Flowgraph だけで発火できることを確認する。
+
+[meta]
+title = "Voice observe to avatar nod"
+description = "Voice ingress triggers a small head_nod AvatarIntent and UNMF/Z dry-run"
+tags = ["example", "voice", "avatar", "unmfz"]
+
+[[nodes]]
+id = "voice_in"
+feature = "flowgraph.ingress.voice"
+position = [80, 120]
+properties.engine = "vosk"
+properties.model_path = "vosk-model-small-ja-0.22"
+properties.language_code = "ja"
+properties.fixed_channel = "voice"
+
+[[nodes]]
+id = "avatar_intent"
+feature = "flowgraph.literal.json"
+position = [360, 320]
+properties.value = { target_link_id = "kaltsit_ai", intents = [
+  { kind = "head_nod", count = 1, intensity = 0.28, duration_ms = 650, curve = "ease_out" },
+] }
+
+[[nodes]]
+id = "elapsed_ms"
+feature = "flowgraph.literal.int"
+position = [360, 500]
+properties.value = 200
+
+[[nodes]]
+id = "to_unmf"
+feature = "flowgraph.avatar.intent_to_unmf"
+position = [640, 120]
+
+[[nodes]]
+id = "unmfz_base_key"
+feature = "flowgraph.literal.string"
+position = [640, 360]
+properties.value = "un-motion/frame/kaltsit-ai"
+
+[[nodes]]
+id = "unmfz_topic_mode"
+feature = "flowgraph.literal.string"
+position = [640, 440]
+properties.value = "frame"
+
+[[nodes]]
+id = "unmfz_schema_major"
+feature = "flowgraph.literal.int"
+position = [640, 520]
+properties.value = 1
+
+[[nodes]]
+id = "dry_run"
+feature = "flowgraph.literal.bool"
+position = [640, 600]
+properties.value = true
+
+[[nodes]]
+id = "publish_unmfz"
+feature = "flowgraph.unmfz.publish"
+position = [920, 120]
+
+[[nodes]]
+id = "log_key"
+feature = "flowgraph.util.log"
+position = [1200, 120]
+
+[[nodes]]
+id = "log_voice"
+feature = "flowgraph.util.log"
+position = [360, 120]
+
+[[edges]]
+from = "voice_in:exec_out"
+to = "publish_unmfz:exec_in"
+
+[[edges]]
+from = "voice_in:exec_out"
+to = "log_voice:exec_in"
+
+[[edges]]
+from = "voice_in:content"
+to = "log_voice:value"
+
+[[edges]]
+from = "avatar_intent:value"
+to = "to_unmf:intent"
+
+[[edges]]
+from = "elapsed_ms:value"
+to = "to_unmf:elapsed_ms"
+
+[[edges]]
+from = "to_unmf:unmf"
+to = "publish_unmfz:unmf"
+
+[[edges]]
+from = "unmfz_base_key:value"
+to = "publish_unmfz:base_key_expr"
+
+[[edges]]
+from = "unmfz_topic_mode:value"
+to = "publish_unmfz:topic_mode"
+
+[[edges]]
+from = "unmfz_schema_major:value"
+to = "publish_unmfz:schema_major"
+
+[[edges]]
+from = "dry_run:value"
+to = "publish_unmfz:dry_run"
+
+[[edges]]
+from = "publish_unmfz:on_success"
+to = "log_key:exec_in"
+
+[[edges]]
+from = "publish_unmfz:key_expr"
+to = "log_key:value"

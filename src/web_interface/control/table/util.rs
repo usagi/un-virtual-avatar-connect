@@ -74,6 +74,20 @@ pub(crate) fn hex_encode(bytes: &[u8; 32]) -> String {
 	s
 }
 
+/// Serialize the whole read/check/mutate/publish transaction with other VAC
+/// processes and Flowgraph TSV writers, not merely the final rename.
+pub(crate) fn write_guard(path: &Path) -> Result<fs::File, HttpResponse> {
+	let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+	fs::create_dir_all(parent).map_err(|e| err_json(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "io_failed", e))?;
+	crate::file_publish::data_write_lock(path).map_err(|e| {
+		if e.kind() == std::io::ErrorKind::WouldBlock {
+			err_json(actix_web::http::StatusCode::CONFLICT, "table_write_busy", "同じ保存先で別の更新が進行中です。入力を保持したまま再試行してください。")
+		} else {
+			err_json(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "write_lock_failed", e)
+		}
+	})
+}
+
 /// ディスクから TSV を読んで Table にパース。ファイル未存在は空 Table として扱う。
 pub(crate) fn read_table(path: &Path) -> Result<Table, HttpResponse> {
 	let contents = match fs::read_to_string(path) {

@@ -7,18 +7,20 @@ Design doc: [`docs/roadmap/phase-nu-gui-e2e-playwright.md`](../../../docs/roadma
 ```text
 gui/tests/e2e/
   README.md                  ← this file
-  smoke.spec.ts              ← ν-1 scaffolding smoke (verifies webServer + auth path)
+  control-panel-smoke.spec.ts ← ν-1 scaffolding smoke (verifies webServer + auth path)
   fixtures/
     flowgraph/               ← fixture *.flowgraph.toml loaded by conf.fixture.e2e.toml
       sample.flowgraph.toml
 ```
 
-ν-2 will add the remaining 4 specs here:
+Core Flowgraph / control specs:
 
 - `flowgraph-canvas-basic.spec.ts`
 - `dictionary-editor-409-merge.spec.ts`
 - `live-quick-add-learn-undo.spec.ts`
 - `channels-ws-live-update.spec.ts`
+- `flowgraph-unmfz-endpoints.spec.ts`
+- `flowgraph-unaa-z-diagnostics-api.spec.ts`
 
 GUI redesign specs are added incrementally and should stay narrow:
 
@@ -27,8 +29,13 @@ GUI redesign specs are added incrementally and should stay narrow:
 - `modes-planning.spec.ts`
 - `flowgraph-studio-layout.spec.ts`
 - `observability-layout.spec.ts`
+- `resources-overview.spec.ts`
+- `managed-app-drawer.spec.ts`
+- `bos-preview.spec.ts`
+- `obs-control-widget.spec.ts`
 - `theme-switching.spec.ts`
 - `theme-visual-smoke.spec.ts`
+- `theme-visual-regression.spec.ts`
 
 ## Running locally
 
@@ -42,10 +49,15 @@ npm run test:e2e                   # headless
 npm run test:e2e:ui                # Playwright UI (time-travel)
 ```
 
+`playwright.config.ts` runs chromium by default for local speed. Set
+`PLAYWRIGHT_BROWSERS=chromium,firefox,webkit` to exercise the full browser set,
+or a single value such as `PLAYWRIGHT_BROWSERS=firefox` while debugging a CI
+failure.
+
 The `webServer` entry in `playwright.config.ts` boots VAC itself against
-`conf.fixture.e2e.toml` on port `57098`. Make sure that port is free
-before running (`netstat -ano | findstr :57098` on Windows,
-`ss -tlnp | grep 57098` on Linux).
+`conf.fixture.e2e.toml` on port `46098`. Make sure that port is free
+before running (`netstat -ano | findstr :46098` on Windows,
+`ss -tlnp | grep 46098` on Linux).
 
 The fixture ships a fixed Bearer token (`e2e-fixture-token`) — specs
 attach it via `?token=...` which the GUI's `auth.ts` persists to
@@ -65,7 +77,8 @@ it `vac-<area>-<role>`, e.g. `vac-flowgraph-node-<id>`.
 
 ## Visual checks
 
-Theme visual checks intentionally use screenshot buffers without committing
-PNG baselines. This catches blank-screen or severe render regressions while
-the visual language is still moving. Stable `toHaveScreenshot` baselines are
-left for a later phase once fonts, density, and theme tokens settle.
+Theme visual smoke keeps broad blank-screen coverage across cockpit surfaces.
+`theme-visual-regression.spec.ts` adds stable `toHaveScreenshot` baselines for
+the Settings theme surface where dynamic content is limited. Broader cockpit
+surface baselines should be added only after each surface has a deterministic
+fixture state.

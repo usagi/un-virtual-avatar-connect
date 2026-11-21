@@ -79,6 +79,34 @@ pub struct CreateResponseRequest {
 	/// 詳細: [`docs/roadmap/phase-psi-alpha-encrypted-reasoning.md`](../../docs/roadmap/phase-psi-alpha-encrypted-reasoning.md)
 	#[serde(skip_serializing_if = "Option::is_none", default)]
 	pub include: Option<Vec<String>>,
+
+	/// 同じpersonaの安定prompt prefixを同一cache routeへ寄せるキー。
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub prompt_cache_key: Option<String>,
+
+	/// GPT-5.6以降のrequest-wide prompt cache policy。
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub prompt_cache_options: Option<PromptCacheOptions>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptCacheOptions {
+	pub mode: PromptCacheMode,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub ttl: Option<PromptCacheTtl>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PromptCacheMode {
+	Implicit,
+	Explicit,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PromptCacheTtl {
+	#[serde(rename = "30m")]
+	ThirtyMinutes,
 }
 
 /// gpt-5 系の thinking token 制御。
@@ -95,10 +123,13 @@ pub struct Reasoning {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
+	None,
 	Minimal,
 	Low,
 	Medium,
 	High,
+	Xhigh,
+	Max,
 }
 
 /// Structured Outputs（JSON mode / JSON schema）の指定。
@@ -227,6 +258,7 @@ impl Tool {
 pub enum ToolChoice {
 	Mode(ToolChoiceMode),
 	Named(NamedToolChoice),
+	Allowed(AllowedToolsChoice),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -243,6 +275,38 @@ pub enum ToolChoiceMode {
 pub enum NamedToolChoice {
 	Function { name: String },
 	Custom { name: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AllowedToolsChoice {
+	#[serde(rename = "type")]
+	pub kind: AllowedToolsChoiceType,
+	pub mode: ToolChoiceMode,
+	pub tools: Vec<AllowedToolRef>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AllowedToolsChoiceType {
+	AllowedTools,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AllowedToolRef {
+	#[serde(rename = "type")]
+	pub kind: String,
+	#[serde(skip_serializing_if = "Option::is_none", default)]
+	pub name: Option<String>,
+}
+
+impl AllowedToolsChoice {
+	pub fn auto(tools: Vec<AllowedToolRef>) -> Self {
+		Self {
+			kind: AllowedToolsChoiceType::AllowedTools,
+			mode: ToolChoiceMode::Auto,
+			tools,
+		}
+	}
 }
 
 impl Default for ReasoningEffort {

@@ -1,0 +1,963 @@
+{
+  "scope": "Upstream root notices pinned to crate VCS commits. Matching crates are source provenance matches, not a verdict covering embedded third-party code. Not yet integrated in release packaging.",
+  "sources": [
+    {
+      "package": "zenoh",
+      "version": "1.9.0",
+      "repository": "https://github.com/eclipse-zenoh/zenoh",
+      "commit": "81c6c933b6e41d72a05f04c4442ef57717ddc72b",
+      "path_in_vcs": "zenoh",
+      "tree_url": "https://api.github.com/repos/eclipse-zenoh/zenoh/git/trees/81c6c933b6e41d72a05f04c4442ef57717ddc72b",
+      "notices": [
+        {
+          "file": "zenoh-1.9.0-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/eclipse-zenoh/zenoh/81c6c933b6e41d72a05f04c4442ef57717ddc72b/LICENSE",
+          "sha256": "01a44774f7b1a453595c7c6d7f7308284ba6a1059dc49e14dad6647e1d44a338"
+        },
+        {
+          "file": "zenoh-1.9.0-NOTICE.md",
+          "upstream_path": "NOTICE.md",
+          "url": "https://raw.githubusercontent.com/eclipse-zenoh/zenoh/81c6c933b6e41d72a05f04c4442ef57717ddc72b/NOTICE.md",
+          "sha256": "02e4bf9ebd5cd19d726e8158659b60caf2c0e5077a2d330d41e506f50570f3b1"
+        }
+      ],
+      "scope": "Exact crate VCS revision root notices; applicability and nested native code require review",
+      "matching_crates": [
+        {
+          "name": "zenoh",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-buffers",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-codec",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-collections",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-config",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-core",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-crypto",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-keyexpr",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-link",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-link-commons",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-link-quic",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-link-quic_datagram",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-link-tcp",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-link-tls",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-link-udp",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-link-unixsock_stream",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-link-ws",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-macros",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-plugin-trait",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-protocol",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-result",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-runtime",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-sync",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-task",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-transport",
+          "version": "1.9.0"
+        },
+        {
+          "name": "zenoh-util",
+          "version": "1.9.0"
+        }
+      ]
+    },
+    {
+      "package": "async-openai",
+      "version": "0.36.1",
+      "repository": "https://github.com/64bit/async-openai",
+      "commit": "02870d981c36f2fc51a9bff858e2cbf92a0c03d9",
+      "path_in_vcs": "async-openai",
+      "tree_url": "https://api.github.com/repos/64bit/async-openai/git/trees/02870d981c36f2fc51a9bff858e2cbf92a0c03d9",
+      "notices": [
+        {
+          "file": "async-openai-0.36.1-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/64bit/async-openai/02870d981c36f2fc51a9bff858e2cbf92a0c03d9/LICENSE",
+          "sha256": "ee868fed90a90ad13be5299481f067166938227d77d5ca5cdb9fbeb8c6137d41"
+        }
+      ],
+      "scope": "Exact crate VCS revision root notices; applicability and nested native code require review",
+      "matching_crates": [
+        {
+          "name": "async-openai",
+          "version": "0.36.1"
+        }
+      ]
+    },
+    {
+      "package": "async-openai-macros",
+      "version": "0.1.1",
+      "repository": "https://github.com/64bit/async-openai",
+      "commit": "58a4d04ca0d3a2728086d7c3059de9a8a1bb95e3",
+      "path_in_vcs": "async-openai-macros",
+      "tree_url": "https://api.github.com/repos/64bit/async-openai/git/trees/58a4d04ca0d3a2728086d7c3059de9a8a1bb95e3",
+      "notices": [
+        {
+          "file": "async-openai-macros-0.1.1-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/64bit/async-openai/58a4d04ca0d3a2728086d7c3059de9a8a1bb95e3/LICENSE",
+          "sha256": "ee868fed90a90ad13be5299481f067166938227d77d5ca5cdb9fbeb8c6137d41"
+        }
+      ],
+      "scope": "Exact crate VCS revision root notices; applicability and nested native code require review",
+      "matching_crates": [
+        {
+          "name": "async-openai-macros",
+          "version": "0.1.1"
+        }
+      ]
+    },
+    {
+      "package": "alloc-stdlib",
+      "version": "0.2.2",
+      "repository": "https://github.com/dropbox/rust-alloc-no-stdlib",
+      "commit": "6032b6a9b20e03737135c55a0270ccffcc1438ef",
+      "path_in_vcs": "alloc-stdlib",
+      "tree_url": "https://api.github.com/repos/dropbox/rust-alloc-no-stdlib/git/trees/6032b6a9b20e03737135c55a0270ccffcc1438ef",
+      "notices": [
+        {
+          "file": "alloc-stdlib-0.2.2-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/6032b6a9b20e03737135c55a0270ccffcc1438ef/LICENSE",
+          "sha256": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
+        }
+      ],
+      "scope": "Exact crate VCS revision root notices; applicability and nested native code require review",
+      "matching_crates": [
+        {
+          "name": "alloc-no-stdlib",
+          "version": "2.0.4"
+        },
+        {
+          "name": "alloc-stdlib",
+          "version": "0.2.2"
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/pdeljanov/Symphonia",
+      "commit": "6d533f26150953a882a6a111ebd13f0abf7129d5",
+      "matching_crates": [
+        {
+          "name": "symphonia-bundle-flac",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-bundle-flac"
+        },
+        {
+          "name": "symphonia-bundle-mp3",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-bundle-mp3"
+        },
+        {
+          "name": "symphonia-codec-aac",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-codec-aac"
+        },
+        {
+          "name": "symphonia-codec-pcm",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-codec-pcm"
+        },
+        {
+          "name": "symphonia-codec-vorbis",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-codec-vorbis"
+        },
+        {
+          "name": "symphonia-core",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-core"
+        },
+        {
+          "name": "symphonia-format-isomp4",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-format-isomp4"
+        },
+        {
+          "name": "symphonia-format-ogg",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-format-ogg"
+        },
+        {
+          "name": "symphonia-format-riff",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-format-riff"
+        },
+        {
+          "name": "symphonia-metadata",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-metadata"
+        },
+        {
+          "name": "symphonia-utils-xiph",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia-utils-xiph"
+        },
+        {
+          "name": "symphonia",
+          "version": "0.5.5",
+          "path_in_vcs": "symphonia"
+        }
+      ],
+      "notices": [
+        {
+          "file": "pdeljanov--Symphonia-6d533f26150953a882a6a111ebd13f0abf7129d5-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE",
+          "sha256": "c76f740d1521b9bed9ca7a04ad526c310493c62621b1341d623b431736533b30"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/pdeljanov/Symphonia/git/trees/6d533f26150953a882a6a111ebd13f0abf7129d5",
+      "tree_sha256": "66e8474917dcc8c982079c40de1803fcae42869caa1fa85117d929946a4da799"
+    },
+    {
+      "repository": "https://github.com/open-i18n/rust-unic",
+      "commit": "5878605364af97a3358368a6eaef02104af2e016",
+      "matching_crates": [
+        {
+          "name": "unic-char-property",
+          "version": "0.9.0",
+          "path_in_vcs": null
+        },
+        {
+          "name": "unic-char-range",
+          "version": "0.9.0",
+          "path_in_vcs": null
+        },
+        {
+          "name": "unic-common",
+          "version": "0.9.0",
+          "path_in_vcs": null
+        },
+        {
+          "name": "unic-ucd-version",
+          "version": "0.9.0",
+          "path_in_vcs": null
+        }
+      ],
+      "notices": [
+        {
+          "file": "open-i18n--rust-unic-5878605364af97a3358368a6eaef02104af2e016-LICENSE-APACHE",
+          "upstream_path": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/open-i18n/rust-unic/5878605364af97a3358368a6eaef02104af2e016/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "file": "open-i18n--rust-unic-5878605364af97a3358368a6eaef02104af2e016-LICENSE-MIT",
+          "upstream_path": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/open-i18n/rust-unic/5878605364af97a3358368a6eaef02104af2e016/LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/open-i18n/rust-unic/git/trees/5878605364af97a3358368a6eaef02104af2e016",
+      "tree_sha256": "61285135b4b19eb259dc6c5e107512ad182bd43211c34872eb574e869ccd219e"
+    },
+    {
+      "repository": "https://github.com/sfackler/rust-phf",
+      "commit": "81c7cc5b48649108428671d3b8ad151f6fbdb359",
+      "matching_crates": [
+        {
+          "name": "phf",
+          "version": "0.8.0",
+          "path_in_vcs": null
+        },
+        {
+          "name": "phf_codegen",
+          "version": "0.8.0",
+          "path_in_vcs": null
+        },
+        {
+          "name": "phf_generator",
+          "version": "0.8.0",
+          "path_in_vcs": null
+        },
+        {
+          "name": "phf_shared",
+          "version": "0.8.0",
+          "path_in_vcs": null
+        }
+      ],
+      "notices": [
+        {
+          "file": "sfackler--rust-phf-81c7cc5b48649108428671d3b8ad151f6fbdb359-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/sfackler/rust-phf/81c7cc5b48649108428671d3b8ad151f6fbdb359/LICENSE",
+          "sha256": "d8870d5e2ab20fc50915b711c5aa7588131c9abcc1bcb980da1efd7486522a46"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/sfackler/rust-phf/git/trees/81c7cc5b48649108428671d3b8ad151f6fbdb359",
+      "tree_sha256": "1e7dbf7920d3e0b001391a5fe06c7b2607e69f548366da608db147a23fad30e1"
+    },
+    {
+      "repository": "https://github.com/ZettaScaleLabs/stabby",
+      "commit": "c8b899579ac55eb2546de40a35267697b473ff57",
+      "matching_crates": [
+        {
+          "name": "stabby-abi",
+          "version": "72.1.1",
+          "path_in_vcs": "stabby-abi"
+        },
+        {
+          "name": "stabby-macros",
+          "version": "72.1.1",
+          "path_in_vcs": "stabby-macros"
+        },
+        {
+          "name": "stabby",
+          "version": "72.1.1",
+          "path_in_vcs": "stabby"
+        }
+      ],
+      "notices": [
+        {
+          "file": "ZettaScaleLabs--stabby-c8b899579ac55eb2546de40a35267697b473ff57-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/ZettaScaleLabs/stabby/c8b899579ac55eb2546de40a35267697b473ff57/LICENSE",
+          "sha256": "c2942cbe794c1a9e56f1aac7e1b32021b3996736cc446d334aced159a5b35b51"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/ZettaScaleLabs/stabby/git/trees/c8b899579ac55eb2546de40a35267697b473ff57",
+      "tree_sha256": "0850b52874fdc2fb6642ba020943d8cc78c47b8d2f008222258fc34c640d4f10"
+    },
+    {
+      "repository": "https://github.com/Michael-F-Bryan/include_dir",
+      "commit": "d742c6fffce99ee89da91b934e7ce6fb2a82680c",
+      "matching_crates": [
+        {
+          "name": "include_dir",
+          "version": "0.7.4",
+          "path_in_vcs": "include_dir"
+        },
+        {
+          "name": "include_dir_macros",
+          "version": "0.7.4",
+          "path_in_vcs": "macros"
+        }
+      ],
+      "notices": [
+        {
+          "file": "Michael-F-Bryan--include_dir-d742c6fffce99ee89da91b934e7ce6fb2a82680c-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/Michael-F-Bryan/include_dir/d742c6fffce99ee89da91b934e7ce6fb2a82680c/LICENSE",
+          "sha256": "9369f62987b3a116111f2edfdc4cc72633e44ddc94d5d0c68659cf537b76a31f"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/Michael-F-Bryan/include_dir/git/trees/d742c6fffce99ee89da91b934e7ce6fb2a82680c",
+      "tree_sha256": "6ab87ef3d84d55fa228c35127ef2ba07f5900a5eb5c155ed821765dfb1e60549"
+    },
+    {
+      "repository": "https://github.com/aclysma/profiling",
+      "commit": "740d74c82212f1f0584cfa5c6d884c5ab5367101",
+      "matching_crates": [
+        {
+          "name": "profiling-procmacros",
+          "version": "1.0.17",
+          "path_in_vcs": "profiling-procmacros"
+        },
+        {
+          "name": "profiling",
+          "version": "1.0.17",
+          "path_in_vcs": "profiling"
+        }
+      ],
+      "notices": [
+        {
+          "file": "aclysma--profiling-740d74c82212f1f0584cfa5c6d884c5ab5367101-LICENSE-APACHE",
+          "upstream_path": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/aclysma/profiling/740d74c82212f1f0584cfa5c6d884c5ab5367101/LICENSE-APACHE",
+          "sha256": "10d30a673cd5e9349bdc02aeb48f14b3386d27d0da32df8f0a555d4aa16aa551"
+        },
+        {
+          "file": "aclysma--profiling-740d74c82212f1f0584cfa5c6d884c5ab5367101-LICENSE-MIT",
+          "upstream_path": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/aclysma/profiling/740d74c82212f1f0584cfa5c6d884c5ab5367101/LICENSE-MIT",
+          "sha256": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/aclysma/profiling/git/trees/740d74c82212f1f0584cfa5c6d884c5ab5367101",
+      "tree_sha256": "0cff8ba2e109604f011e565c61f22131c4f4693480b5ae964ff3e0b7963147cc"
+    },
+    {
+      "repository": "https://github.com/kardeiz/objekt-clonable",
+      "commit": "7ec332d7915c226bc59a4e5979e0490422874a89",
+      "matching_crates": [
+        {
+          "name": "dyn-clonable-impl",
+          "version": "0.9.2",
+          "path_in_vcs": "dyn-clonable-impl"
+        },
+        {
+          "name": "dyn-clonable",
+          "version": "0.9.2",
+          "path_in_vcs": "dyn-clonable"
+        }
+      ],
+      "notices": [
+        {
+          "file": "kardeiz--objekt-clonable-7ec332d7915c226bc59a4e5979e0490422874a89-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/kardeiz/objekt-clonable/7ec332d7915c226bc59a4e5979e0490422874a89/LICENSE",
+          "sha256": "d2c376e2d8ee747383aaf0d5b52997bd6aa04ab73720b6797edeb64fe90c05a3"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/kardeiz/objekt-clonable/git/trees/7ec332d7915c226bc59a4e5979e0490422874a89",
+      "tree_sha256": "9eeee790ad047c746770897ac4bc5df7678c628e9462e960db45ac433f145853"
+    },
+    {
+      "repository": "https://github.com/sfackler/rust-phf",
+      "commit": "3ea14b2166553ad6e7b9afe7244144f5d661b6c6",
+      "matching_crates": [
+        {
+          "name": "phf_generator",
+          "version": "0.10.0",
+          "path_in_vcs": null
+        },
+        {
+          "name": "phf_shared",
+          "version": "0.10.0",
+          "path_in_vcs": null
+        }
+      ],
+      "notices": [
+        {
+          "file": "sfackler--rust-phf-3ea14b2166553ad6e7b9afe7244144f5d661b6c6-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/sfackler/rust-phf/3ea14b2166553ad6e7b9afe7244144f5d661b6c6/LICENSE",
+          "sha256": "d8870d5e2ab20fc50915b711c5aa7588131c9abcc1bcb980da1efd7486522a46"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/sfackler/rust-phf/git/trees/3ea14b2166553ad6e7b9afe7244144f5d661b6c6",
+      "tree_sha256": "a1abc09113db1391aac1ff9b3f150da6b734e7dce273e4da6292e79f82ffd7b3"
+    },
+    {
+      "repository": "https://github.com/wravery/webview2-rs",
+      "commit": "b74dc5e2b394044bea5191052868ce7a106c202c",
+      "matching_crates": [
+        {
+          "name": "webview2-com-sys",
+          "version": "0.38.2",
+          "path_in_vcs": "crates/bindings"
+        },
+        {
+          "name": "webview2-com",
+          "version": "0.38.2",
+          "path_in_vcs": "crates/webview2-com"
+        }
+      ],
+      "notices": [
+        {
+          "file": "wravery--webview2-rs-b74dc5e2b394044bea5191052868ce7a106c202c-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/wravery/webview2-rs/b74dc5e2b394044bea5191052868ce7a106c202c/LICENSE",
+          "sha256": "0dcf41516e608bbcb6cdc5229feb7b86fe4a643b85e7df251133c93408fdac73"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/wravery/webview2-rs/git/trees/b74dc5e2b394044bea5191052868ce7a106c202c",
+      "tree_sha256": "4346b49fb53f1bdfa78203755a1f777fe861f566289631b1a0af2f4573340bdf"
+    },
+    {
+      "repository": "https://github.com/Bear-03/vosk-rs",
+      "commit": "2e0c415ce47c56b1fdf05433920142441df51c13",
+      "matching_crates": [
+        {
+          "name": "vosk-sys",
+          "version": "0.2.0",
+          "path_in_vcs": "crates/vosk-sys"
+        }
+      ],
+      "notices": [
+        {
+          "file": "Bear-03--vosk-rs-2e0c415ce47c56b1fdf05433920142441df51c13-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/Bear-03/vosk-rs/2e0c415ce47c56b1fdf05433920142441df51c13/LICENSE",
+          "sha256": "38dac4ca7b827ac78e46edcc732799bcc6064690f53389544834d15aafb010d9"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/Bear-03/vosk-rs/git/trees/2e0c415ce47c56b1fdf05433920142441df51c13",
+      "tree_sha256": "4927f70a7e46388fff9263e2721a2dd5c5daaec662a7226606cbfc5d962a3bca"
+    },
+    {
+      "repository": "https://github.com/Bear-03/vosk-rs",
+      "commit": "c5045aed119bdfd8de9bf424817abfd1b32cb272",
+      "matching_crates": [
+        {
+          "name": "vosk",
+          "version": "0.3.1",
+          "path_in_vcs": "crates/vosk"
+        }
+      ],
+      "notices": [
+        {
+          "file": "Bear-03--vosk-rs-c5045aed119bdfd8de9bf424817abfd1b32cb272-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/Bear-03/vosk-rs/c5045aed119bdfd8de9bf424817abfd1b32cb272/LICENSE",
+          "sha256": "38dac4ca7b827ac78e46edcc732799bcc6064690f53389544834d15aafb010d9"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/Bear-03/vosk-rs/git/trees/c5045aed119bdfd8de9bf424817abfd1b32cb272",
+      "tree_sha256": "308341630de8ffdf7a82bca72a97947c68d72fc36e860418e14898c0590284a5"
+    },
+    {
+      "repository": "https://github.com/RoDmitry/atoi_simd",
+      "commit": "a07b61bc6d7cd704fe31ddb7db9f804436ed7a0f",
+      "matching_crates": [
+        {
+          "name": "atoi_simd",
+          "version": "0.16.1",
+          "path_in_vcs": ""
+        }
+      ],
+      "notices": [
+        {
+          "file": "RoDmitry--atoi_simd-a07b61bc6d7cd704fe31ddb7db9f804436ed7a0f-LICENSE-APACHE",
+          "upstream_path": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/RoDmitry/atoi_simd/a07b61bc6d7cd704fe31ddb7db9f804436ed7a0f/LICENSE-APACHE",
+          "sha256": "18d98423c078c531baafb7ed6248639fca1a45c718f2fd2bbf249c56127b2e3b"
+        },
+        {
+          "file": "RoDmitry--atoi_simd-a07b61bc6d7cd704fe31ddb7db9f804436ed7a0f-LICENSE-MIT",
+          "upstream_path": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/RoDmitry/atoi_simd/a07b61bc6d7cd704fe31ddb7db9f804436ed7a0f/LICENSE-MIT",
+          "sha256": "f155f18a8148391a82157dae8f5a300bb32fec6a338ae19dcb52de6f2f3dbe21"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/RoDmitry/atoi_simd/git/trees/a07b61bc6d7cd704fe31ddb7db9f804436ed7a0f",
+      "tree_sha256": "a2af4d2c40da7c5ad98917792ceda05b167f1ebad80c1dcfce55d30686446c55"
+    },
+    {
+      "repository": "https://github.com/greyblake/whatlang-rs",
+      "commit": "584009bbdbd715681fc1c144ac986814104bedbc",
+      "matching_crates": [
+        {
+          "name": "whatlang",
+          "version": "0.18.0",
+          "path_in_vcs": ""
+        }
+      ],
+      "notices": [
+        {
+          "file": "greyblake--whatlang-rs-584009bbdbd715681fc1c144ac986814104bedbc-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/greyblake/whatlang-rs/584009bbdbd715681fc1c144ac986814104bedbc/LICENSE",
+          "sha256": "9fb62b415784b27e358a03677cac6b56de73425f4fdbb5f4ecf19650af5dfe0c"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/greyblake/whatlang-rs/git/trees/584009bbdbd715681fc1c144ac986814104bedbc",
+      "tree_sha256": "e642f56b468fcd36ebecd665d0e23a422e37ae46cf8731ed9b6d3f8488c13ee4"
+    },
+    {
+      "repository": "https://github.com/microsoft/windows-rs",
+      "commit": "42f05aa40210b22bfdb0d7b837525998d128131a",
+      "matching_crates": [
+        {
+          "name": "windows_x86_64_msvc",
+          "version": "0.39.0",
+          "path_in_vcs": "crates/targets/x86_64_msvc"
+        }
+      ],
+      "notices": [
+        {
+          "file": "microsoft--windows-rs-42f05aa40210b22bfdb0d7b837525998d128131a-license-apache-2.0",
+          "upstream_path": "license-apache-2.0",
+          "url": "https://raw.githubusercontent.com/microsoft/windows-rs/42f05aa40210b22bfdb0d7b837525998d128131a/license-apache-2.0",
+          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
+        },
+        {
+          "file": "microsoft--windows-rs-42f05aa40210b22bfdb0d7b837525998d128131a-license-mit",
+          "upstream_path": "license-mit",
+          "url": "https://raw.githubusercontent.com/microsoft/windows-rs/42f05aa40210b22bfdb0d7b837525998d128131a/license-mit",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/microsoft/windows-rs/git/trees/42f05aa40210b22bfdb0d7b837525998d128131a",
+      "tree_sha256": "e5f883c2567b9d0d285d923f36d157e4d7001515feecb39f8163c1ebc397061f"
+    },
+    {
+      "repository": "https://github.com/open-i18n/rust-unic",
+      "commit": "8a6ce83063d90b91ae2ce59eddb803edd393fca9",
+      "matching_crates": [
+        {
+          "name": "unic-ucd-ident",
+          "version": "0.9.0",
+          "path_in_vcs": null
+        }
+      ],
+      "notices": [
+        {
+          "file": "open-i18n--rust-unic-8a6ce83063d90b91ae2ce59eddb803edd393fca9-LICENSE-APACHE",
+          "upstream_path": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/open-i18n/rust-unic/8a6ce83063d90b91ae2ce59eddb803edd393fca9/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "file": "open-i18n--rust-unic-8a6ce83063d90b91ae2ce59eddb803edd393fca9-LICENSE-MIT",
+          "upstream_path": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/open-i18n/rust-unic/8a6ce83063d90b91ae2ce59eddb803edd393fca9/LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/open-i18n/rust-unic/git/trees/8a6ce83063d90b91ae2ce59eddb803edd393fca9",
+      "tree_sha256": "cbfd9698f4176acca9caef5fd6ad9c3e87143956d737d26e7bc15167ed70561b"
+    },
+    {
+      "repository": "https://github.com/pseitz/lz4_flex",
+      "commit": "a122673bf8349dc5554551ad24a7280dbd60caca",
+      "matching_crates": [
+        {
+          "name": "lz4_flex",
+          "version": "0.10.0",
+          "path_in_vcs": ""
+        }
+      ],
+      "notices": [
+        {
+          "file": "pseitz--lz4_flex-a122673bf8349dc5554551ad24a7280dbd60caca-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/pseitz/lz4_flex/a122673bf8349dc5554551ad24a7280dbd60caca/LICENSE",
+          "sha256": "0982c33390159842ecce8e9d6ce2e5e39961fe0e0ffbb2eec39c9ba46db6db10"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/pseitz/lz4_flex/git/trees/a122673bf8349dc5554551ad24a7280dbd60caca",
+      "tree_sha256": "0e02cfe188532becc24935da59903c40aa68b832da2fbe570d3f189649736bea"
+    },
+    {
+      "repository": "https://github.com/rustaudio/sample",
+      "commit": "97c3bb9b2363c0b46ac1633858bf1054fd02a980",
+      "matching_crates": [
+        {
+          "name": "dasp_sample",
+          "version": "0.11.0",
+          "path_in_vcs": null
+        }
+      ],
+      "notices": [
+        {
+          "file": "rustaudio--sample-97c3bb9b2363c0b46ac1633858bf1054fd02a980-LICENSE-APACHE",
+          "upstream_path": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/rustaudio/sample/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-APACHE",
+          "sha256": "756c8d2ab2dc24f256e1455b5f03937f4933d83d7bc9f2d55009fc962377d512"
+        },
+        {
+          "file": "rustaudio--sample-97c3bb9b2363c0b46ac1633858bf1054fd02a980-LICENSE-MIT",
+          "upstream_path": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/rustaudio/sample/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-MIT",
+          "sha256": "b1d6df41ed3aa96806e74c729444d7c121d90e6660a6aed01d298e03fde475a0"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/rustaudio/sample/git/trees/97c3bb9b2363c0b46ac1633858bf1054fd02a980",
+      "tree_sha256": "068ba81010e0e0dc0cc2d9b4b3e78e358da97673fa5295ae68cb06c28413384a"
+    },
+    {
+      "repository": "https://github.com/rusticata/asn1-rs",
+      "commit": "a20e5f7319c896737ad0f2557037817b91ad854f",
+      "matching_crates": [
+        {
+          "name": "asn1-rs-impl",
+          "version": "0.2.0",
+          "path_in_vcs": "impl"
+        }
+      ],
+      "notices": [
+        {
+          "file": "rusticata--asn1-rs-a20e5f7319c896737ad0f2557037817b91ad854f-LICENSE-APACHE",
+          "upstream_path": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/rusticata/asn1-rs/a20e5f7319c896737ad0f2557037817b91ad854f/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "file": "rusticata--asn1-rs-a20e5f7319c896737ad0f2557037817b91ad854f-LICENSE-MIT",
+          "upstream_path": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/rusticata/asn1-rs/a20e5f7319c896737ad0f2557037817b91ad854f/LICENSE-MIT",
+          "sha256": "a5c61b93b6ee1d104af9920cf020ff3c7efe818e31fe562c72261847a728f513"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/rusticata/asn1-rs/git/trees/a20e5f7319c896737ad0f2557037817b91ad854f",
+      "tree_sha256": "50fb90236926095e8d4ae79063be848b8d0efa280bf913bac49113d1263018e2"
+    },
+    {
+      "repository": "https://github.com/servo/html5ever",
+      "commit": "0e4e125b8672abad4ff14d1e0043d3be9305af6a",
+      "matching_crates": [
+        {
+          "name": "match_token",
+          "version": "0.1.0",
+          "path_in_vcs": "match_token"
+        }
+      ],
+      "notices": [
+        {
+          "file": "servo--html5ever-0e4e125b8672abad4ff14d1e0043d3be9305af6a-LICENSE-APACHE",
+          "upstream_path": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/servo/html5ever/0e4e125b8672abad4ff14d1e0043d3be9305af6a/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "file": "servo--html5ever-0e4e125b8672abad4ff14d1e0043d3be9305af6a-LICENSE-MIT",
+          "upstream_path": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/servo/html5ever/0e4e125b8672abad4ff14d1e0043d3be9305af6a/LICENSE-MIT",
+          "sha256": "86dd7f026f916daf7511e39951ad8ea8cf55a8db67ae64060dacf829761c18f3"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/servo/html5ever/git/trees/0e4e125b8672abad4ff14d1e0043d3be9305af6a",
+      "tree_sha256": "8e6fd4593296c96d4c86c77acaf3e3af15e71f0e45e9ae9fb97e2068ad2c73ed"
+    },
+    {
+      "repository": "https://github.com/servo/servo",
+      "commit": "e82d7868d999d84f6d59719e4c397e5252aecb85",
+      "matching_crates": [
+        {
+          "name": "selectors",
+          "version": "0.24.0",
+          "path_in_vcs": "components/selectors"
+        }
+      ],
+      "notices": [
+        {
+          "file": "servo--servo-e82d7868d999d84f6d59719e4c397e5252aecb85-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/servo/servo/e82d7868d999d84f6d59719e4c397e5252aecb85/LICENSE",
+          "sha256": "1af2d2b02d9c86030d29ed77117ca7a1b0e4b6ff35bcf8eeb124867d0f5cb59e"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/servo/servo/git/trees/e82d7868d999d84f6d59719e4c397e5252aecb85",
+      "tree_sha256": "593ae23f788efb64423155a8c2fe55705f72c4ef2c317bc20a52b9530ddc66f4"
+    },
+    {
+      "repository": "https://github.com/sfackler/rust-phf",
+      "commit": "3cc6f05cb07933af4cf886645d1170bdcb306b6b",
+      "matching_crates": [
+        {
+          "name": "phf_macros",
+          "version": "0.10.0",
+          "path_in_vcs": null
+        }
+      ],
+      "notices": [
+        {
+          "file": "sfackler--rust-phf-3cc6f05cb07933af4cf886645d1170bdcb306b6b-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/sfackler/rust-phf/3cc6f05cb07933af4cf886645d1170bdcb306b6b/LICENSE",
+          "sha256": "d8870d5e2ab20fc50915b711c5aa7588131c9abcc1bcb980da1efd7486522a46"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/sfackler/rust-phf/git/trees/3cc6f05cb07933af4cf886645d1170bdcb306b6b",
+      "tree_sha256": "aa03b895d915c710a92b76bd031f6f67ce42d2d4b422388f12441c3b4c13589a"
+    },
+    {
+      "repository": "https://github.com/sfackler/rust-phf",
+      "commit": "bed01538ae576876f11189d541875d228acef9e8",
+      "matching_crates": [
+        {
+          "name": "phf",
+          "version": "0.10.1",
+          "path_in_vcs": "phf"
+        }
+      ],
+      "notices": [
+        {
+          "file": "sfackler--rust-phf-bed01538ae576876f11189d541875d228acef9e8-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/sfackler/rust-phf/bed01538ae576876f11189d541875d228acef9e8/LICENSE",
+          "sha256": "d8870d5e2ab20fc50915b711c5aa7588131c9abcc1bcb980da1efd7486522a46"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/sfackler/rust-phf/git/trees/bed01538ae576876f11189d541875d228acef9e8",
+      "tree_sha256": "1509953b4e9351a1ab7dcffbbf40b1c10b0a7f458800849b18d3b3352e127a9f"
+    },
+    {
+      "repository": "https://github.com/usagi/un-motion-frame",
+      "commit": "63d04b0b3384c2a4c7dcaa757e7970f0cbfbbe62",
+      "matching_crates": [
+        {
+          "name": "un-motion-frame",
+          "version": "1.1.0",
+          "path_in_vcs": "crates/un-motion-frame"
+        }
+      ],
+      "notices": [
+        {
+          "file": "usagi--un-motion-frame-63d04b0b3384c2a4c7dcaa757e7970f0cbfbbe62-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/usagi/un-motion-frame/63d04b0b3384c2a4c7dcaa757e7970f0cbfbbe62/LICENSE",
+          "sha256": "efac2d50f6d6b5c712ac2a8b08b624e3c40525a88a4f366a5d96001bdf635222"
+        }
+      ],
+      "tree_url": "https://api.github.com/repos/usagi/un-motion-frame/git/trees/63d04b0b3384c2a4c7dcaa757e7970f0cbfbbe62",
+      "tree_sha256": "d5b3d8fd57268f1d145b66d168779442a79115d8d6091ddb5e6974b723c3b2ba"
+    },
+    {
+      "repository": "https://github.com/usagi/un-motion-frame",
+      "commit": "c6869c306c650bb17c7b2cfea47a2139b554fb16",
+      "matching_crates": [
+        {
+          "name": "un-motion-frame-zenoh",
+          "version": "1.1.0"
+        }
+      ],
+      "notices": [
+        {
+          "file": "usagi--un-motion-frame-c6869c306c650bb17c7b2cfea47a2139b554fb16-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://github.com/usagi/un-motion-frame/blob/c6869c306c650bb17c7b2cfea47a2139b554fb16/LICENSE",
+          "sha256": "efac2d50f6d6b5c712ac2a8b08b624e3c40525a88a4f366a5d96001bdf635222"
+        }
+      ],
+      "scope": "Exact commit read from local git object, not working tree. Root notice only."
+    },
+    {
+      "package": "webview2-com-macros",
+      "version": "0.8.1",
+      "repository": "https://github.com/wravery/webview2-rs",
+      "commit": "dffa41a8a46d3f5565eefbff2de57d38d399f158",
+      "notices": [
+        {
+          "file": "webview2-com-macros-0.8.1-LICENSE",
+          "upstream_path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/wravery/webview2-rs/dffa41a8a46d3f5565eefbff2de57d38d399f158/LICENSE",
+          "sha256": "0dcf41516e608bbcb6cdc5229feb7b86fe4a643b85e7df251133c93408fdac73"
+        }
+      ],
+      "matching_crates": [
+        {
+          "name": "webview2-com-macros",
+          "version": "0.8.1",
+          "path_in_vcs": "crates/callback-macros"
+        }
+      ],
+      "scope": "Exact crate VCS root license text; not a full embedded code or release compliance verdict"
+    },
+    {
+      "repository": "https://github.com/microsoft/windows-rs",
+      "commit": "8f94cfedd843fe8e2e5b7d4579d14004f7ca2a9d",
+      "notices": [
+        {
+          "file": "windows-0.24.0-license-mit",
+          "upstream_path": ".github/license-mit",
+          "url": "https://raw.githubusercontent.com/microsoft/windows-rs/8f94cfedd843fe8e2e5b7d4579d14004f7ca2a9d/.github/license-mit",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        },
+        {
+          "file": "windows-0.24.0-license-apache",
+          "upstream_path": ".github/license-apache",
+          "url": "https://raw.githubusercontent.com/microsoft/windows-rs/8f94cfedd843fe8e2e5b7d4579d14004f7ca2a9d/.github/license-apache",
+          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
+        }
+      ],
+      "matching_crates": [
+        {
+          "name": "windows",
+          "version": "0.24.0",
+          "path_in_vcs": ""
+        },
+        {
+          "name": "windows_x86_64_msvc",
+          "version": "0.24.0",
+          "path_in_vcs": "crates/targets/x86_64_msvc"
+        }
+      ],
+      "scope": "Exact Cargo VCS revision; licenses live under .github, not package/root. Target library matched same VCS commit and path. Embedded code obligations remain separate.",
+      "tree_evidence": [
+        "target/windows024-root-tree-20261020.json",
+        "target/windows024-github-20261020.json"
+      ]
+    },
+    {
+      "package": "zune-inflate",
+      "version": "0.2.54",
+      "repository": "https://github.com/etemesi254/zune-image",
+      "commit": "69502ce83fdfecdd0beefd677e2abb3781b29d98",
+      "path_in_vcs": "zune-inflate",
+      "notices": [
+        {
+          "file": "zune-inflate-0.2.54-LICENSE-ZLIB",
+          "upstream_path": "LICENSE-ZLIB",
+          "url": "https://raw.githubusercontent.com/etemesi254/zune-image/69502ce83fdfecdd0beefd677e2abb3781b29d98/LICENSE-ZLIB",
+          "sha256": "7fa429541e55b1509909e058f2d21a37467e4958ec713b357f6e0cf9dc4ee352"
+        },
+        {
+          "file": "zune-inflate-0.2.54-LICENSE.md",
+          "upstream_path": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/etemesi254/zune-image/69502ce83fdfecdd0beefd677e2abb3781b29d98/LICENSE.md",
+          "sha256": "e870d7fd7819a9f0453c62798cb52ae95d148a8c91dc2de1d983f997143c72de"
+        }
+      ],
+      "matching_crates": [
+        {
+          "name": "zune-inflate",
+          "version": "0.2.54"
+        }
+      ],
+      "scope": "Crate declares MIT OR Apache-2.0 OR Zlib; exact revision root Zlib text retained alongside root notice. All 11 packaged Rust source files match Git blobs. Embedded third-party obligations remain a separate review.",
+      "evidence": "target/notice-provenance-20261020/zune-source-match.json"
+    }
+  ]
+}

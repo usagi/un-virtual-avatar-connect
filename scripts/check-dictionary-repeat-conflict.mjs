@@ -1,0 +1,21 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import ts from '../gui/node_modules/typescript/lib/typescript.js';
+const source=fs.readFileSync(new URL('../gui/src/lib/control/dictionary/DictionaryConflictDialog.svelte',import.meta.url),'utf8');
+const ast=ts.createSourceFile('dialog.ts',source.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1],ts.ScriptTarget.Latest,true);
+const code=ts.transpileModule(ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&['doPatch','refreshConflict'].includes(n.name?.text)).map(n=>n.getText(ast)).join('\n'),{compilerOptions:{target:ts.ScriptTarget.ESNext}}).outputText;
+class ControlApiError extends Error {constructor(status){super('conflict');this.status=status;}}
+let writes=0,refreshes=0,refreshFails=true;const handed=[];
+const api={async patchControlTableEntry(){writes++;throw new ControlApiError(409);}};
+const onRefresh=async values=>{refreshes++;handed.push(values);if(refreshFails)throw Error('offline');return true;};
+const h=new Function('api','onRefresh','ControlApiError',`let submitting=false,retryValues=null,formError=null,open=true;const serverRow={row_index:3},serverTable={key:'a',content_hash:'old'},toastStore={success(){}},onResolved=()=>{throw Error('unexpected success');};${code};return {doPatch,refreshConflict,state:()=>({submitting,retryValues,formError,open})};`)(api,onRefresh,ControlApiError);
+const merged={surface:'my word',comment:'server field retained',priority:5};
+await h.doPatch('merge',merged);
+assert.deepEqual(h.state().retryValues,merged);
+await h.doPatch('merge',{surface:'must not overwrite retained merge'});
+assert.equal(writes,1);assert.equal(refreshes,0);
+await h.refreshConflict();
+assert.deepEqual(h.state().retryValues,merged);assert.equal(h.state().open,true);assert.ok(h.state().formError.includes('offline'));
+refreshFails=false;await h.refreshConflict();
+assert.deepEqual(handed,[merged,merged]);assert.equal(h.state().retryValues,null);assert.equal(writes,1);
+console.log('Repeated dictionary conflict: mixed merge values retained, stale resave blocked, failed refresh retryable, no automatic writes.');

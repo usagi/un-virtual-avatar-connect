@@ -8,7 +8,7 @@ use async_trait::async_trait;
 
 /// 二項論理演算マクロ（and / or / xor）。
 macro_rules! binary_logic_node {
-	($name:ident, $feature:literal, $title:literal, $op:expr) => {
+	($name:ident, $feature:literal, $title:literal, $op:expr_2021) => {
 		pub struct $name;
 
 		impl NodeDescriptor for $name {

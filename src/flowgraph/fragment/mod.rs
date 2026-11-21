@@ -19,7 +19,10 @@
 
 use crate::flowgraph::loader::{
 	dir::{fq_path_of_file, walk_flowgraph_dir},
-	file::{parse_flowgraph_file, EdgeEntry, FileMeta, FlowgraphFile, NodeEntry},
+	file::{
+		parse_flowgraph_file, EdgeEntry, FileMeta, FlowgraphEnumDef, FlowgraphFile, FlowgraphGroupDef, FlowgraphPackageManifest,
+		FlowgraphTypeDef, GraphDeclaration, GraphInstance, NodeEntry,
+	},
 	reference::{parse_port_ref, resolve_fq_ref, ResolveContext},
 };
 use serde::{Deserialize, Serialize};
@@ -27,10 +30,14 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 pub mod paste;
+pub mod composition_share;
 pub mod zip_codec;
 
 /// schema identifier。互換破壊時に major bump する。spec §9.2 に記載。
 pub const FRAGMENT_SCHEMA_V1: &str = "vac-flowgraph-fragment/v1";
+/// v2 preserves composition, package and type declarations. Older readers must
+/// reject it rather than silently importing a structurally incomplete graph.
+pub const FRAGMENT_SCHEMA_V2: &str = "vac-flowgraph-fragment/v2";
 
 /// scope=nodes の便宜 path。paste 時に「どのファイルにまとめるか」はターゲットが指定する。
 pub const SCRATCH_PATH: &str = "__scratch__.flowgraph.toml";
@@ -75,8 +82,18 @@ pub struct FragmentHeader {
 }
 
 /// `[[fragment.files]]` の 1 要素。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FragmentFile {
+	#[serde(default)]
+	pub graph: GraphDeclaration,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub package: Option<FlowgraphPackageManifest>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub enums: Vec<FlowgraphEnumDef>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub types: Vec<FlowgraphTypeDef>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub instances: Vec<GraphInstance>,
 	/// root からの相対パス。scope=nodes のときは `SCRATCH_PATH` を使う。
 	/// 末尾は常に `.flowgraph.toml`。
 	pub path: String,
@@ -86,6 +103,8 @@ pub struct FragmentFile {
 	pub nodes: Vec<NodeEntry>,
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub edges: Vec<EdgeEntry>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub groups: Vec<FlowgraphGroupDef>,
 }
 
 /// `[[fragment.danglings]]` の 1 要素。選択範囲外へ出ていたエッジ端の記録。
@@ -216,6 +235,7 @@ pub fn copy_targets(root: &Path, req: &CopyRequest) -> Result<Fragment, CopyErro
 				for n in &file.doc.nodes {
 					ids.insert(n.id.clone());
 				}
+				ids.extend(file.doc.instances.iter().map(|i| i.id.clone()));
 				whitelisted_files.insert(fq);
 			}
 			CopyTarget::Folder { path } => {
@@ -236,6 +256,7 @@ pub fn copy_targets(root: &Path, req: &CopyRequest) -> Result<Fragment, CopyErro
 					for n in &file.doc.nodes {
 						ids.insert(n.id.clone());
 					}
+					ids.extend(file.doc.instances.iter().map(|i| i.id.clone()));
 					whitelisted_files.insert(fq.clone());
 				}
 				if !any {
@@ -255,6 +276,8 @@ pub fn copy_targets(root: &Path, req: &CopyRequest) -> Result<Fragment, CopyErro
 
 	// scope に応じた「仮想ファイルへ集約するか」判定。
 	let nodes_only = matches!(req.header_scope(), FragmentScope::Nodes);
+	// Keep source namespaces when multiple files contain identical node IDs.
+	let use_scratch = nodes_only && selected_nodes.len() == 1;
 
 	for (fq, selected_ids) in &selected_nodes {
 		let file = loaded.get(fq).ok_or_else(|| CopyError::FileNotFound(fq.clone()))?;
@@ -320,13 +343,20 @@ pub fn copy_targets(root: &Path, req: &CopyRequest) -> Result<Fragment, CopyErro
 			}
 		}
 
-		let target_path = if nodes_only {
+		let target_path = if use_scratch {
 			SCRATCH_PATH.to_string()
 		} else {
 			format!("{fq}.flowgraph.toml")
 		};
+		let groups_out = complete_groups_for_selection(&file.doc.groups, selected_ids);
+		let whole_file = whitelisted_files.contains(fq) && !nodes_only;
 		let entry = out_files.entry(target_path.clone()).or_insert_with(|| FragmentFile {
 			path: target_path,
+			graph: if whole_file { file.doc.graph.clone() } else { Default::default() },
+			package: if whole_file { file.doc.package.clone() } else { None },
+			enums: file.doc.enums.clone(),
+			types: file.doc.types.clone(),
+			instances: if whole_file { file.doc.instances.clone() } else { Vec::new() },
 			meta: if nodes_only {
 				Some(FileMeta {
 					title: Some("Copied nodes".to_string()),
@@ -337,9 +367,11 @@ pub fn copy_targets(root: &Path, req: &CopyRequest) -> Result<Fragment, CopyErro
 			},
 			nodes: Vec::new(),
 			edges: Vec::new(),
+			groups: Vec::new(),
 		});
 		entry.nodes.extend(nodes_out);
 		entry.edges.extend(edges_out);
+		entry.groups.extend(groups_out);
 	}
 
 	// dangling の重複排除（同じ original / reason が複数 edge から拾われる場合がある）。
@@ -347,7 +379,7 @@ pub fn copy_targets(root: &Path, req: &CopyRequest) -> Result<Fragment, CopyErro
 	danglings.dedup_by(|a, b| a.original == b.original && a.reason == b.reason && a.kind == b.kind);
 
 	let header = FragmentHeader {
-		schema: FRAGMENT_SCHEMA_V1.to_string(),
+		schema: FRAGMENT_SCHEMA_V2.to_string(),
 		exported_at: now_rfc3339(),
 		origin: req.origin.clone(),
 		scope: req.scope,
@@ -398,8 +430,11 @@ pub fn parse_fragment(src: &str) -> Result<Fragment, String> {
 		.try_into()
 		.map_err(|e| format!("[[fragment.danglings]] パース失敗: {e}"))?;
 
-	if header.schema != FRAGMENT_SCHEMA_V1 {
-		return Err(format!("schema が未対応: '{}'（期待: '{}'）", header.schema, FRAGMENT_SCHEMA_V1));
+	if header.schema != FRAGMENT_SCHEMA_V1 && header.schema != FRAGMENT_SCHEMA_V2 {
+		return Err(format!(
+			"schema が未対応: '{}'（対応: '{}', '{}'）",
+			header.schema, FRAGMENT_SCHEMA_V1, FRAGMENT_SCHEMA_V2
+		));
 	}
 
 	Ok(Fragment { header, files, danglings })
@@ -446,6 +481,12 @@ struct LoadedOnDisk {
 
 /// ディスク上の全 `.flowgraph.toml` を fq → doc で読み込む。
 fn load_all_files(root: &Path) -> Result<BTreeMap<String, LoadedOnDisk>, CopyError> {
+	load_files_for_removal(root, &std::collections::HashSet::new())
+}
+
+// A malformed file selected for deletion has no valid package boundary. Keep
+// recovery by deleting it possible; malformed retained files still fail closed.
+fn load_files_for_removal(root: &Path, excluded: &std::collections::HashSet<String>) -> Result<BTreeMap<String, LoadedOnDisk>, CopyError> {
 	let paths = walk_flowgraph_dir(root).map_err(|err| CopyError::Io {
 		path: root.to_path_buf(),
 		err,
@@ -453,8 +494,12 @@ fn load_all_files(root: &Path) -> Result<BTreeMap<String, LoadedOnDisk>, CopyErr
 	let mut out: BTreeMap<String, LoadedOnDisk> = BTreeMap::new();
 	for p in paths {
 		let src = std::fs::read_to_string(&p).map_err(|err| CopyError::Io { path: p.clone(), err })?;
-		let doc = parse_flowgraph_file(&src, Some(&p)).map_err(|e| CopyError::Parse(format!("{}: {}", p.display(), e)))?;
 		let fq = fq_path_of_file(root, &p).map_err(CopyError::InvalidFq)?;
+		let doc = match parse_flowgraph_file(&src, Some(&p)) {
+			Ok(doc) => doc,
+			Err(_) if excluded.contains(&fq) => continue,
+			Err(error) => return Err(CopyError::Parse(format!("{}: {}", p.display(), error))),
+		};
 		out.insert(fq, LoadedOnDisk { path: p, doc });
 	}
 	Ok(out)
@@ -511,6 +556,14 @@ fn reason_for(res: &Result<(String, String), EndpointError>) -> String {
 	}
 }
 
+fn complete_groups_for_selection(groups: &[FlowgraphGroupDef], selected_ids: &BTreeSet<String>) -> Vec<FlowgraphGroupDef> {
+	groups
+		.iter()
+		.filter(|g| !g.node_ids.is_empty() && g.node_ids.iter().all(|node_id| selected_ids.contains(node_id)))
+		.cloned()
+		.collect()
+}
+
 fn is_selected(selected: &BTreeMap<String, BTreeSet<String>>, fq: &str, node_id: &str) -> bool {
 	selected.get(fq).map(|ids| ids.contains(node_id)).unwrap_or(false)
 }
@@ -565,6 +618,98 @@ mod tests {
 	}
 
 	#[test]
+	fn mixed_node_selection_does_not_include_unselected_composition() {
+		let td = mk_dir();
+		write_file(
+			td.path(),
+			"module.flowgraph.toml",
+			r#"
+[graph]
+kind = "module"
+[[graph.outputs]]
+name = "out"
+type = "string"
+from = "selected:value"
+[[nodes]]
+id = "selected"
+feature = "flowgraph.literal.string"
+[[instances]]
+id = "unselected"
+graph = "other"
+"#,
+		);
+		write_file(
+			td.path(),
+			"other.flowgraph.toml",
+			"[[nodes]]\nid = 'log'\nfeature = 'flowgraph.util.log'\n",
+		);
+		let fragment = copy_targets(
+			td.path(),
+			&CopyRequest {
+				scope: FragmentScope::Mixed,
+				targets: vec![
+					CopyTarget::Node {
+						fq_file: "module".into(),
+						node_id: "selected".into(),
+					},
+					CopyTarget::File { fq: "other".into() },
+				],
+				origin: None,
+			},
+		)
+		.unwrap();
+		let selected = fragment.files.iter().find(|file| file.path == "module.flowgraph.toml").unwrap();
+		assert_eq!(selected.nodes.len(), 1);
+		assert!(selected.instances.is_empty());
+		assert!(selected.graph.outputs.is_empty());
+		assert_eq!(selected.graph.kind, crate::flowgraph::loader::file::GraphKind::Entry);
+	}
+
+	#[test]
+	fn multi_source_node_copy_keeps_namespaces_through_paste() {
+		let td = mk_dir();
+		for name in ["a", "b"] {
+			write_file(
+				td.path(),
+				&format!("{name}.flowgraph.toml"),
+				"[[nodes]]\nid = 'same'\nfeature = 'flowgraph.util.log'\n",
+			);
+		}
+		let fragment = copy_targets(
+			td.path(),
+			&CopyRequest {
+				scope: FragmentScope::Nodes,
+				targets: ["a", "b"]
+					.iter()
+					.map(|name| CopyTarget::Node {
+						fq_file: (*name).into(),
+						node_id: "same".into(),
+					})
+					.collect(),
+				origin: None,
+			},
+		)
+		.unwrap();
+		assert_eq!(fragment.files.len(), 2);
+		assert_ne!(fragment.files[0].path, fragment.files[1].path);
+		let dest = mk_dir();
+		paste::paste_fragment(
+			dest.path(),
+			&paste::PasteRequest {
+				fragment_toml: serialize_fragment(&fragment).unwrap(),
+				target: paste::PasteTarget::File { fq: "combined".into() },
+				options: Default::default(),
+			},
+		)
+		.unwrap();
+		let restored = parse_flowgraph_file(&fs::read_to_string(dest.path().join("combined.flowgraph.toml")).unwrap(), None).unwrap();
+		assert_eq!(
+			restored.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(),
+			vec!["same", "same_1"]
+		);
+	}
+
+	#[test]
 	fn copy_single_node_into_scratch_file() {
 		let td = mk_dir();
 		write_file(
@@ -599,7 +744,7 @@ to   = "log:message"
 			origin: Some("tests".into()),
 		};
 		let frag = copy_targets(td.path(), &req).unwrap();
-		assert_eq!(frag.header.schema, FRAGMENT_SCHEMA_V1);
+		assert_eq!(frag.header.schema, FRAGMENT_SCHEMA_V2);
 		assert_eq!(frag.header.scope, FragmentScope::Nodes);
 		assert_eq!(frag.files.len(), 1);
 		assert_eq!(frag.files[0].path, SCRATCH_PATH);
@@ -649,6 +794,58 @@ to   = "b:message"
 		assert_eq!(frag.files[0].edges.len(), 1);
 		assert_eq!(frag.files[0].meta.as_ref().unwrap().title.as_deref(), Some("Chat"));
 		assert!(frag.danglings.is_empty());
+	}
+
+	#[test]
+	fn copy_nodes_preserves_complete_group_metadata() {
+		let td = mk_dir();
+		write_file(
+			td.path(),
+			"main.flowgraph.toml",
+			r##"
+[[nodes]]
+id = "a"
+feature = "flowgraph.literal.string"
+
+[[nodes]]
+id = "b"
+feature = "flowgraph.log.info"
+
+[[nodes]]
+id = "outside"
+feature = "flowgraph.log.info"
+
+[[groups]]
+id = "g1"
+label = "Reusable pair"
+node_ids = ["a", "b"]
+color = "#38bdf8"
+
+[[groups]]
+id = "partial"
+node_ids = ["a", "outside"]
+"##,
+		);
+		let req = CopyRequest {
+			scope: FragmentScope::Nodes,
+			targets: vec![
+				CopyTarget::Node {
+					fq_file: "main".into(),
+					node_id: "a".into(),
+				},
+				CopyTarget::Node {
+					fq_file: "main".into(),
+					node_id: "b".into(),
+				},
+			],
+			origin: None,
+		};
+		let frag = copy_targets(td.path(), &req).unwrap();
+		assert_eq!(frag.files.len(), 1);
+		assert_eq!(frag.files[0].groups.len(), 1);
+		assert_eq!(frag.files[0].groups[0].id, "g1");
+		assert_eq!(frag.files[0].groups[0].node_ids, vec!["a", "b"]);
+		assert_eq!(frag.files[0].groups[0].label.as_deref(), Some("Reusable pair"));
 	}
 
 	#[test]
@@ -796,6 +993,8 @@ value = "x"
 					},
 				}],
 				edges: vec![],
+				groups: vec![],
+				..Default::default()
 			}],
 			danglings: vec![FragmentDangling {
 				kind: "edge_endpoint".into(),
@@ -815,6 +1014,29 @@ value = "x"
 		assert_eq!(parsed.files[0].path, SCRATCH_PATH);
 		assert_eq!(parsed.files[0].nodes.len(), 1);
 		assert_eq!(parsed.danglings.len(), 1);
+	}
+
+	#[test]
+	fn legacy_fragment_without_declarations_remains_readable() {
+		let fragment = parse_fragment(
+			r#"
+[fragment]
+schema = "vac-flowgraph-fragment/v1"
+exported_at = "2026-04-17T00:00:00Z"
+scope = "file"
+[[fragment.files]]
+path = "main.flowgraph.toml"
+[[fragment.files.nodes]]
+id = "log"
+feature = "flowgraph.util.log"
+"#,
+		)
+		.unwrap();
+		assert_eq!(fragment.files[0].nodes[0].id, "log");
+		assert!(fragment.files[0].instances.is_empty());
+		assert!(fragment.files[0].types.is_empty());
+		assert!(fragment.files[0].package.is_none());
+		assert_eq!(fragment.files[0].graph.kind, crate::flowgraph::loader::file::GraphKind::Entry);
 	}
 
 	#[test]

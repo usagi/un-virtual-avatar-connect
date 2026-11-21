@@ -1,0 +1,41 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "avatar-pose-selection-probe",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "explicit-open-hands",
+      "content": "先生、両手を広げる仕草を添えて、次のレースを楽しみにしていると話して。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required",
+      "avatar_pose": "required"
+    },
+    {
+      "id": "natural-introduction",
+      "content": "先生、このゲームを初めて見る人に、いま私が寿司のレースを楽しんでいることをひとこと紹介して。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required",
+      "avatar_pose": "any"
+    },
+    {
+      "id": "quiet-watching",
+      "content": "少し考えるから、今は黙って見ていて。",
+      "allowed_actions": [
+        "observe"
+      ],
+      "speech": "forbidden",
+      "avatar_intent": "forbidden",
+      "avatar_pose": "forbidden"
+    }
+  ]
+}

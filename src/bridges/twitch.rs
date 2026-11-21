@@ -11,7 +11,7 @@
 //!   1. property `access_token` が非空ならそれをそのまま使う。
 //!   2. property `token_key` が非空かつ `SharedState` に該当 token_key の有効トークンが
 //!      保存済みならそれを使う。
-//!   3. 上記いずれも無ければ匿名 (justinfan) で IRC 接続する（PRIVMSG 受信のみならこれで十分）。
+//!   3. `token_key` 自体が未指定なら匿名 (justinfan) で IRC 接続する。
 //!
 //! `login` プロパティが空なら `username` に anonymous 接続のダミー login を使う。
 //!
@@ -22,7 +22,8 @@ use crate::flowgraph::loader::LoadedNodeMeta;
 use crate::flowgraph::node::{TriggerEvent, TriggerHandle};
 use crate::flowgraph::socket::SocketValue;
 use crate::SharedState;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
+use std::sync::{Arc, RwLock};
 use tokio::task::JoinHandle;
 use twitch_irc::login::StaticLoginCredentials;
 use twitch_irc::message::ServerMessage;
@@ -34,6 +35,7 @@ use twitch_irc::{ClientConfig, SecureTCPTransport};
 #[allow(dead_code)] // client_id / broadcaster_id / fixed_channel は ζ-2 (EventSub Flowgraph 化) で使用予定
 pub struct FlowgraphTwitchIngress {
 	pub node_id: String,
+	pub label: String,
 	pub mode: String,
 	pub channels: Vec<String>,
 	pub access_token: String,
@@ -67,6 +69,7 @@ impl FlowgraphTwitchIngress {
 			.unwrap_or_default();
 		Some(Self {
 			node_id: fq.to_string(),
+			label: get_str("label"),
 			mode: {
 				let m = get_str("mode");
 				if m.is_empty() {
@@ -84,6 +87,10 @@ impl FlowgraphTwitchIngress {
 			fixed_channel: get_str("fixed_channel"),
 		})
 	}
+
+	pub(crate) fn subscription_channels(&self) -> Vec<String> {
+		channels_to_join(&self.login, &self.channels)
+	}
 }
 
 /// `source_actor` 文字列を組み立てる（PRIVMSG 送信者）。
@@ -98,34 +105,31 @@ pub(crate) fn build_source_actor(sender_login: &str) -> String {
 ///
 /// Flowgraph 下流の `ingress.twitch` ノードは standard ingress schema に載るため、
 /// ここでは channel / sender などの補助情報を meta に入れて下流に伝える。
-pub(crate) fn build_meta(
-	channel_login: &str,
-	sender_login: &str,
-	sender_display_name: &str,
-	multi_channel: bool,
-) -> std::collections::BTreeMap<String, SocketValue> {
-	let mut m = std::collections::BTreeMap::new();
-	m.insert("channel_login".into(), SocketValue::String(channel_login.to_string()));
-	m.insert("sender_login".into(), SocketValue::String(sender_login.to_string()));
-	m.insert("sender_display_name".into(), SocketValue::String(sender_display_name.to_string()));
-	m.insert("multi_channel".into(), SocketValue::Bool(multi_channel));
-	m
+pub(crate) fn build_meta(channel_login: &str, sender_login: &str, sender_display_name: &str, multi_channel: bool) -> serde_json::Value {
+	serde_json::json!({
+		"channel_login": channel_login,
+		"sender_login": sender_login,
+		"sender_display_name": sender_display_name,
+		"multi_channel": multi_channel,
+	})
 }
 
-/// `username` と `reads` から参加チャンネル（ログイン名・小文字・先頭 `#` は無視）を重複なく並べる。
+/// 明示された購読先を正規化する。購読先が空のときだけログイン名を後方互換の既定値にする。
 fn channels_to_join(login: &str, reads: &[String]) -> Vec<String> {
 	fn norm(s: &str) -> String {
 		s.trim().trim_start_matches('#').to_lowercase()
 	}
 	let mut set = BTreeSet::new();
-	let u = norm(login);
-	if !u.is_empty() {
-		set.insert(u);
-	}
 	for r in reads {
 		let n = norm(r);
 		if !n.is_empty() {
 			set.insert(n);
+		}
+	}
+	if set.is_empty() {
+		let login = norm(login);
+		if !login.is_empty() {
+			set.insert(login);
 		}
 	}
 	set.into_iter().collect()
@@ -137,12 +141,36 @@ pub struct TwitchBridgeHandle {
 	node_id: String,
 	keepalive: Option<TwitchIRCClient<SecureTCPTransport, StaticLoginCredentials>>,
 	join_handle: JoinHandle<()>,
+	expected_channels: usize,
+	joined_channels: Arc<RwLock<HashSet<String>>>,
 }
 
 impl TwitchBridgeHandle {
 	#[allow(dead_code)] // 将来 admin API などで表示する想定
 	pub fn node_id(&self) -> &str {
 		&self.node_id
+	}
+
+	pub fn expected_channel_count(&self) -> usize {
+		self.expected_channels
+	}
+
+	pub fn joined_channel_count(&self) -> usize {
+		self.joined_channels.read().map(|channels| channels.len()).unwrap_or(0)
+	}
+
+	pub fn joined_channels(&self) -> Vec<String> {
+		let mut channels = self
+			.joined_channels
+			.read()
+			.map(|channels| channels.iter().cloned().collect::<Vec<_>>())
+			.unwrap_or_default();
+		channels.sort();
+		channels
+	}
+
+	pub fn is_ready(&self) -> bool {
+		self.expected_channels > 0 && self.joined_channel_count() >= self.expected_channels
 	}
 
 	pub async fn finish(mut self) {
@@ -155,23 +183,35 @@ impl TwitchBridgeHandle {
 
 /// property `access_token` → `token_key` (via state) の順でトークンを解決する。
 ///
-/// 未解決でも `None` を返すだけで失敗にはしない（匿名 IRC 接続にフォールバックする）。
-async fn resolve_access_token(entry: &FlowgraphTwitchIngress, state: &SharedState) -> Option<String> {
+/// token_key が指定されているのに認可を解決できない場合は、匿名へ暗黙フォールバックしない。
+async fn resolve_access_token(entry: &FlowgraphTwitchIngress, state: &SharedState) -> crate::Result<Option<String>> {
 	if !entry.access_token.trim().is_empty() {
-		return Some(entry.access_token.trim().to_string());
+		let token = entry.access_token.trim().to_string();
+		crate::twitch::oauth::validate_user_access_token_scopes(&token, "chat:read").await?;
+		return Ok(Some(token));
 	}
 	let key = entry.token_key.trim();
 	if key.is_empty() {
-		return None;
+		return Ok(None);
 	}
 	let ident = {
 		let s = state.read().await;
-		let twitch = s.twitch.as_ref()?;
-		let es = twitch.eventsub.as_ref()?;
+		let twitch = s.twitch.as_ref().ok_or_else(|| anyhow::anyhow!("[twitch] 設定がありません"))?;
+		let es = twitch
+			.eventsub
+			.as_ref()
+			.ok_or_else(|| anyhow::anyhow!("[twitch.eventsub] 設定がありません"))?;
 		let spec = twitch.token_spec(key);
 		crate::twitch::oauth::OAuthIdent::for_key(key, es, spec)
 	};
-	crate::twitch::oauth::try_load_valid_token_for(&ident).await
+	let token = crate::twitch::oauth::try_load_valid_token_for(&ident).await.ok_or_else(|| {
+		anyhow::anyhow!(
+			"Twitch OAuth[{}] が未認可、期限切れ、または必要権限不足です。GUI の連携画面から再認可してください",
+			key
+		)
+	})?;
+	crate::twitch::oauth::validate_user_access_token_scopes(&token, "chat:read").await?;
+	Ok(Some(token))
 }
 
 /// `flowgraph.ingress.twitch` の IRC モードに限り、全エントリを spawn する。
@@ -185,11 +225,23 @@ pub async fn spawn(entries: &[FlowgraphTwitchIngress], trigger: Option<TriggerHa
 	if entries.is_empty() {
 		return Vec::new();
 	}
+	let runtime_health = state.read().await.runtime_health.clone();
 	let Some(trigger) = trigger else {
 		log::warn!(
 			"《Flowgraph/Twitch》 ingress ノード {} 件を検出しましたが、Flowgraph ランタイムが起動していないため twitch bridge を開始できません。",
 			entries.len()
 		);
+		for entry in entries {
+			runtime_health
+				.report(twitch_runtime_issue(
+					entry,
+					"twitch_irc_runtime_unavailable",
+					"Twitchコメント受信を開始できない。",
+					"Flowgraphランタイムが起動していないため、コメントを受信できない。",
+					"Flowgraphのエラーを修正し、再読み込みする。",
+				))
+				.await;
+		}
 		return Vec::new();
 	};
 
@@ -218,20 +270,71 @@ pub async fn spawn(entries: &[FlowgraphTwitchIngress], trigger: Option<TriggerHa
 			);
 			resolved.login = twitch_username_fallback.clone();
 		}
-		match spawn_one(resolved.clone(), trigger.clone(), state.clone()) {
+		let access_token = match resolve_access_token(&resolved, &state).await {
+			Ok(token) => token,
+			Err(e) => {
+				log::error!("《Flowgraph/Twitch》 IRC を開始できません node={}: {:#}", resolved.node_id, e);
+				runtime_health
+					.report(twitch_runtime_issue(
+						&resolved,
+						"twitch_irc_authorization_failed",
+						"Twitchコメント受信の認可を確認できない。",
+						format!("Twitchコメントを受信できない: {e}"),
+						"連携画面で使用するアカウントを再認可し、Flowgraphを再読み込みする。",
+					))
+					.await;
+				continue;
+			}
+		};
+		match spawn_one(resolved.clone(), trigger.clone(), state.clone(), access_token) {
 			Some(h) => handles.push(h),
-			None => log::error!(
-				"《Flowgraph/Twitch》 IRC 起動失敗 node={} login={:?} channels={:?}",
-				resolved.node_id,
-				resolved.login,
-				resolved.channels
-			),
+			None => {
+				log::error!(
+					"《Flowgraph/Twitch》 IRC 起動失敗 node={} login={:?} channels={:?}",
+					resolved.node_id,
+					resolved.login,
+					resolved.channels
+				);
+				runtime_health
+					.report(twitch_runtime_issue(
+						&resolved,
+						"twitch_irc_start_failed",
+						"Twitchコメント受信ワーカーを開始できない。",
+						"設定したチャンネルのコメントを受信できない。",
+						"Twitch IngressのLogin、Channels、Token Keyを確認し、Flowgraphを再読み込みする。",
+					))
+					.await;
+			}
 		}
 	}
 	handles
 }
 
-fn spawn_one(entry: FlowgraphTwitchIngress, trigger: TriggerHandle, state: SharedState) -> Option<TwitchBridgeHandle> {
+fn twitch_runtime_issue(
+	entry: &FlowgraphTwitchIngress,
+	code: &str,
+	message: impl Into<String>,
+	impact: impl Into<String>,
+	resolution: impl Into<String>,
+) -> crate::runtime_health::RuntimeIssue {
+	crate::runtime_health::RuntimeIssue::error(
+		format!("twitch_irc:{}", entry.node_id),
+		"twitch_irc",
+		code,
+		message,
+		impact,
+		"resources",
+		Some(entry.node_id.clone()),
+	)
+	.with_resolution(resolution)
+}
+
+fn spawn_one(
+	entry: FlowgraphTwitchIngress,
+	trigger: TriggerHandle,
+	state: SharedState,
+	access_token: Option<String>,
+) -> Option<TwitchBridgeHandle> {
 	let channels = channels_to_join(&entry.login, &entry.channels);
 	if channels.is_empty() {
 		log::error!("《Flowgraph/Twitch》 node={} に参加チャンネルがありません", entry.node_id);
@@ -250,20 +353,27 @@ fn spawn_one(entry: FlowgraphTwitchIngress, trigger: TriggerHandle, state: Share
 		return None;
 	}
 	let multi_channel = wanted.len() > 1;
+	let expected_channels = wanted.len();
 	let node_id = entry.node_id.clone();
+	let joined_channels = Arc::new(RwLock::new(HashSet::new()));
 
-	// トークン解決は非同期。spawn 側で resolve する。
-	let (mut incoming_messages, client) = TwitchIRCClient::<SecureTCPTransport, StaticLoginCredentials>::new(ClientConfig::default());
+	let credentials = access_token
+		.map(|token| StaticLoginCredentials::new(entry.login.clone(), Some(token)))
+		.unwrap_or_else(StaticLoginCredentials::anonymous);
+	let config = ClientConfig::new_simple(credentials);
+	let (mut incoming_messages, client) = TwitchIRCClient::<SecureTCPTransport, StaticLoginCredentials>::new(config);
 
 	let trigger_for_task = trigger.clone();
 	let state_for_task = state.clone();
 	let entry_for_task = entry.clone();
 	let node_id_for_task = node_id.clone();
+	let joined_channels_for_task = joined_channels.clone();
 
 	let join_handle = tokio::spawn(async move {
-		// 解決したトークンはログに出さない（値を掴むだけ）。
-		let _resolved_token = resolve_access_token(&entry_for_task, &state_for_task).await;
-		let ignore_logins = state_for_task.read().await.twitch_ignore_logins.clone();
+		let (ignore_logins, control_event_tx) = {
+			let state = state_for_task.read().await;
+			(state.twitch_ignore_logins.clone(), state.control_event_tx.clone())
+		};
 		log::info!(
 			"《Flowgraph/Twitch》 IRC 接続開始 node={} channels={:?} multi={}",
 			node_id_for_task,
@@ -271,50 +381,88 @@ fn spawn_one(entry: FlowgraphTwitchIngress, trigger: TriggerHandle, state: Share
 			multi_channel
 		);
 		while let Some(message) = incoming_messages.recv().await {
-			if let ServerMessage::Privmsg(msg) = message {
-				let sender_login_lc = msg.sender.login.to_lowercase();
-				if ignore_logins.read().await.contains(&sender_login_lc) {
-					log::debug!(
-						"《Flowgraph/Twitch》 node={} ingress 無視リストによりスキップ sender={}",
+			match message {
+				ServerMessage::Join(msg) => {
+					if let Ok(mut channels) = joined_channels_for_task.write() {
+						channels.insert(msg.channel_login.clone());
+					}
+					log::info!(
+						"《Flowgraph/Twitch》 IRC channel参加完了 node={} channel={}",
 						node_id_for_task,
-						sender_login_lc
+						msg.channel_login
 					);
-					continue;
 				}
-				let text = if multi_channel {
-					format!("#{} {}:{}", msg.channel_login, msg.sender.name, msg.message_text)
-				} else {
-					format!("{}:{}", msg.sender.name, msg.message_text)
-				};
-				let actor = build_source_actor(&msg.sender.login);
-				let meta = build_meta(&msg.channel_login, &msg.sender.login, &msg.sender.name, multi_channel);
-				let mut ev = TriggerEvent::new(&node_id_for_task)
-					.with_exec("__trigger__")
-					.with_override("__content__", SocketValue::String(text))
-					.with_override("__source_actor__", SocketValue::String(actor));
-				ev = ev.with_override("__meta__", SocketValue::Map(meta));
-				if let Err(e) = trigger_for_task.send(ev) {
-					log::warn!(
-						"《Flowgraph/Twitch》 node={} trigger 送信に失敗: {}（worker を終了）",
-						node_id_for_task,
-						e
-					);
-					break;
+				ServerMessage::Part(msg) => {
+					if let Ok(mut channels) = joined_channels_for_task.write() {
+						channels.remove(&msg.channel_login);
+					}
 				}
+				ServerMessage::Privmsg(msg) => {
+					let sender_login_lc = msg.sender.login.to_lowercase();
+					if ignore_logins.read().await.contains(&sender_login_lc) {
+						log::debug!(
+							"《Flowgraph/Twitch》 node={} ingress 無視リストによりスキップ sender={}",
+							node_id_for_task,
+							sender_login_lc
+						);
+						continue;
+					}
+					let _ = control_event_tx.send(crate::control_events::ControlEvent::TwitchChatReceived {
+						node_id: node_id_for_task.clone(),
+						channel_login: msg.channel_login.clone(),
+						sender_login: msg.sender.login.clone(),
+						text_chars: msg.message_text.chars().count(),
+						observed_at: jiff::Timestamp::now().to_string(),
+					});
+					let text = if multi_channel {
+						format!("#{} {}:{}", msg.channel_login, msg.sender.name, msg.message_text)
+					} else {
+						format!("{}:{}", msg.sender.name, msg.message_text)
+					};
+					let actor = build_source_actor(&msg.sender.login);
+					let mut meta = build_meta(&msg.channel_login, &msg.sender.login, &msg.sender.name, multi_channel);
+					meta["transport"] = serde_json::json!("twitch.irc");
+					meta["message_text"] = serde_json::json!(msg.message_text);
+					meta["message_id"] = serde_json::json!(msg.message_id);
+					meta["broadcaster_id"] = serde_json::json!(msg.channel_id);
+					meta["sender_id"] = serde_json::json!(msg.sender.id);
+					meta["is_moderator"] = serde_json::json!(msg.badges.iter().any(|b| b.name == "moderator"));
+					let mut ev = TriggerEvent::new(&node_id_for_task)
+						.with_exec("__trigger__")
+						.with_override("__content__", SocketValue::String(text))
+						.with_override("__source_actor__", SocketValue::String(actor));
+					ev = ev.with_override("__meta__", SocketValue::Json(meta));
+					if let Err(e) = trigger_for_task.send(ev) {
+						log::warn!(
+							"《Flowgraph/Twitch》 node={} trigger 送信に失敗: {}（worker を終了）",
+							node_id_for_task,
+							e
+						);
+						break;
+					}
+				}
+				_ => {}
 			}
+		}
+		if let Ok(mut channels) = joined_channels_for_task.write() {
+			channels.clear();
 		}
 		log::info!("《Flowgraph/Twitch》 IRC ワーカー終了 node={}", node_id_for_task);
 	});
 
-	if let Err(e) = client.set_wanted_channels(wanted) {
-		log::error!("《Flowgraph/Twitch》 node={} set_wanted_channels 失敗: {:?}", entry.node_id, e);
-		return None;
+	for channel in wanted {
+		if let Err(e) = client.join(channel) {
+			log::error!("《Flowgraph/Twitch》 node={} join 失敗: {:?}", entry.node_id, e);
+			return None;
+		}
 	}
 
 	Some(TwitchBridgeHandle {
 		node_id,
 		keepalive: Some(client),
 		join_handle,
+		expected_channels,
+		joined_channels,
 	})
 }
 
@@ -343,6 +491,7 @@ mod tests {
 			feature: "flowgraph.ingress.twitch".into(),
 			file: PathBuf::from("x.toml"),
 			position: None,
+			activation_chain: Vec::new(),
 			properties: props,
 		};
 		let t = FlowgraphTwitchIngress::from_meta("in", &meta).unwrap();
@@ -358,6 +507,7 @@ mod tests {
 			feature: "flowgraph.ingress.twitch".into(),
 			file: PathBuf::from("x.toml"),
 			position: None,
+			activation_chain: Vec::new(),
 			properties: InputMap::new(),
 		};
 		let t = FlowgraphTwitchIngress::from_meta("in", &meta).unwrap();
@@ -369,7 +519,12 @@ mod tests {
 	#[test]
 	fn channels_to_join_dedupes_and_normalizes() {
 		let ch = channels_to_join("  Bot  ", &vec!["#ChanA".into(), "chanb".into(), "ChanA".into(), "".into()]);
-		assert_eq!(ch, vec!["bot".to_string(), "chana".to_string(), "chanb".to_string()]);
+		assert_eq!(ch, vec!["chana".to_string(), "chanb".to_string()]);
+	}
+
+	#[test]
+	fn channels_to_join_uses_login_only_when_subscription_is_empty() {
+		assert_eq!(channels_to_join("  Bot  ", &[]), vec!["bot".to_string()]);
 	}
 
 	#[test]
@@ -382,9 +537,9 @@ mod tests {
 	#[test]
 	fn build_meta_contains_expected_fields() {
 		let m = build_meta("mychan", "alice", "Alice", true);
-		assert_eq!(m.get("channel_login").and_then(|v| v.as_str().ok()), Some("mychan"));
-		assert_eq!(m.get("sender_login").and_then(|v| v.as_str().ok()), Some("alice"));
-		assert_eq!(m.get("sender_display_name").and_then(|v| v.as_str().ok()), Some("Alice"));
-		assert_eq!(m.get("multi_channel").and_then(|v| v.as_bool().ok()), Some(true));
+		assert_eq!(m.get("channel_login").and_then(serde_json::Value::as_str), Some("mychan"));
+		assert_eq!(m.get("sender_login").and_then(serde_json::Value::as_str), Some("alice"));
+		assert_eq!(m.get("sender_display_name").and_then(serde_json::Value::as_str), Some("Alice"));
+		assert_eq!(m.get("multi_channel").and_then(serde_json::Value::as_bool), Some(true));
 	}
 }

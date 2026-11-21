@@ -11,6 +11,9 @@
 # - `minimized = true` で最小化状態で起動（CreateProcess + STARTUPINFO、
 #   Toolhelp のプロセス木 + ウィンドウ列挙→最小化。親子が切れた場合は
 #   タイトル部分一致へフォールバック。http(s) URL では無視される）。
+# - `id` / `label` を付けると GUI の Managed App として安定表示される。
+# - `unaa_z_app_id` / `unaa_z_instance_id` を付けると、UNAA/Z discovery で見える
+#   U.N. series app と process 管理を相関できる。
 #
 # お試し: `virtual-avatar-connect.exe` にドラッグ＆ドロップ、または CLI 引数で指定。
 # =========================================================================
@@ -23,19 +26,24 @@ run_with = [
  "http://127.0.0.1:57000/input",
 
  # まだ動作していない場合のみ、CoeiroInk を起動。
- { command = '''C:\Users\the\app\COEIROINK_WIN_GPU_v.2.1.1\COEIROINKv2.exe''', if_not_running = "COEIROINKv2" },
+ { command = '''C:\Users\example\app\COEIROINK_WIN_GPU_v.2.1.1\COEIROINKv2.exe''', if_not_running = "COEIROINKv2" },
 
  # まだ動作していない場合のみ、VirtualMotionCapture を起動。
- { command = '''C:\Users\the\app\vmc\VirtualMotionCapture.exe''', if_not_running = "VirtualMotionCapture" },
+ { command = '''C:\Users\example\app\vmc\VirtualMotionCapture.exe''', if_not_running = "VirtualMotionCapture" },
 
  # まだ動作していない場合のみ、WebcamMotionCapture を起動。
- { command = '''C:\Users\the\app\WebcamMotionCapture_Win\bin\webcam_motion_capture\webcam_motion_capture.exe''', if_not_running = "webcam_motion_capture" },
+ { command = '''C:\Users\example\app\WebcamMotionCapture_Win\bin\webcam_motion_capture\webcam_motion_capture.exe''', if_not_running = "webcam_motion_capture" },
 
  # まだ動作していない場合のみ、VMagicMirror を起動。
  { command = '''"C:\Program Files (x86)\VMagicMirror\VMagicMirror.exe"''', if_not_running = "VMagicMirror" },
 
  # まだ動作していない場合のみ、OBS Studio を管理者権限 + 作業ディレクトリ指定で起動。
  { command = '''C:\Program Files\obs-studio\bin\64bit\obs64.exe''', if_not_running = "obs64.exe", run_as_admin = true, working_dir = '''C:\Program Files\obs-studio\bin\64bit''' },
+
+ # U.N. series app の例。UNAA/Z identity を明示すると、Resources / Managed App UI で
+ # process 状態と Zenoh discovery 状態を同じアプリとして見られる。
+ # { command = '''C:\Users\example\app\un-avatar\un-avatar-supervisor-console.exe''', if_not_running = "un-avatar-supervisor-console", id = "un-avatar-console", label = "UN Avatar Console", unaa_z_app_id = "un-avatar", unaa_z_instance_id = "main" },
+ # { command = '''C:\Users\example\app\un-motion\un-motion.exe''', if_not_running = "un-motion", id = "un-motion", label = "UN Motion", unaa_z_app_id = "un-motion", unaa_z_instance_id = "main" },
 
  # 最小化起動の例（http(s) URL では無視される）
  # { command = '''C:\path\to\app.exe''', if_not_running = "app", minimized = true },

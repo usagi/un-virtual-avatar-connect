@@ -15,12 +15,12 @@ tags = ["fixture", "e2e", "ν"]
 [[nodes]]
 id = "in"
 feature = "flowgraph.ingress.web_input"
-position = [80, 200]
+position = [80, 80]
 
 [[nodes]]
 id = "log"
 feature = "flowgraph.util.log"
-position = [360, 200]
+position = [500, 80]
 
 [[edges]]
 from = "in:exec_out"
@@ -39,9 +39,9 @@ to = "log:value"
 [[nodes]]
 id = "learn"
 feature = "flowgraph.glossary.learn"
-position = [620, 400]
+position = [80, 304]
 
 [[nodes]]
 id = "forget"
 feature = "flowgraph.glossary.forget"
-position = [620, 520]
+position = [80, 588]

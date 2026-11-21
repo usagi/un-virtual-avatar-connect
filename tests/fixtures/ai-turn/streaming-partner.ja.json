@@ -1,0 +1,107 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "streaming-partner-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 90,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "normal-narration",
+      "content": "次のステージに入る。まず配置を確認する",
+      "allowed_actions": ["observe"],
+      "speech": "forbidden",
+      "avatar_intent": "forbidden",
+      "episode": "none",
+      "episode_relation": "none"
+    },
+    {
+      "id": "advice-request-opens",
+      "content": "さっきの戦闘、右から回った方がよかったと思う？",
+      "allowed_actions": ["respond"],
+      "speech": "required",
+      "episode": "active",
+      "allowed_episode_phases": ["yielding"]
+    },
+    {
+      "id": "evidence-continues",
+      "content": "敵は左側に固まっていて、右側には配置できる場所が二つ残っていた",
+      "allowed_actions": ["observe", "respond"],
+      "speech": "any",
+      "episode": "active",
+      "allowed_episode_phases": ["engaged", "yielding"],
+      "episode_memory_includes": ["左", "右"],
+      "speech_forbids": ["安全", "有利", "危険"],
+      "episode_relation": "same"
+    },
+    {
+      "id": "agreement-closes",
+      "content": "そうだな。次は右から回ることにしよう",
+      "allowed_actions": ["close", "observe"],
+      "speech": "any",
+      "episode": "active",
+      "allowed_episode_phases": ["engaged", "yielding", "refractory"],
+      "episode_relation": "same"
+    },
+    {
+      "id": "unrelated-narration-during-pause",
+      "content": "素材を受け取った。編成画面へ戻る",
+      "allowed_actions": ["observe"],
+      "speech": "forbidden",
+      "avatar_intent": "forbidden",
+      "episode": "active",
+      "allowed_episode_phases": ["engaged", "yielding", "refractory"],
+      "episode_relation": "same"
+    },
+    {
+      "id": "new-topic-during-refractory",
+      "content": "この編成のまま高難度へ行くべきだと思う？",
+      "allowed_actions": ["respond"],
+      "speech": "required",
+      "episode": "active",
+      "allowed_episode_phases": ["yielding"],
+      "episode_relation": "different"
+    },
+    {
+      "id": "second-topic-closes",
+      "content": "了解。回復役を増やしてから行く",
+      "allowed_actions": ["close", "observe"],
+      "speech": "any",
+      "episode": "active",
+      "allowed_episode_phases": ["engaged", "yielding", "refractory"],
+      "episode_relation": "same"
+    },
+    {
+      "id": "thinking-during-pause",
+      "content": "少し考える。まだ決めなくていい",
+      "allowed_actions": ["observe"],
+      "speech": "forbidden",
+      "avatar_intent": "forbidden",
+      "episode": "active",
+      "allowed_episode_phases": ["engaged", "yielding", "refractory"],
+      "episode_relation": "same"
+    },
+    {
+      "id": "normal-narration-after-pause",
+      "content": "準備が終わった。ステージを開始する",
+      "delay_before_ms": 46000,
+      "allowed_actions": ["observe"],
+      "speech": "forbidden",
+      "avatar_intent": "forbidden",
+      "episode": "none",
+      "episode_relation": "none"
+    },
+    {
+      "id": "strong-reaction",
+      "content": "ああ、今の失敗はさすがにひどいな",
+      "allowed_actions": ["react"],
+      "speech": "required",
+      "avatar_intent": "required",
+      "episode": "none",
+      "episode_relation": "none"
+    }
+  ]
+}

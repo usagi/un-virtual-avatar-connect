@@ -1,0 +1,68 @@
+[[nodes]]
+id = "voice"
+feature = "flowgraph.ingress.voice"
+
+[[nodes]]
+id = "ai"
+feature = "flowgraph.ingress.ai_response"
+
+[[nodes]]
+id = "speech"
+feature = "flowgraph.ingress.ai_speech"
+
+[[nodes]]
+id = "twitch"
+feature = "flowgraph.ingress.twitch"
+properties.mode = "irc"
+
+[[nodes]]
+id = "ai_bos"
+feature = "flowgraph.bos.output"
+
+[[nodes]]
+id = "chat_bos"
+feature = "flowgraph.bos.output"
+
+[[nodes]]
+id = "ai_tts"
+feature = "flowgraph.tts.speak"
+properties.lane = "assistant"
+properties.non_blocking = true
+
+[[nodes]]
+id = "chat_tts"
+feature = "flowgraph.tts.speak"
+properties.lane = "chat"
+properties.non_blocking = true
+
+[[nodes]]
+id = "ai_destination"
+feature = "flowgraph.literal.string"
+properties.value = "ai-synth"
+
+[[nodes]]
+id = "chat_destination"
+feature = "flowgraph.literal.string"
+properties.value = "chat"
+
+[[edges]]
+from = "ai:exec_out"
+to = "ai_bos:exec_in"
+[[edges]]
+from = "ai_destination:value"
+to = "ai_bos:destination"
+[[edges]]
+from = "speech:exec_out"
+to = "ai_tts:exec_in"
+[[edges]]
+from = "twitch:exec_out"
+to = "chat_bos:exec_in"
+[[edges]]
+from = "chat_destination:value"
+to = "chat_bos:destination"
+[[edges]]
+from = "twitch:exec_out"
+to = "chat_tts:exec_in"
+[[edges]]
+from = "twitch:trace_id"
+to = "chat_tts:utterance_id"

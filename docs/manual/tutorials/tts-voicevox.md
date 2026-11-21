@@ -2,7 +2,7 @@
 
 `tts.speak` で VOICEVOX Engine または AivisSpeech Engine に接続して読み上げる。
 
-> ソース: [`flowgraph.example/tts-voicevox/main.flowgraph.toml`](../../../flowgraph.example/tts-voicevox/main.flowgraph.toml) + [`conf.example-tts.toml`](../../../conf.example-tts.toml)
+> ソース: [`flowgraph.example/tts-voicevox/main.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/tts-voicevox/main.flowgraph.toml) + [`conf.example-tts.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/conf.example-tts.toml)
 
 ## ねらい
 
@@ -26,7 +26,7 @@ ingress.web_input ─→ tts.speak (engine="voicevox",
 - VOICEVOX Engine / AivisSpeech Engine が起動していること
   - VOICEVOX 既定: <http://127.0.0.1:50021>
   - AivisSpeech 既定: <http://127.0.0.1:10101>
-- speaker id を把握（CLI: `virtual-avatar-connect --voicevox-speakers` / `--aivisspeech-speakers`）
+- speaker id を把握（VOICEVOX / AivisSpeech Engine の UI や `/speakers` API で確認）
 
 ## 実行手順
 

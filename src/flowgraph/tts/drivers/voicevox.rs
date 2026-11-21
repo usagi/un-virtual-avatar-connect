@@ -21,16 +21,11 @@
 //! - `extra.save_path` → 省略（ノード側の `save_path` を使う）
 
 use super::super::driver::{
-	extra_f64, extra_i64, maybe_save_wav, AudioContext, TtsDriver, TtsError, TtsOutcome, TtsParamEntry, TtsParamSchema, TtsParamType,
-	TtsRequest,
+	extra_f64, extra_i64, TtsDriver, TtsError, TtsParamEntry, TtsParamSchema, TtsParamType, TtsRequest, TtsSynthesis,
 };
 use async_trait::async_trait;
 
-pub(super) async fn speak_voicevox_like(
-	engine_base_default: &str,
-	req: &TtsRequest,
-	audio: &AudioContext<'_>,
-) -> Result<TtsOutcome, TtsError> {
+pub(super) async fn synthesize_voicevox_like(engine_base_default: &str, req: &TtsRequest) -> Result<TtsSynthesis, TtsError> {
 	let engine_base = if req.endpoint.is_empty() {
 		engine_base_default
 	} else {
@@ -68,9 +63,7 @@ pub(super) async fn speak_voicevox_like(
 	.await
 	.map_err(TtsError::Synthesis)?;
 
-	let played = audio.play_wav(wav.clone()).await?;
-	let path = maybe_save_wav(&wav, &req.save_path).await?;
-	Ok(TtsOutcome { played, audio_path: path })
+	Ok(TtsSynthesis::Wav(wav))
 }
 
 /// `voice` を `"uuid:N"` / `"12345"` のどちらかとして解釈し、グローバル style_id を返す。
@@ -103,8 +96,8 @@ impl TtsDriver for VoicevoxDriver {
 	fn params_schema(&self) -> TtsParamSchema {
 		voicevox_like_schema()
 	}
-	async fn speak(&self, req: TtsRequest, audio: &AudioContext<'_>) -> Result<TtsOutcome, TtsError> {
-		speak_voicevox_like(VOICEVOX_DEFAULT, &req, audio).await
+	async fn synthesize(&self, req: &TtsRequest) -> Result<TtsSynthesis, TtsError> {
+		synthesize_voicevox_like(VOICEVOX_DEFAULT, req).await
 	}
 }
 
@@ -138,6 +131,7 @@ pub(super) fn voicevox_like_schema() -> TtsParamSchema {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::flowgraph::tts::driver::AudioContext;
 
 	#[tokio::test]
 	async fn voice_parse_global_id() {

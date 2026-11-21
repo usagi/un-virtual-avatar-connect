@@ -3,7 +3,46 @@
 本ファイルは VAC (Virtual Avatar Connect) の主要な変更履歴を Phase 単位で記録する。
 個別の詳細設計は `docs/roadmap/phase-delta-spec.md` を参照。
 
-## [Unreleased]
+## [2.0.0]
+
+### AI応答 — チャネルポイント交換の履行品質
+
+- `flowgraph.ai.observe`へ信頼済み`request_class`を追加し、チャネルポイント対価付き依頼を通常観測から分離。Turn Managerの必須応答、上位モデルへの昇格、依頼種別ごとのtool許可を同じ分類へ統一した。
+- 各AI要求へ実行時の現在日時を動的な信頼済み文脈として渡し、「今年」「今日」を既知情報として解決可能にした。
+- `by_request_class`は`by_channel`と通常の`default_allowed`より優先し、Web検索などを対象報酬だけへ限定できる。
+
+### Flowgraph Studio — 操作階層と日本語表示
+
+- 画面の目的説明、主要操作、状態表示、作業領域名を日本語化し、実装者向けの英語説明や `Save *` の暗黙表現を利用者向けの文言へ改めた。
+- 常用する構成表示・コマンド・自動配置・保存を常時表示し、再読み込み・共有・領域サイズ調整は目的別に展開する構成へ整理。狭い画面でも長いパスに主要操作が押し出されないようにした。
+- Windowsのverbatim path接頭辞（`//?/`、`\\?\`）を実パスから削らず表示時だけ通常のWindowsパスへ整形し、ドライブパスとUNCパスを単体試験で固定した。
+
+### Flowgraph Studio — グループ配置と表示領域
+
+- ノードの実際の推定幅・可変高とgraph instanceを使ってグループ枠を算出し、所属ノードが枠外へはみ出す表示を修正。
+- 互いに素なグループを独立clusterとして自動配置し、グループ同士または未所属ノードとの無意味な重なりを読み込み時にも補正。ノードを共有するグループの重なりは意図を表せるため保持する。
+- グループ名を枠内へ表示し、枠を通常ノードより背面へ固定。枠の包含関係をunit testとPlaywright E2Eで検証する。
+
+### AI配信知覚 — Twitch宣言状態の構造化公開
+
+- `twitch:stream_state`の値ごとの観測時刻、情報源、経過時間、鮮度を`meta.state`へ保持し、Flowgraph ingressから欠落なく参照可能にした。
+- AI Observationにも同じ構造化状態を外部宣言値かつ非命令データとして渡し、人間向け要約だけに情報を縮退させないよう修正。
+
+### Glossary — Google IME列順互換の復元
+
+- `.txt` の先頭2〜4列を `reading / surface / part_of_speech / comment` として直接読み込み、拡張11列も同じ先頭列順に統一。
+- Glossaryノード、Control API、GUI、移行CLI、同梱辞書を `surface → reading` の読み上げ変換へ統一し、旧V2 11列は生成履歴を考慮して自動移行。
+- 正規表現エントリは `part_of_speech=正規表現` として保持し、通常のGoogle IME品詞と区別。
+
+### v2 release-candidate consolidation — Flowgraph / UNMF/Z / UNAA/Z / GUI cockpit
+
+- **Flowgraph Studio**: multi-select、group metadata / group frame、selection-aware fragment copy / ZIP export、fragment paste での group 復元をリリース基準まで整備。
+- **Motion interop**: UNMF を内部 motion core、UNMF/Z を Zenoh data plane として採用。VMC は `VMC -> UNMF` / `UNMF -> VMC` の互換 adapter として扱う方針に整理。
+- **UNMF/Z LAN transport**: `un-motion-frame-zenoh 1.1`へ更新し、自動探索を維持したまま明示listen IP/portと複数connect endpointを設定可能にした。Avatar motion、Flowgraph publish / ingress / subscribeはプロセス内の単一Zenoh sessionを共有する。
+- **UN App API over Zenoh (UNAA/Z)**: discovery、endpoint candidate、command、response wait、command history、health / validation diagnostics、protocol manual を追加。
+- **Live / Resources GUI**: OBS output manager、Quick Effects queue、OBS WebSocket source transform / volume / filter、AI persona runtime edit + persistent conf save、Managed App UNAA/Z readiness 表示を追加。
+- **Quick Effects**: scheduled fire、queue reorder、`[[control_api.quick_effect_presets]]` による profile preset 永続化、Control API / GUI / manual を整備。
+- **Release docs**: README、Control API sample、run_with sample、motion sample、conf reference、Bruno README を v2 現状に追従。
 
 ### M-4a / Step 7 / ρ 先取り — motion OSC パース、OSC 送信、fixture runner、`app_core`
 
@@ -347,7 +386,7 @@ GUI の自動回帰テストをゼロから構築。Playwright を `gui/` 配下
 
 ### η: Dictionary/Table Unification (η-0 .. η-6)
 
-V1 時代に合意されていた「11 カラム辞書」仕様（`source` / `replacement` / `kind` / `priority` / `is_locked` / `enabled` / `by` / `created_at` / `expires_at` / `tags` / `note`）と runtime 学習/忘却機能を V2 Flowgraph 上に再構築した。汎用 Table 型を型システムに追加し、辞書機能はその上に semantic layer として乗る。
+Google IMEの先頭列順と互換な「11 カラム辞書」仕様（`reading` / `surface` / `part_of_speech` / `comment` / `priority` / `is_locked` / `enabled` / `by` / `created_at` / `expires_at` / `tags`）と runtime 学習/忘却機能を V2 Flowgraph 上に再構築した。汎用 Table 型を型システムに追加し、辞書機能はその上に semantic layer として乗る。
 
 - **`SocketType::Table` 追加** (η-1a)
   - Flowgraph 型システムに 9 番目の variant として導入。`List<Json>` とは別の第一級型として `Table` を扱う（暗黙変換なし、`flowgraph.table.*` 経由で明示）。
@@ -362,8 +401,8 @@ V1 時代に合意されていた「11 カラム辞書」仕様（`source` / `re
   - `flowgraph.table.write_tsv` (Effectful): `Table` → TSV ファイル。`path.tmp` への書き出し後 atomic rename。
 - **`flowgraph.dictionary.*` 4 ノード刷新** (η-3)
   - `flowgraph.dictionary.replace` (Stateful、刷新): 入力を `Dictionary: List<Json>` から `Dictionary: Table` に変更。内部で literal エントリは Aho-Corasick（`LeftmostLongest`）で一括置換、regex エントリは priority desc 順に `Regex::replace_all`。`Arc identity → version → blake3 content_hash` の 3 段キャッシュで AC/Regex 再コンパイルを回避。`enabled=false` / `expires_at` 期限切れは compile 時に除外。
-  - `flowgraph.dictionary.match` (Stateful、新規): `text` と `dictionary` から照合結果を出す。`match_policy = first / all / longest`、`anchor = anywhere / prefix / full`。出力 `matched_entries: List<Json>` / `matched_count: Int` / `captures: List<List<String>>` / `first_replacement: String`、exec は `on_match` / `on_no_match`。
-  - `flowgraph.dictionary.learn` (Pure、新規): Table に 11 カラムエントリを append。同一 `(source, replacement, kind)` & 有効エントリが既存なら `on_duplicate`、新規なら `on_learned`。`created_at` は RFC3339 UTC 秒精度で自動採番。`is_locked` は常に `false` で追加。
+  - `flowgraph.dictionary.match` (Stateful、新規): `text` と `dictionary` から照合結果を出す。`match_policy = first / all / longest`、`anchor = anywhere / prefix / full`。出力 `matched_entries: List<Json>` / `matched_count: Int` / `captures: List<List<String>>` / `first_reading: String`、exec は `on_match` / `on_no_match`。
+  - `flowgraph.dictionary.learn` (Pure、新規): Table に 11 カラムエントリを append。同一 `(reading, surface, part_of_speech, comment)` & 有効エントリが既存なら `on_duplicate`、新規なら `on_learned`。`created_at` は RFC3339 UTC 秒精度で自動採番。`is_locked` は常に `false` で追加。
   - `flowgraph.dictionary.forget` (Pure、新規): `mode = latest / all / exact` で削除。`is_locked=true` は除外してロックカウントを報告。`latest` は「最新 1 件を消すことで過去エントリが自動復活する UNDO 動作」を保持。
 - **旧 `flowgraph.dictionary.command` ノード削除** (η-4)
   - V1 由来の固定文法（`学習(X:=Y)` / `忘却(X)` 等）をノード内部に埋め込んでいたが、`flowgraph.dictionary.match` + `flowgraph.dictionary.learn` / `.forget` + ユーザー編集可能な `commands.tsv` で表現する方式に置き換え。コマンド構文を変更・拡張する場合はノード実装ではなく TSV を書き換えればよくなった。

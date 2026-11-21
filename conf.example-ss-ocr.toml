@@ -42,5 +42,5 @@
 #   source             ローカルパス / file:/// / http(s):// / data:image/... のいずれか
 #                      （typical: screenshot.capture の `data_url` 出力をそのまま繋ぐ）
 #   lang               BCP-47（例: "ja-JP" / "en-US"）
-#   lines              true で行単位、false で全文一括
+#   lines              true で認識行を改行区切り、false で空白区切りの1行
 #   check_result_lang  true で認識後の言語判定を行い、lang と不一致なら error

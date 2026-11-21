@@ -12,36 +12,36 @@ export type QuantityPortLike = {
 
 /** Svelte / CSS 用 class。`FlowgraphNodeCard` の port-row と handle に付与。 */
 export function quantityFamilyClassFromDim(dim: string | null | undefined): string {
-	if (!dim || dim === '1') return 'qty-family-none';
-	const head = dim.split('·')[0]?.trim() ?? '';
+	if (!dim || dim === "1") return "qty-family-none";
+	const head = dim.split("·")[0]?.trim() ?? "";
 	const sym = head.codePointAt(0);
-	if (sym === undefined) return 'qty-family-mixed';
+	if (sym === undefined) return "qty-family-mixed";
 	const c = String.fromCodePoint(sym);
 	switch (c) {
-		case 'L':
-			return 'qty-family-length';
-		case 'M':
-			return 'qty-family-mass';
-		case 'T':
-			return 'qty-family-time';
-		case 'I':
-			return 'qty-family-current';
-		case 'Θ':
-			return 'qty-family-temperature';
-		case 'N':
-			return 'qty-family-amount';
-		case 'J':
-			return 'qty-family-luminous';
-		case 'A':
-			return 'qty-family-angle';
+		case "L":
+			return "qty-family-length";
+		case "M":
+			return "qty-family-mass";
+		case "T":
+			return "qty-family-time";
+		case "I":
+			return "qty-family-current";
+		case "Θ":
+			return "qty-family-temperature";
+		case "N":
+			return "qty-family-amount";
+		case "J":
+			return "qty-family-luminous";
+		case "A":
+			return "qty-family-angle";
 		default:
-			return 'qty-family-mixed';
+			return "qty-family-mixed";
 	}
 }
 
 export function quantityPortTooltip(port: QuantityPortLike): string {
 	const base = `${port.label} : ${port.ty}`;
-	if (port.ty !== 'quantity') return base;
+	if (port.ty !== "quantity") return base;
 	const dim = port.quantity_dim;
 	const full = port.quantity_unit_full;
 	if (dim && full) {

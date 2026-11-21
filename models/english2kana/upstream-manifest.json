@@ -1,0 +1,95 @@
+{
+  "model_id": "m7142yosuke/english2kana",
+  "revision": "c2227321a72cc19f432f23a025cbc66579473e0e",
+  "license": "MIT",
+  "artifacts": [
+    {
+      "name": "english2kana-v1.keras",
+      "url": "https://huggingface.co/m7142yosuke/english2kana/resolve/c2227321a72cc19f432f23a025cbc66579473e0e/english2kana-v1.keras",
+      "sha256": "dadac58276b4ac58f46f278c927e7d2458d7e6fc83c434218a25dce87c016413",
+      "size": 5413888
+    },
+    {
+      "name": "tokenizer_english.json",
+      "url": "https://huggingface.co/m7142yosuke/english2kana/resolve/c2227321a72cc19f432f23a025cbc66579473e0e/tokenizer_english.json",
+      "sha256": "aa415f2848b5192aff911717257e1a25d1f92172c470561e2f6053ee888baab5",
+      "size": 2025
+    },
+    {
+      "name": "tokenizer_kana.json",
+      "url": "https://huggingface.co/m7142yosuke/english2kana/resolve/c2227321a72cc19f432f23a025cbc66579473e0e/tokenizer_kana.json",
+      "sha256": "3398b8b362fd310066a85aa5f5017ca697e46285895e8ce5a6d94349e5c52391",
+      "size": 8154
+    },
+    {
+      "name": "english2kana-0.1.5.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/51/64/654ee5949cb2eb2f4ce402b1ba0a75bf9ee3395a9946510431aa0df28a63/english2kana-0.1.5.tar.gz",
+      "sha256": "676cf8cb50a5989bb1417fae5fec6b7cd2d536b9d85abb35f0d3964a2a522939",
+      "size": 8702
+    },
+    {
+      "name": "english2kana-train.csv",
+      "url": "https://huggingface.co/datasets/m7142yosuke/english2kana-v1/resolve/bb610dcf6643d0af2d7408c340b6937af27de27b/train.csv",
+      "sha256": "eb4fe9ceb13b9dc27a1f5544d861e6b51f3c3f52e3eaf7ced802a6b0155ca07d",
+      "size": 5146512
+    },
+    {
+      "name": "english2kana-test.csv",
+      "url": "https://huggingface.co/datasets/m7142yosuke/english2kana-v1/resolve/bb610dcf6643d0af2d7408c340b6937af27de27b/test.csv",
+      "sha256": "24cd613195fcba6730688c8b015289a77060c06e4b683f15a972cadce11a4a3d",
+      "size": 591945
+    },
+    {
+      "name": "README.english2kana-dataset.md",
+      "url": "https://huggingface.co/datasets/m7142yosuke/english2kana-v1/resolve/bb610dcf6643d0af2d7408c340b6937af27de27b/README.md",
+      "sha256": "f02370483256fca47944a95df5377c3f12ad289ed8d869e206f9ca0c9a23fee4",
+      "size": 763
+    },
+    {
+      "name": "cmudict.dict",
+      "url": "https://raw.githubusercontent.com/cmusphinx/cmudict/74790861f652b15e4ac49015a90074ad62a27690/cmudict.dict",
+      "sha256": "81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22",
+      "size": 3618488
+    },
+    {
+      "name": "LICENSE.cmudict",
+      "url": "https://raw.githubusercontent.com/cmusphinx/cmudict/74790861f652b15e4ac49015a90074ad62a27690/LICENSE",
+      "sha256": "bd4ce8e44170a5f9f481310ca85c51de3c4f851a65e679b40e603b143bd3542a",
+      "size": 1754
+    },
+    {
+      "name": "arpabet.py",
+      "url": "https://raw.githubusercontent.com/jiroshimaya/arpakana/203c274f86ce7808f76ec0cc3fbd758354ee08c1/src/arpakana/arpabet.py",
+      "sha256": "4f258c95766a9299d8a5c60b89d4cb48246d6fc15885a8fdbcf6e805167370fa",
+      "size": 17463
+    },
+    {
+      "name": "LICENSE.arpakana",
+      "url": "https://raw.githubusercontent.com/jiroshimaya/arpakana/203c274f86ce7808f76ec0cc3fbd758354ee08c1/LICENSE",
+      "sha256": "d5ea8495227fb86269fea81ae8d22eba7885189b35067e66f5346ddf47302ee8",
+      "size": 1079
+    },
+    {
+      "name": "jmdict-eng-3.6.2+20260720135044.json.tgz",
+      "url": "https://github.com/scriptin/jmdict-simplified/releases/download/3.6.2%2B20260720135044/jmdict-eng-3.6.2+20260720135044.json.tgz",
+      "sha256": "b3524eb36dba5c096d509c73640460462915fb9121a1e0cb86a6f7936c0ccd3e",
+      "size": 11448599
+    },
+    {
+      "name": "LICENSE.jmdict",
+      "url": "https://raw.githubusercontent.com/scriptin/jmdict-simplified/00318cd4b2d3690bc66cb2c2d3636a34485b77be/LICENSE.txt",
+      "sha256": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+      "size": 20131
+    }
+  ],
+  "conversion": {
+    "python": "3.11",
+    "packages": [
+      "numpy==1.26.4",
+      "tensorflow-cpu==2.18.1",
+      "keras==3.8.0",
+      "tf2onnx==1.16.1",
+      "onnxruntime==1.20.1"
+    ]
+  }
+}

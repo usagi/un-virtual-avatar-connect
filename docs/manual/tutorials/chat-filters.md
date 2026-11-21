@@ -2,7 +2,7 @@
 
 v1 の Command / Modify / DictionaryCommand を v2 Flowgraph で置き換える最小サンプル。
 
-> ソース: [`flowgraph.example/chat-filters/main.flowgraph.toml`](../../../flowgraph.example/chat-filters/main.flowgraph.toml)
+> ソース: [`flowgraph.example/chat-filters/main.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/chat-filters/main.flowgraph.toml)
 
 ## ねらい
 

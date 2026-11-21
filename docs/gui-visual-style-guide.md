@@ -24,14 +24,17 @@ Dr.USAGI の印象としては、知的でクールな工学系ドクターの�
 
 ### 2.1 Operational First
 
-画面は「操作説明」よりも「現在状態」を優先する。Now / Modes / Resources / Observability / Settings / Flowgraph Studio は、それぞれ次の問いに答える。
+画面は「操作説明」よりも「現在状態」を優先する。トップレベルは利用、構成、接続と管理に分け、それぞれ次の問いに答える。
 
 - Now: 今どう動いているか。
+- Live: 配信中に即触るAI、音声入力、演出操作はどこか。
+- AIパートナー: 誰がどの役割・モデル・観測対象で動くか。
+- Flowgraph Studio: VAC のデータフローをどう構築・編集するか。
+- 辞書: 認識・読み上げで使う語彙をどう管理するか。
 - Modes: どの生活・配信状態として動くか。
 - Resources: 外部アプリや認証は使える状態か。
 - Observability: 何が起きたか、何を根拠に判断できるか。
 - Settings: 永続設定や危険操作をどこで扱うか。
-- Flowgraph Studio: VAC の挙動をどう編集・debugするか。
 
 ### 2.2 Dense but Calm
 
@@ -109,7 +112,7 @@ Dr.USAGI の印象としては、知的でクールな工学系ドクターの�
 上部ヘッダ、左 rail、下部 status bar は「管制卓」の骨格である。派手にせず、常に現在状態と主要操作へ戻れる構造を保つ。
 
 - header: app identity、接続状態、global action
-- rail: Now / Modes / Flowgraph Studio / Resources / Observability / Settings
+- rail: `利用`（ホーム / ライブ）、`構成`（AIパートナー / Flowgraph Studio / 辞書 / 動作モード）、`接続と管理`（連携 / 診断 / 設定）
 - status bar: runtime heartbeat、mode、簡易状態
 
 ### 5.2 Panels
@@ -126,6 +129,9 @@ Dr.USAGI の印象としては、知的でクールな工学系ドクターの�
 Flowgraph Studio は compact IDE として扱う。
 
 - file tree / canvas / inspector / problems の関係を崩さない。
+- 編集対象や現在状態は常に見える文脈情報として置き、長いパスは省略表示とtooltipを併用する。OSやライブラリの内部表現は露出しない。
+- 保存、構成表示など日常的な操作を常時表示し、再読み込み、共有、領域サイズ調整など低頻度の操作は目的別に段階表示する。
+- 狭幅時は操作を無秩序に折り返さず、文脈、主要操作、詳細操作の階層を保つ。長い文字列より主要操作を優先する。
 - editor 操作は icon + tooltip を優先し、必要なものだけ text button にする。
 - node / edge / diagnostics は「構造が読める」ことを最優先する。
 - 将来の group / subgraph / trace 表示を前提に、余白と階層を使い切らない。
@@ -153,7 +159,7 @@ skin は見た目の差し替えであり、情報設計や操作語彙を変え
 
 1. Visual baseline を文書化する。
 2. 現行CSSの token / utility 方針を整理する。
-3. Now / Modes / Resources / Observability / Settings の panel density と見出し階層を揃える。
+3. Now / Live / Modes / Resources / Observability / Settings の panel density と見出し階層を揃える。
 4. Flowgraph Studio の toolbar / inspector / problems の密度と状態表現を揃える。
 5. Theme token と `data-vac-theme` による初期 theme engine を追加する。
 6. Theme ごとの細部調整は、既定 baseline と Playwright screenshot 確認を前提に段階投入する。

@@ -9,10 +9,11 @@
 //!   - [`voice`] (δ-9 Part E.2): Vosk / Whisper を起動し、確定テキストを TriggerEvent で流す。
 //!     実装は V1 と共用の `processor::voice::VoiceSink` 抽象を経由する。
 //!   - [`twitch`] (stub): IRC / EventSub 起動（実装は V1 processor 側を再利用する予定）。
-//!   - [`channel_subscribe`] (δ-9 Part E): `State.channel_datum_tx` broadcast を subscribe し、
-//!     フィルタ通過 datum を `TriggerEvent` として投入する。`channel.emit` の対称入口。
+//!   - [`ai_output`]: AI内部datumをpersonaと用途で絞り、専用ingressへ投入する。
+//!   - `file_watch` (RI-0): file / directory polling watcher。create / modify / delete を `TriggerEvent` として投入。
 //!   - `vmc_ingress` (Phase M1): `flowgraph.ingress.vmc_udp` — 生 UDP を受信し Base64 化して `TriggerEvent` 投入。
 //!   - `osc_ingress` (Phase ρ): `flowgraph.ingress.osc_udp` — 汎用 OSC/UDP。メタに `profile: "osc_udp"`（VMC と分離）。
+//!   - `unmfz_ingress` (Phase M7): `flowgraph.ingress.unmfz` — UNMF/Z Zenoh frame を常時購読して `unmf` として投入。
 //!
 //! ## 典型的な使い方
 //!
@@ -29,10 +30,13 @@
 //! - **禁止**: `motion` への参照（UDP パススルーは motion 層が単独で完結）。`web_interface` へも直接依存しない。
 //! 詳細表は [`docs/architecture.md`](../../docs/architecture.md)「レイヤ境界（Step 4）」。
 
-pub mod channel_subscribe;
+pub mod ai_output;
+pub mod file_watch;
 pub mod osc_ingress;
 pub mod twitch;
 pub mod twitch_eventsub;
+pub mod twitch_stream_state;
+pub mod unmfz_ingress;
 pub mod vmc_ingress;
 pub mod voice;
 pub mod web_input;
@@ -50,9 +54,12 @@ pub struct BridgeCatalog {
 	pub voice: Vec<voice::FlowgraphVoiceIngress>,
 	pub twitch: Vec<twitch::FlowgraphTwitchIngress>,
 	pub twitch_eventsub: Vec<twitch_eventsub::FlowgraphTwitchEventsubIngress>,
-	pub channel_subscribe: Vec<channel_subscribe::FlowgraphChannelSubscribe>,
+	pub twitch_stream_state: Vec<twitch_stream_state::FlowgraphTwitchStreamState>,
+	pub ai_output: Vec<ai_output::FlowgraphAiOutput>,
+	pub file_watch: Vec<file_watch::FlowgraphFileWatchIngress>,
 	pub vmc_udp: Vec<vmc_ingress::FlowgraphVmcUdpIngress>,
 	pub osc_udp: Vec<osc_ingress::FlowgraphOscUdpIngress>,
+	pub unmfz: Vec<unmfz_ingress::FlowgraphUnmfzIngress>,
 }
 
 impl BridgeCatalog {
@@ -61,9 +68,12 @@ impl BridgeCatalog {
 			&& self.voice.is_empty()
 			&& self.twitch.is_empty()
 			&& self.twitch_eventsub.is_empty()
-			&& self.channel_subscribe.is_empty()
+			&& self.twitch_stream_state.is_empty()
+			&& self.ai_output.is_empty()
+			&& self.file_watch.is_empty()
 			&& self.vmc_udp.is_empty()
 			&& self.osc_udp.is_empty()
+			&& self.unmfz.is_empty()
 	}
 
 	pub fn len(&self) -> usize {
@@ -71,16 +81,19 @@ impl BridgeCatalog {
 			+ self.voice.len()
 			+ self.twitch.len()
 			+ self.twitch_eventsub.len()
-			+ self.channel_subscribe.len()
+			+ self.twitch_stream_state.len()
+			+ self.ai_output.len()
+			+ self.file_watch.len()
 			+ self.vmc_udp.len()
 			+ self.osc_udp.len()
+			+ self.unmfz.len()
 	}
 }
 
 /// ζ-3: Flowgraph 実行中に走っている bridge ワーカーたちをまとめた lifecycle 管理用ハンドル。
 ///
 /// - 初回起動時: `app_core::boot` が [`spawn_all_from_state`] を呼び、戻りを `State` に格納する。
-/// - reload 時: [`web_interface::control::flowgraph::reload_runtime`] が旧 handles を取り出して
+/// - reload 時: [`web_interface::control::flowgraph::reload::reload_runtime_with_restart_status`] が旧 handles を取り出して
 ///   [`BridgeHandles::finish_all`] で停止 → 新 runtime 上で再 spawn → 入れ替え、という流れ。
 ///
 /// `web_input_snapshot` は actix HTTP server を再起動できない制約上、差分検出用にだけ持つ。
@@ -89,10 +102,13 @@ impl BridgeCatalog {
 pub struct BridgeHandles {
 	pub(crate) twitch: Vec<twitch::TwitchBridgeHandle>,
 	pub(crate) twitch_eventsub: Vec<twitch_eventsub::TwitchEventsubBridgeHandle>,
+	pub(crate) twitch_stream_state: Vec<tokio::task::JoinHandle<()>>,
 	pub(crate) voice: Vec<crate::processor::voice::VoiceIngress>,
-	pub(crate) channel_subscribe: Vec<tokio::task::JoinHandle<()>>,
+	pub(crate) ai_output: Vec<tokio::task::JoinHandle<()>>,
+	pub(crate) file_watch: Vec<tokio::task::JoinHandle<()>>,
 	pub(crate) vmc_udp: Vec<tokio::task::JoinHandle<()>>,
 	pub(crate) osc_udp: Vec<tokio::task::JoinHandle<()>>,
+	pub(crate) unmfz: Vec<tokio::task::JoinHandle<()>>,
 	/// actix に登録済みの web_input エンドポイントのスナップショット。reload 差分検出専用。
 	pub(crate) web_input_snapshot: Vec<web_input::FlowgraphWebInputEndpoint>,
 }
@@ -108,10 +124,13 @@ impl std::fmt::Debug for BridgeHandles {
 		f.debug_struct("BridgeHandles")
 			.field("twitch", &self.twitch.len())
 			.field("twitch_eventsub", &self.twitch_eventsub.len())
+			.field("twitch_stream_state", &self.twitch_stream_state.len())
 			.field("voice", &self.voice.len())
-			.field("channel_subscribe", &self.channel_subscribe.len())
+			.field("ai_output", &self.ai_output.len())
+			.field("file_watch", &self.file_watch.len())
 			.field("vmc_udp", &self.vmc_udp.len())
 			.field("osc_udp", &self.osc_udp.len())
+			.field("unmfz", &self.unmfz.len())
 			.field("web_input_snapshot", &self.web_input_snapshot.len())
 			.finish()
 	}
@@ -122,11 +141,46 @@ impl BridgeHandles {
 		Self {
 			twitch: Vec::new(),
 			twitch_eventsub: Vec::new(),
+			twitch_stream_state: Vec::new(),
 			voice: Vec::new(),
-			channel_subscribe: Vec::new(),
+			ai_output: Vec::new(),
+			file_watch: Vec::new(),
 			vmc_udp: Vec::new(),
 			osc_udp: Vec::new(),
+			unmfz: Vec::new(),
 			web_input_snapshot: Vec::new(),
+		}
+	}
+
+	pub(crate) fn voice_worker_count(&self) -> usize {
+		self.voice.len()
+	}
+
+	pub(crate) fn voice_worker_statuses(&self) -> Vec<crate::processor::voice::VoiceWorkerStatus> {
+		self.voice.iter().map(crate::processor::voice::VoiceIngress::status).collect()
+	}
+
+	pub(crate) fn twitch_irc_worker_count(&self) -> usize {
+		self.twitch.len()
+	}
+
+	pub(crate) fn twitch_irc_ready_worker_count(&self) -> usize {
+		self.twitch.iter().filter(|handle| handle.is_ready()).count()
+	}
+
+	pub(crate) fn twitch_irc_channel_counts(&self) -> (usize, usize) {
+		self.twitch.iter().fold((0, 0), |(joined, expected), handle| {
+			(joined + handle.joined_channel_count(), expected + handle.expected_channel_count())
+		})
+	}
+
+	pub(crate) fn twitch_eventsub_worker_count(&self) -> usize {
+		self.twitch_eventsub.len()
+	}
+
+	pub(crate) fn release_voice_speech_floors(&self) {
+		for voice in &self.voice {
+			voice.release_speech_floor();
 		}
 	}
 
@@ -148,9 +202,13 @@ impl BridgeHandles {
 				log::warn!("《Bridges》 voice finish タイムアウト");
 			}
 		}
-		// channel_subscribe は JoinHandle を抱えるだけ。State.channel_datum_tx の subscribe は
-		// 自身が abort されない限り生きつづけるので、明示 abort する。
-		for h in self.channel_subscribe {
+		for h in self.ai_output {
+			h.abort();
+		}
+		for h in self.twitch_stream_state {
+			h.abort();
+		}
+		for h in self.file_watch {
 			h.abort();
 		}
 		for h in self.vmc_udp {
@@ -159,6 +217,92 @@ impl BridgeHandles {
 		for h in self.osc_udp {
 			h.abort();
 		}
+		for h in self.unmfz {
+			h.abort();
+		}
+	}
+}
+
+/// OAuth 更新後に、認証情報へ依存する Twitch bridge だけを再起動する。
+///
+/// Flowgraph 全体の reload は音声認識や AI 出力まで中断するため、DCF 完了時には使わない。
+pub async fn restart_twitch_from_state(state: &SharedState) {
+	let (catalog, trigger, bridge_handles, runtime_health) = {
+		let s = state.read().await;
+		let fg = s.flowgraph.read().await;
+		let (catalog, trigger) = match fg.as_ref() {
+			Some(rt) => (collect_all(&rt.node_meta), rt.trigger()),
+			None => (BridgeCatalog::default(), None),
+		};
+		(catalog, trigger, s.bridge_handles.clone(), s.runtime_health.clone())
+	};
+
+	let mut handles = bridge_handles.lock().await;
+	let old_eventsub = std::mem::take(&mut handles.twitch_eventsub);
+	let old_irc = std::mem::take(&mut handles.twitch);
+
+	for handle in old_eventsub {
+		let node_id = handle.node_id().to_string();
+		if tokio::time::timeout(std::time::Duration::from_secs(5), handle.finish())
+			.await
+			.is_err()
+		{
+			log::warn!("《Bridges》 OAuth反映時の twitch_eventsub finish タイムアウト node={}", node_id);
+		}
+	}
+	for handle in old_irc {
+		if tokio::time::timeout(std::time::Duration::from_secs(5), handle.finish())
+			.await
+			.is_err()
+		{
+			log::warn!("《Bridges》 OAuth反映時の twitch IRC finish タイムアウト");
+		}
+	}
+
+	runtime_health.replace_component("twitch_irc", Vec::new()).await;
+	handles.twitch = twitch::spawn(&catalog.twitch, trigger.clone(), state.clone()).await;
+	runtime_health.replace_component("twitch_eventsub", Vec::new()).await;
+	handles.twitch_eventsub = twitch_eventsub::spawn(&catalog.twitch_eventsub, trigger, state.clone());
+
+	log::info!(
+		"《Bridges》 OAuth更新を反映: twitch IRC={} / EventSub={}",
+		handles.twitch.len(),
+		handles.twitch_eventsub.len()
+	);
+}
+
+fn voice_start_failure_details(entry: Option<&voice::FlowgraphVoiceIngress>) -> (&'static str, &'static str, &'static str) {
+	match entry {
+		Some(entry) if entry.model_path.trim().is_empty() && entry.engine == "vosk" => (
+			"voice_vosk_model_missing",
+			"Voskの音声認識モデルが設定されていない。",
+			"右側のInspectorでModel PathのSetを押し、`vosk-model-small-ja-0.22`を入力する。続けてSave、Reloadの順に実行する。",
+		),
+		Some(entry) if entry.model_path.trim().is_empty() && matches!(entry.engine.as_str(), "whisper" | "whisper-rs") => (
+			"voice_whisper_model_missing",
+			"Whisperの音声認識モデルが設定されていない。",
+			"右側のInspectorでModel PathにWhisper GGMLモデルのパスを設定する。続けてSave、Reloadの順に実行する。",
+		),
+		Some(entry) if entry.engine == "vosk" && !cfg!(feature = "voice-vosk") => (
+			"voice_vosk_backend_unavailable",
+			"このUNVACビルドにはVosk音声認識が含まれていない。",
+			"Voskを含むrelease variantを使用する。公式のportableとminimalはどちらもVoskを含む。",
+		),
+		Some(entry) if matches!(entry.engine.as_str(), "whisper" | "whisper-rs") && !cfg!(feature = "voice-whisper") => (
+			"voice_whisper_backend_unavailable",
+			"このUNVACビルドにはWhisper音声認識が含まれていない。",
+			"Vulkan workerとCPU fallbackを含むportable release variantを使用する。",
+		),
+		Some(entry) if !matches!(entry.engine.as_str(), "vosk" | "whisper" | "whisper-rs") => (
+			"voice_engine_unknown",
+			"音声認識エンジンの指定を認識できない。",
+			"右側のInspectorでEngineを`vosk`または`whisper`に設定する。続けてSave、Reloadの順に実行する。",
+		),
+		_ => (
+			"voice_worker_start_failed",
+			"音声認識ワーカーを開始できない。",
+			"右側のInspectorでEngineとModel Pathを確認する。変更後はSave、Reloadの順に実行する。",
+		),
 	}
 }
 
@@ -179,38 +323,80 @@ pub async fn spawn_all_from_state(state: &SharedState, channel_datum_tx: &broadc
 
 	if !catalog.is_empty() {
 		log::info!(
-			"《Flowgraph/Bridges》 ingress 合計 {} 件: web_input={}, voice={}, twitch={}, twitch_eventsub={}, channel_subscribe={}, vmc_udp={}, osc_udp={}",
+			"《Flowgraph/Bridges》 ingress 合計 {} 件: web_input={}, voice={}, twitch={}, twitch_eventsub={}, twitch_stream_state={}, ai_output={}, file_watch={}, vmc_udp={}, osc_udp={}, unmfz={}",
 			catalog.len(),
 			catalog.web_input.len(),
 			catalog.voice.len(),
 			catalog.twitch.len(),
 			catalog.twitch_eventsub.len(),
-			catalog.channel_subscribe.len(),
+			catalog.twitch_stream_state.len(),
+			catalog.ai_output.len(),
+			catalog.file_watch.len(),
 			catalog.vmc_udp.len(),
-			catalog.osc_udp.len()
+			catalog.osc_udp.len(),
+			catalog.unmfz.len()
 		);
 	}
 
-	let shutdown = {
+	let (shutdown, unmfz_transport) = {
 		let s = state.read().await;
-		s.shutdown.clone()
+		(s.shutdown.clone(), s.unmfz_transport.clone())
 	};
 
 	let tokio_handle = tokio::runtime::Handle::current();
-	let voice = voice::spawn(&catalog.voice, trigger.clone(), tokio_handle);
+	let (control_event_tx, speech_floor, voice_input) = {
+		let s = state.read().await;
+		(s.control_event_tx.clone(), s.speech_floor.clone(), s.voice_input.clone())
+	};
+	let (voice, failed_voice_nodes) = voice::spawn(
+		&catalog.voice,
+		trigger.clone(),
+		tokio_handle,
+		control_event_tx,
+		speech_floor,
+		voice_input,
+		std::sync::Arc::downgrade(state),
+	);
+	let runtime_health = state.read().await.runtime_health.clone();
+	let voice_issues = failed_voice_nodes
+		.into_iter()
+		.map(|node| {
+			let entry = catalog.voice.iter().find(|entry| entry.node_id == node);
+			let (code, message, resolution) = voice_start_failure_details(entry);
+			crate::runtime_health::RuntimeIssue::error(
+				format!("voice:{node}"),
+				"voice",
+				code,
+				message,
+				"この音声入力から Flowgraph へ発話を渡せない。",
+				"flowgraph",
+				Some(node),
+			)
+			.with_resolution(resolution)
+		})
+		.collect();
+	runtime_health.replace_component("voice", voice_issues).await;
+	runtime_health.replace_component("twitch_irc", Vec::new()).await;
 	let twitch = twitch::spawn(&catalog.twitch, trigger.clone(), state.clone()).await;
+	runtime_health.replace_component("twitch_eventsub", Vec::new()).await;
 	let twitch_eventsub = twitch_eventsub::spawn(&catalog.twitch_eventsub, trigger.clone(), state.clone());
-	let channel_subscribe = channel_subscribe::spawn(&catalog.channel_subscribe, trigger.clone(), channel_datum_tx);
+	let twitch_stream_state = twitch_stream_state::spawn(&catalog.twitch_stream_state, trigger.clone(), channel_datum_tx);
+	let ai_output = ai_output::spawn(&catalog.ai_output, trigger.clone(), channel_datum_tx);
+	let file_watch = file_watch::spawn(&catalog.file_watch, trigger.clone(), shutdown.clone());
 	let vmc_udp = vmc_ingress::spawn(&catalog.vmc_udp, trigger.clone(), shutdown.clone());
-	let osc_udp = osc_ingress::spawn(&catalog.osc_udp, trigger.clone(), shutdown);
+	let osc_udp = osc_ingress::spawn(&catalog.osc_udp, trigger.clone(), shutdown.clone());
+	let unmfz = unmfz_ingress::spawn(&catalog.unmfz, trigger.clone(), shutdown, unmfz_transport);
 
 	BridgeHandles {
 		twitch,
 		twitch_eventsub,
+		twitch_stream_state,
 		voice,
-		channel_subscribe,
+		ai_output,
+		file_watch,
 		vmc_udp,
 		osc_udp,
+		unmfz,
 		web_input_snapshot: catalog.web_input,
 	}
 }
@@ -255,9 +441,35 @@ pub fn collect_all(node_meta: &HashMap<String, LoadedNodeMeta>) -> BridgeCatalog
 					cat.twitch_eventsub.push(t);
 				}
 			}
-			"flowgraph.ingress.channel_subscribe" => {
-				if let Some(s) = channel_subscribe::FlowgraphChannelSubscribe::from_meta(fq, meta) {
-					cat.channel_subscribe.push(s);
+			"flowgraph.ingress.twitch_stream_state" => {
+				cat.twitch_stream_state
+					.push(twitch_stream_state::FlowgraphTwitchStreamState::from_meta(fq, meta));
+			}
+			"flowgraph.ingress.ai_response" => {
+				cat.ai_output
+					.push(ai_output::FlowgraphAiOutput::from_meta(fq, meta, ai_output::AiOutputKind::Response));
+			}
+			"flowgraph.ingress.ai_speech" => {
+				cat.ai_output
+					.push(ai_output::FlowgraphAiOutput::from_meta(fq, meta, ai_output::AiOutputKind::Speech));
+			}
+			"flowgraph.ingress.ai_avatar_intent" => {
+				cat.ai_output.push(ai_output::FlowgraphAiOutput::from_meta(
+					fq,
+					meta,
+					ai_output::AiOutputKind::AvatarIntent,
+				));
+			}
+			"flowgraph.ingress.ai_avatar_pose" => {
+				cat.ai_output.push(ai_output::FlowgraphAiOutput::from_meta(
+					fq,
+					meta,
+					ai_output::AiOutputKind::AvatarPose,
+				));
+			}
+			"flowgraph.ingress.file_watch" => {
+				if let Some(w) = file_watch::FlowgraphFileWatchIngress::from_meta(fq, meta) {
+					cat.file_watch.push(w);
 				}
 			}
 			"flowgraph.ingress.vmc_udp" => {
@@ -268,6 +480,11 @@ pub fn collect_all(node_meta: &HashMap<String, LoadedNodeMeta>) -> BridgeCatalog
 			"flowgraph.ingress.osc_udp" => {
 				if let Some(v) = osc_ingress::FlowgraphOscUdpIngress::from_meta(fq, meta) {
 					cat.osc_udp.push(v);
+				}
+			}
+			"flowgraph.ingress.unmfz" => {
+				if let Some(v) = unmfz_ingress::FlowgraphUnmfzIngress::from_meta(fq, meta) {
+					cat.unmfz.push(v);
 				}
 			}
 			_ => {}
@@ -315,10 +532,13 @@ mod tests {
 		let h = BridgeHandles::default();
 		assert!(h.twitch.is_empty());
 		assert!(h.twitch_eventsub.is_empty());
+		assert!(h.twitch_stream_state.is_empty());
 		assert!(h.voice.is_empty());
-		assert!(h.channel_subscribe.is_empty());
+		assert!(h.ai_output.is_empty());
+		assert!(h.file_watch.is_empty());
 		assert!(h.vmc_udp.is_empty());
 		assert!(h.osc_udp.is_empty());
+		assert!(h.unmfz.is_empty());
 		assert!(h.web_input_snapshot.is_empty());
 	}
 
@@ -328,5 +548,66 @@ mod tests {
 		let s = format!("{h:?}");
 		assert!(s.contains("BridgeHandles"));
 		assert!(s.contains("twitch"));
+	}
+
+	#[test]
+	fn missing_vosk_model_has_actionable_diagnostic() {
+		let entry = voice::FlowgraphVoiceIngress {
+			node_id: "voice/main::in".into(),
+			label: String::new(),
+			engine: "vosk".into(),
+			model_path: String::new(),
+			source: String::new(),
+			sample_rate: 16000,
+			language_code: "ja".into(),
+			whisper_backend: "auto".into(),
+			whisper_gpu_device: String::new(),
+			grammar_json: String::new(),
+			fixed_channel: "voice".into(),
+			partial_channel: String::new(),
+			partial_interval_ms: 800,
+			partial_min_audio_ms: 1_300,
+			speech_floor_key: String::new(),
+			speech_floor_release_delay_ms: 700,
+			vad_threshold_db: -45.0,
+			vad_endpoint_ms: 600,
+			vad_pre_roll_ms: 400,
+			vad_min_speech_ms: 100,
+		};
+		let (code, message, resolution) = voice_start_failure_details(Some(&entry));
+		assert_eq!(code, "voice_vosk_model_missing");
+		assert!(message.contains("Vosk"));
+		assert!(resolution.contains("vosk-model-small-ja-0.22"));
+	}
+
+	#[cfg(not(feature = "voice-whisper"))]
+	#[test]
+	fn whisper_without_feature_names_release_variants() {
+		let entry = voice::FlowgraphVoiceIngress {
+			node_id: "voice/main::in".into(),
+			label: String::new(),
+			engine: "whisper".into(),
+			model_path: "ggml-medium.bin".into(),
+			source: String::new(),
+			sample_rate: 16000,
+			language_code: "ja".into(),
+			whisper_backend: "auto".into(),
+			whisper_gpu_device: String::new(),
+			grammar_json: String::new(),
+			fixed_channel: "voice".into(),
+			partial_channel: String::new(),
+			partial_interval_ms: 800,
+			partial_min_audio_ms: 1_300,
+			speech_floor_key: String::new(),
+			speech_floor_release_delay_ms: 700,
+			vad_threshold_db: -45.0,
+			vad_endpoint_ms: 600,
+			vad_pre_roll_ms: 400,
+			vad_min_speech_ms: 100,
+		};
+		let (code, message, resolution) = voice_start_failure_details(Some(&entry));
+		assert_eq!(code, "voice_whisper_backend_unavailable");
+		assert!(message.contains("Whisper"));
+		assert!(resolution.contains("portable"));
 	}
 }

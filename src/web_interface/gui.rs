@@ -10,6 +10,19 @@
 
 use actix_web::web;
 
+/// GUI 配信元の状態を起動時に一度だけ記録する。
+pub fn log_distribution_status(dist_path: Option<&str>) {
+	#[cfg(feature = "embed-gui")]
+	{
+		let _ = dist_path;
+		log::info!("《GUI》 バイナリ内蔵 GUI を /gui/ で配信します。");
+	}
+	#[cfg(not(feature = "embed-gui"))]
+	{
+		gui_disk::log_distribution_status(dist_path);
+	}
+}
+
 /// actix-web `App` に `/gui/*` を登録する。
 ///
 /// **`embed-gui` 有効時**: `gui/dist` をバイナリ内蔵で配信し、`dist_path` は無視される。
@@ -33,26 +46,53 @@ pub fn register(cfg: &mut web::ServiceConfig, dist_path: Option<&str>) {
 #[cfg(not(feature = "embed-gui"))]
 mod gui_disk {
 	use actix_web::{web, HttpResponse, Responder};
-	use std::path::PathBuf;
+	use std::path::{Path, PathBuf};
+
+	fn resolve_dist_path(dist: &str) -> PathBuf {
+		let configured = PathBuf::from(dist);
+		if configured.is_absolute() || configured.join("index.html").is_file() {
+			return configured;
+		}
+
+		// Desktop mode changes CWD to the active profile so profile-relative files work.
+		// During a source-tree build, GUI assets still live under the workspace root.
+		let workspace_dist = Path::new(env!("CARGO_MANIFEST_DIR")).join(&configured);
+		if workspace_dist.join("index.html").is_file() {
+			return workspace_dist;
+		}
+
+		configured
+	}
+
+	pub(super) fn log_distribution_status(dist_path: Option<&str>) {
+		let Some(dist) = dist_path else {
+			log::info!("《GUI》 gui_dist_path が null のため /gui/* は未ビルド案内のみ提供します。");
+			return;
+		};
+		let dist_pb = resolve_dist_path(dist);
+		let index_html = dist_pb.join("index.html");
+		if index_html.is_file() {
+			log::info!("《GUI》 {} を /gui/ で配信します。", dist_pb.display());
+		} else {
+			log::warn!(
+				"《GUI》 {} が見つかりません。GUI をビルドするか `embed-gui` を有効にしてください。/gui/* はビルド案内を返します。",
+				index_html.display()
+			);
+		}
+	}
 
 	pub(super) fn register(cfg: &mut web::ServiceConfig, dist_path: Option<&str>) {
 		let Some(dist) = dist_path else {
-			log::info!("《GUI》 gui_dist_path が null のため /gui/* は未ビルド案内のみ提供します。");
 			register_not_built(cfg, None);
 			return;
 		};
-		let dist_pb = PathBuf::from(dist);
+		let dist_pb = resolve_dist_path(dist);
 		let index_html = dist_pb.join("index.html");
 		if !index_html.is_file() {
-			log::warn!(
-				"《GUI》 {} が見つかりません。`cd gui && npm install && npm run build` を実行してください。/gui/* はビルド案内を返します。",
-				index_html.display()
-			);
 			register_not_built(cfg, Some(dist_pb));
 			return;
 		}
 
-		log::info!("《GUI》 {} を /gui/ で配信します。", dist_pb.display());
 		cfg.service(actix_files::Files::new("/gui", dist_pb)
    .index_file("index.html")
    // dotfiles（.env.* 等）が紛れ込んでいても露出させない。
@@ -67,7 +107,6 @@ mod gui_disk {
 		let shown_path = dist_pb
 			.map(|p| p.display().to_string())
 			.unwrap_or_else(|| "(none; gui_dist_path is null)".to_string());
-		log::info!("《GUI》 /gui/* は未ビルド案内 (dist_path={}) を返します。", shown_path);
 		cfg.app_data(web::Data::new(GuiNotBuilt { dist_path: shown_path }));
 		cfg.service(web::resource("/gui{tail:.*}").route(web::get().to(not_built_index)));
 	}

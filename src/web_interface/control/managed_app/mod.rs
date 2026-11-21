@@ -29,11 +29,37 @@ pub struct ManagedAppView {
 	#[serde(flatten)]
 	pub spec: ManagedAppSpec,
 	pub status: ManagedAppStatus,
+	pub unaa_z_status: ManagedAppUnaaZStatus,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ManagedAppsResponse {
 	pub entries: Vec<ManagedAppView>,
+	pub unaa_z_source: String,
+	pub unaa_z_discovery_errors: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ManagedAppUnaaZStatus {
+	pub app_id: String,
+	pub instance_id: String,
+	pub discovery_source: String,
+	pub discovery_source_key: Option<String>,
+	pub discovery_payload_kind: String,
+	pub discovery_observed_at: String,
+	pub discovery_reported_at: Option<String>,
+	pub discovery_age_ms: Option<i128>,
+	pub discovery_stale: bool,
+	pub zenoh_seen: bool,
+	pub running: bool,
+	pub ready: bool,
+	pub capability_count: usize,
+	pub capabilities: Vec<String>,
+	pub command_count: usize,
+	pub commands: Vec<String>,
+	pub allowed_command_count: usize,
+	pub allowed_commands: Vec<String>,
+	pub endpoint_count: usize,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -72,23 +98,88 @@ pub async fn get_managed_apps(state: Data<SharedState>) -> impl Responder {
 		let s = state.read().await;
 		s.managed_apps.clone()
 	};
-	let r = registry.read().await;
-	let entries: Vec<ManagedAppView> = r
-		.specs
+	let (specs, statuses) = {
+		let r = registry.read().await;
+		(r.specs.clone(), r.statuses.clone())
+	};
+	let unaa_z = crate::un_app_api::discovery_snapshot_from_state(&state).await;
+	let entries: Vec<ManagedAppView> = specs
 		.iter()
 		.map(|spec| {
-			let status = r
-				.statuses
+			let status = statuses
 				.get(&spec.id)
 				.cloned()
 				.unwrap_or_else(|| ManagedAppStatus::unknown(&spec.id));
 			ManagedAppView {
 				spec: spec.clone(),
 				status,
+				unaa_z_status: unaa_z_status_for_spec(spec, &unaa_z),
 			}
 		})
 		.collect();
-	HttpResponse::Ok().json(ManagedAppsResponse { entries })
+	HttpResponse::Ok().json(ManagedAppsResponse {
+		entries,
+		unaa_z_source: unaa_z.source,
+		unaa_z_discovery_errors: unaa_z.discovery_errors,
+	})
+}
+
+fn unaa_z_status_for_spec(spec: &ManagedAppSpec, snapshot: &crate::un_app_api::UnAppApiDiscoverySnapshot) -> ManagedAppUnaaZStatus {
+	let app_id = spec.unaa_z_app_id.clone().unwrap_or_else(|| spec.id.clone());
+	let instance_id = spec
+		.unaa_z_instance_id
+		.clone()
+		.or_else(|| spec.unaa_z_app_id.clone())
+		.unwrap_or_else(|| spec.id.clone());
+	let app = snapshot
+		.apps
+		.iter()
+		.find(|app| app.managed_app_id.as_deref() == Some(spec.id.as_str()) || (app.app_id == app_id && app.instance_id == instance_id));
+	if let Some(app) = app {
+		let allowed_commands = crate::un_app_api::allowed_commands_for_app(app);
+		return ManagedAppUnaaZStatus {
+			app_id: app.app_id.clone(),
+			instance_id: app.instance_id.clone(),
+			discovery_source: app.discovery_source.clone(),
+			discovery_source_key: app.discovery_source_key.clone(),
+			discovery_payload_kind: app.discovery_payload_kind.clone(),
+			discovery_observed_at: app.observed_at.to_string(),
+			discovery_reported_at: app.reported_at.map(|ts| ts.to_string()),
+			discovery_age_ms: app.age_ms,
+			discovery_stale: app.stale,
+			zenoh_seen: app.discovery_source != "managed_app_registry",
+			running: app.running,
+			ready: app.ready,
+			capability_count: app.capabilities.len(),
+			capabilities: app.capabilities.clone(),
+			command_count: app.commands.len(),
+			commands: app.commands.clone(),
+			allowed_command_count: allowed_commands.len(),
+			allowed_commands,
+			endpoint_count: app.endpoints.len(),
+		};
+	}
+	ManagedAppUnaaZStatus {
+		app_id,
+		instance_id,
+		discovery_source: "missing".into(),
+		discovery_source_key: None,
+		discovery_payload_kind: "missing".into(),
+		discovery_observed_at: crate::datetime::DateTime::now().to_rfc3339(),
+		discovery_reported_at: None,
+		discovery_age_ms: None,
+		discovery_stale: false,
+		zenoh_seen: false,
+		running: false,
+		ready: false,
+		capability_count: 0,
+		capabilities: Vec::new(),
+		command_count: 0,
+		commands: Vec::new(),
+		allowed_command_count: 0,
+		allowed_commands: Vec::new(),
+		endpoint_count: 0,
+	}
 }
 
 #[post("/managed_apps/{id}/start")]
@@ -261,11 +352,14 @@ pub async fn post_restart(state: Data<SharedState>, id: Path<String>, body: Opti
 			Some(spec) => crate::conf::RunWith::CommandIfProcessIsNotRunning {
 				command: spec.command,
 				if_not_running: spec.process_marker,
+				start_on_launch: Some(spec.start_on_launch),
 				run_as_admin: Some(spec.run_as_admin),
 				working_dir: spec.working_dir,
 				minimized: Some(spec.minimized),
 				id: Some(spec.id),
 				label: Some(spec.label),
+				unaa_z_app_id: spec.unaa_z_app_id,
+				unaa_z_instance_id: spec.unaa_z_instance_id,
 				shutdown: None,
 			},
 			None => {

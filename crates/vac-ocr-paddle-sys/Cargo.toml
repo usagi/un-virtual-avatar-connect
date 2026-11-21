@@ -1,0 +1,14 @@
+[package]
+rust-version = "1.100"
+name = "vac-ocr-paddle-sys"
+version = "0.1.0"
+edition = "2024"
+publish = false
+links = "unvac_paddleocr"
+
+[features]
+default = []
+link = []
+
+[lib]
+path = "src/lib.rs"

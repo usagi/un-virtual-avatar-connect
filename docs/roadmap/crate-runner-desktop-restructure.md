@@ -137,7 +137,8 @@ Restart / profile switch は GUI 側の既存 Control API があるため、tray
 Tauri GUI shell は desktop runner に載せる。CLI は従来型の開発者向け runner として残す。
 
 - CLI はターミナル主体。ログと自動化を維持し、Control API と GUI 配信を起動する。GUI 開発は `gui` の `npm run dev` と組み合わせる。
-- desktop はシステムトレイ常駐主体。tray の `GUI を開く` / 左ダブルクリックで Tauri WebView を show / focus する。
+- desktop は起動時に Tauri WebView GUI を表示し、window close 後はシステムトレイへ常駐する。tray の `GUI を開く` / 左ダブルクリックで再表示する。
+- `CONF` 未指定時は OS の設定ディレクトリにある profile storeからactive profileを開く。初回はstarter profileを生成する。明示指定時とCLIは従来どおり存在する設定を要求する。
 - WebView は既存 Svelte GUI を表示する。window close は hide して tray 常駐を維持し、終了は tray の `終了` または GUI の終了導線を使う。
 - GUI は引き続き HTTP/WS Control API を叩く。
 - `invoke` は原則使わない。bootstrap 情報が必要な場合だけ薄く追加する。

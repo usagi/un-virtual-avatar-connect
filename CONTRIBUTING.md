@@ -2,6 +2,8 @@
 
 Virtual Avatar Connect 開発プロジェクトへの貢献の前に、以下のガイドラインをお読みください。
 
+リポジトリ内の補助 command と platform script の方針は [`docs/development-guidelines.md`](docs/development-guidelines.md) を正本とします。
+
 ## 共通の注意事項
 
 - 相手への優しさを忘れず丁寧で嫌味の無い表現を心掛けて下さい。
@@ -42,7 +44,7 @@ Virtual Avatar Connect 開発プロジェクトへの貢献の前に、以下の
 - リポジトリー内の `.rustfmt.toml` は **stable `cargo fmt` 互換**のみ。PR 前に **`cargo fmt`** で整形して下さい（変更ファイルだけ `rustfmt` 単体を当てても可）。より厳しいルールが必要ならローカルで `cargo +nightly fmt` 等に任せ、**コミットに混ぜない**運用を推奨。
 - Rust 以外のソースについては原則的にインデントを 1-space に統一して下さい。
 - テキストファイルの改行コードは既存のファイルまたは迷ったら LF で統一して下さい。
-- `docs/manual/node-catalog.md` は自動生成ファイルです。組み込み Flowgraph node の spec / metadata を変更した場合は `./scripts/bless-node-catalog.ps1` を実行し、生成差分も PR に含めて下さい。
+- `docs/manual/node-catalog.md` は自動生成ファイルです。組み込み Flowgraph node の spec / metadata を変更した場合は `cargo xtask docs bless-node-catalog` を実行し、生成差分も PR に含めて下さい。
 
 ## 開発者へのより直接的な貢献
 

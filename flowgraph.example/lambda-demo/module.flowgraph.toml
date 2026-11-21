@@ -1,0 +1,40 @@
+# Phase λ: user enumとtyped graph interfaceの最小module。
+[meta]
+title = "lambda-demo module"
+description = "enumsとgraph input/output署名の構文サンプル。"
+
+[graph]
+kind = "module"
+
+[[graph.inputs]]
+name = "exec_in"
+type = "exec"
+to = "log:exec_in"
+
+[[graph.inputs]]
+name = "text"
+type = "string"
+to = "log:value"
+
+[[graph.outputs]]
+name = "exec_out"
+type = "exec"
+from = "log:exec_out"
+
+[[graph.outputs]]
+name = "language"
+type = "string"
+from = "lang:value"
+
+[[enums]]
+id = "demo_lang"
+variants = ["ja", "en"]
+
+[[nodes]]
+id = "lang"
+feature = "flowgraph.literal.string"
+properties.value = "ja"
+
+[[nodes]]
+id = "log"
+feature = "flowgraph.util.log"

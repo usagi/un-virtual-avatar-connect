@@ -1,7 +1,8 @@
 [package]
+rust-version = "1.100"
 name = "vac-gui-assets"
 version = "0.10.0"
-edition = "2021"
+edition = "2024"
 build = "build.rs"
 
 [lib]

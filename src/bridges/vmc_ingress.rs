@@ -153,6 +153,7 @@ mod tests {
 			feature: "flowgraph.ingress.vmc_udp".into(),
 			file: PathBuf::from("t.flowgraph.toml"),
 			position: None,
+			activation_chain: Vec::new(),
 			properties: m,
 		}
 	}

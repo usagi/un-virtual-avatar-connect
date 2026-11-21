@@ -1,0 +1,18 @@
+[package]
+rust-version = "1.100"
+name = "vac-ocr-paddle-eval"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = []
+native-link = ["dep:vac-ocr-paddle-sys", "vac-ocr-paddle-sys/link"]
+
+[[bin]]
+name = "vac-ocr-paddle-eval"
+path = "src/main.rs"
+required-features = ["native-link"]
+
+[dependencies]
+vac-ocr-paddle-sys = { path = "../vac-ocr-paddle-sys", optional = true }

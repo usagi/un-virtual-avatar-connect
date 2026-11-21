@@ -7,9 +7,15 @@
 //! - `[[processors]]` は **全削除** して、`flowgraph_dir = "flowgraph"` を新規キーとして付ける。
 //! - 各 `[[processors]]` エントリは **feature 別に flowgraph フラグメント**として書き出す
 //!   （`<out>/flowgraph/<topic>/main.flowgraph.toml`）。
-//! - `voice` は暫定的に `[[processors]]` を残す（δ-9 で `[voice]` サービス化予定）。
+//! - `voice` は `flowgraph.ingress.voice` へ変換する。V1 `[[processors]]` voice は実行時には警告のみ。
 //!
 //! 非対応 feature は warning を出して skip。`--migrate-strict` なら warning も exit 1。
+
+mod dictionary_file;
+mod dictionary_command;
+mod modify;
+mod topology;
+mod web_input;
 
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -89,7 +95,9 @@ impl MigrationReport {
 	}
 
 	pub fn as_notes_md(&self) -> String {
-		let mut s = String::from("# Migration Notes\n\nこのファイルは `virtual-avatar-connect --migrate` によって自動生成されました。\n\n");
+		let mut s = String::from(
+			"# Migration Notes\n\nこのファイルは `virtual-avatar-connect-cli <conf.toml> --migrate` によって自動生成されました。\n\n",
+		);
 		s.push_str(&format!(
 			"- converted: {}\n- warnings: {}\n- errors: {}\n- files written: {}\n\n",
 			self.entries.iter().filter(|e| e.kind == EntryKind::Converted).count(),
@@ -109,7 +117,7 @@ impl MigrationReport {
 		}
 		s.push_str("\n## Next Steps\n\n");
 		s.push_str("- `migrated/conf.toml` を確認し、環境変数や Bearer token 等が正しいか見直してください。\n");
-		s.push_str("- `migrated/flowgraph/` の各サンプルは **トークンや詳細パラメータがプレースホルダ**のままです。必要に応じて GUI（Flowgraph タブ）で編集してください。\n");
+		s.push_str("- `migrated/flowgraph/` の各サンプルは **トークンや詳細パラメータがプレースホルダ**のままです。必要に応じて GUI（Flowgraph Studio）で編集してください。\n");
 		s.push_str("- `WARN` / `ERROR` が付いた項目は手動対応が必要です。\n");
 		s
 	}
@@ -135,10 +143,14 @@ pub enum MigrateError {
 
 pub fn migrate_conf_file(input_path: &Path, out_dir: &Path, strict: bool) -> Result<MigrationReport, MigrateError> {
 	let src = std::fs::read_to_string(input_path)?;
-	migrate_conf_str(&src, out_dir, strict)
+	migrate_conf_with_base(&src, out_dir, strict, input_path.parent())
 }
 
 pub fn migrate_conf_str(input_toml: &str, out_dir: &Path, strict: bool) -> Result<MigrationReport, MigrateError> {
+	migrate_conf_with_base(input_toml, out_dir, strict, None)
+}
+
+fn migrate_conf_with_base(input_toml: &str, out_dir: &Path, strict: bool, source_base: Option<&Path>) -> Result<MigrationReport, MigrateError> {
 	let mut doc: DocumentMut = input_toml.parse()?;
 	let mut report = MigrationReport {
 		strict,
@@ -165,9 +177,9 @@ pub fn migrate_conf_str(input_toml: &str, out_dir: &Path, strict: bool) -> Resul
 		None => Vec::new(),
 	};
 
-	// --- 2. feature ごとに分類して flowgraph フラグメント or voice 暫定保持 ---
-	let mut voice_processors_to_keep: Vec<Table> = Vec::new();
+	// --- 2. feature ごとに分類して flowgraph フラグメントへ変換 ---
 	let mut topic_counter: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut generated = std::collections::BTreeMap::new();
 
 	for (idx, proc_t) in processors.iter().enumerate() {
 		let feature = proc_t.get("feature").and_then(|i| i.as_str()).unwrap_or("").to_string();
@@ -177,26 +189,45 @@ pub fn migrate_conf_str(input_toml: &str, out_dir: &Path, strict: bool) -> Resul
 			continue;
 		}
 
-		if feature == "voice" {
-			voice_processors_to_keep.push(proc_t.clone());
-			report.warn(
-				Some(feature.clone()),
-				"voice は v2 でも暫定的に [[processors]] のまま保持しました（δ-9 で [voice] サービスに移行予定）。`conf.example-voice.toml` 参照。",
-			);
-			continue;
-		}
-
 		let topic = feature_to_topic(&feature);
 		let counter = topic_counter.entry(topic.clone()).or_insert(0);
 		let suffix = if *counter == 0 { String::new() } else { format!("-{}", counter) };
 		*counter += 1;
 		let topic_dir = flowgraph_root.join(format!("{topic}{suffix}"));
 
-		match render_flowgraph_for(&feature, proc_t, idx) {
+        let rendered = if feature == "modify" {
+            match modify::render(proc_t, source_base, &topic_dir, &mut report) {
+                Ok(graph) => Some(graph),
+                Err(error) => {
+                    report.error(Some(feature.clone()), format!("processors[{idx}] 辞書の移行失敗: {error:#}"));
+                    continue;
+                }
+            }
+        } else {
+            render_flowgraph_for(&feature, proc_t, idx)
+        };
+		match rendered {
 			Some(toml_content) => {
+                let toml_content = if matches!(feature.as_str(), "web-input" | "webinput") {
+                    match web_input::preserve_endpoint(&toml_content, proc_t, &mut report) {
+                        Ok(content) => content,
+                        Err(error) => {
+                            report.error(Some(feature.clone()), format!("processors[{idx}] Web入力の移行失敗: {error}"));
+                            continue;
+                        }
+                    }
+                } else { toml_content };
+                let toml_content = match preserve_activation(&toml_content, proc_t) {
+                    Ok(content) => content,
+                    Err(error) => {
+                        report.error(Some(feature.clone()), format!("processors[{idx}] 有効状態・グループの移行失敗: {error}"));
+                        continue;
+                    }
+                };
 				std::fs::create_dir_all(&topic_dir)?;
 				let file = topic_dir.join("main.flowgraph.toml");
 				std::fs::write(&file, toml_content)?;
+                generated.insert(idx, (format!("{topic}{suffix}/main"), file.clone()));
 				report.written_files.push(file);
 				report.converted(
 					&feature,
@@ -214,30 +245,41 @@ pub fn migrate_conf_str(input_toml: &str, out_dir: &Path, strict: bool) -> Resul
 		}
 	}
 
-	// --- 3. voice だけ processors に戻す ---
-	if !voice_processors_to_keep.is_empty() {
-		let mut arr = toml_edit::ArrayOfTables::new();
-		for t in voice_processors_to_keep {
-			arr.push(t);
-		}
-		doc.insert("processors", Item::ArrayOfTables(arr));
-	}
+    dictionary_command::finish(&processors, &generated, &mut report);
+    topology::connect(&processors, &generated, &mut report)?;
 
-	// --- 4. flowgraph_dir を付与 ---
+	// --- 3. flowgraph_dir を付与 ---
 	if !doc.contains_key("flowgraph_dir") {
 		doc["flowgraph_dir"] = toml_edit::value("flowgraph");
 	}
 
-	// --- 5. ヘッダコメントを差し込む ---
+	// --- 4. ヘッダコメントを差し込む ---
 	let header = "# =========================================================================\n\
 	              #  Migrated conf.toml (v2)\n\
 	              # =========================================================================\n\
-	              # `virtual-avatar-connect --migrate` によって自動生成されました。\n\
+	              # `virtual-avatar-connect-cli <conf.toml> --migrate` によって自動生成されました。\n\
 	              # `MIGRATION-NOTES.md` で変換結果の詳細を確認し、必要に応じて手動調整してください。\n\
 	              # =========================================================================\n\n";
 	let conf_path = out_dir.join("conf.toml");
 	std::fs::write(&conf_path, format!("{header}{doc}"))?;
 	report.written_files.push(conf_path);
+
+	// Generation alone does not establish that the current runtime can load the result.
+	// Validate without executing nodes or starting external services, and keep the output
+	// for repair even when the migration is incomplete.
+	let diagnostics = match crate::flowgraph::loader::load_flowgraph_dir(&flowgraph_root) {
+        Ok(loaded) => loaded.diagnostics,
+        Err(error) => error.diagnostics,
+    };
+    for diagnostic in diagnostics {
+        let location = diagnostic.file.as_deref().map(|p| p.display().to_string()).unwrap_or_default();
+        let message = format!("生成したFlowgraphの検証 ({location}): {}", diagnostic.message);
+        match diagnostic.severity {
+            crate::flowgraph::loader::Severity::Error => report.error(None, message),
+            crate::flowgraph::loader::Severity::Warning => report.warn(None, message),
+            _ => {}
+        }
+    }
 
 	// --- 6. MIGRATION-NOTES.md ---
 	let notes_path = out_dir.join("MIGRATION-NOTES.md");
@@ -268,13 +310,38 @@ fn feature_to_topic(feature: &str) -> String {
 		"twitch" => "twitch-echo".into(),
 		"twitch-out" => "twitch-chat-send".into(),
 		"web-input" | "webinput" => "web-input".into(),
+		"voice" => "voice-input".into(),
 		other => other.replace('_', "-"),
 	}
+}
+
+fn toml_str(value: &str) -> String {
+	Value::from(value).to_string()
 }
 
 // ---------------------------------------------------------------------
 // feature → flowgraph TOML string
 // ---------------------------------------------------------------------
+
+fn preserve_activation(content: &str, processor: &Table) -> Result<String, String> {
+    let enabled = match processor.get("is_enabled") {
+        None => true,
+        Some(value) => value.as_bool().ok_or("is_enabled は真偽値である必要があります")?,
+    };
+    let mut groups = toml_edit::Array::new();
+    if let Some(value) = processor.get("group") {
+        for group in value.as_array().ok_or("group は文字列配列である必要があります")? {
+            let group = group.as_str().ok_or("group の各要素は文字列である必要があります")?;
+            if group.trim().is_empty() { return Err("空の group は移行できません".into()); }
+            groups.push(group);
+        }
+    }
+    let mut graph: DocumentMut = content.parse().map_err(|e: toml_edit::TomlError| e.to_string())?;
+    if !graph.contains_key("meta") { graph["meta"] = Item::Table(Table::new()); }
+    graph["meta"]["default_enabled"] = toml_edit::value(enabled);
+    graph["meta"]["mode_groups"] = toml_edit::value(groups);
+    Ok(graph.to_string())
+}
 
 fn render_flowgraph_for(feature: &str, proc_t: &Table, idx: usize) -> Option<String> {
 	let id = proc_t.get("id").and_then(|i| i.as_str()).map(|s| s.to_string());
@@ -303,37 +370,54 @@ fn render_flowgraph_for(feature: &str, proc_t: &Table, idx: usize) -> Option<Str
 	};
 
 	match feature {
-		"modify" => Some(format!(
-			"{hdr}\
+		"voice" => {
+			let engine = proc_t.get("voice_engine").and_then(|i| i.as_str()).unwrap_or("vosk").to_ascii_lowercase();
+			let model_path = if engine == "whisper" || engine == "whisper-rs" {
+				proc_t
+					.get("voice_whisper_model_path")
+					.and_then(|i| i.as_str())
+					.unwrap_or("small")
+			} else {
+				proc_t
+					.get("voice_vosk_model_path")
+					.and_then(|i| i.as_str())
+					.unwrap_or("vosk-model-small-ja-0.22")
+			};
+			let language = proc_t.get("voice_language").and_then(|i| i.as_str()).unwrap_or("ja");
+			let fixed_channel = channel_to.as_deref().unwrap_or("voice");
+			Some(format!(
+				"{hdr}\
 [[nodes]]\n\
 id = \"in\"\n\
-feature = \"flowgraph.ingress.web_input\"\n\
+feature = \"flowgraph.ingress.voice\"\n\
 position = [80, 200]\n\
-\n\
-[[nodes]]\n\
-id = \"dict\"\n\
-feature = \"flowgraph.glossary.replace\"\n\
-position = [400, 200]\n\
-# TODO: v1 の dictionary_files / regex_files をここに配線する必要があるが、\n\
-# 現状 `list<json>` を構築できる literal ノードが未整備のため空辞書のまま。\n\
-# δ-9 で `flowgraph.literal.list_json` 予定。\n\
+properties.engine = {engine}\n\
+properties.model_path = {model_path}\n\
+properties.language_code = {language}\n\
+properties.fixed_channel = {fixed_channel}\n\
 \n\
 [[nodes]]\n\
 id = \"log\"\n\
 feature = \"flowgraph.util.log\"\n\
-position = [720, 200]\n\
+position = [420, 200]\n\
 \n\
-[[edges]]\n\
-from = \"in:content\"\n\
-to = \"dict:content\"\n\
 [[edges]]\n\
 from = \"in:exec_out\"\n\
 to = \"log:exec_in\"\n\
 [[edges]]\n\
-from = \"dict:result\"\n\
+from = \"in:content\"\n\
 to = \"log:value\"\n",
-			hdr = header("Migrated: modify", "v1 modify processor の骨格。辞書/正規表現の配線は手動で行ってください。", &["migrated", "modify"])
-		)),
+				hdr = header(
+					"Migrated: voice",
+					"v1 voice processor の骨格。flowgraph.ingress.voice が Vosk / Whisper worker を起動し、確定テキストを下流へ流します。",
+					&["migrated", "voice", "ingress"],
+				),
+				engine = toml_str(&engine),
+				model_path = toml_str(model_path),
+				language = toml_str(language),
+				fixed_channel = toml_str(fixed_channel),
+			))
+		}
 		"command" => Some(format!(
 			"{hdr}\
 [[nodes]]\n\
@@ -547,7 +631,7 @@ to = \"log:value\"\n",
 			))
 		},
 		"screenshot" => {
-			let title = proc_t.get("title").and_then(|i| i.as_str()).unwrap_or("メモ帳");
+			let title = toml_str(proc_t.get("title").and_then(|i| i.as_str()).unwrap_or("メモ帳"));
 			Some(format!(
 				"{hdr}\
 [[nodes]]\n\
@@ -559,7 +643,7 @@ position = [80, 200]\n\
 id = \"title\"\n\
 feature = \"flowgraph.literal.string\"\n\
 position = [80, 380]\n\
-properties.value = \"{title}\"\n\
+properties.value = {title}\n\
 \n\
 [[nodes]]\n\
 id = \"cap\"\n\
@@ -576,7 +660,7 @@ from = \"in:exec_out\"\n\
 to = \"cap:exec_in\"\n\
 [[edges]]\n\
 from = \"title:value\"\n\
-to = \"cap:title\"\n\
+to = \"cap:target_title\"\n\
 [[edges]]\n\
 from = \"cap:on_success\"\n\
 to = \"log:exec_in\"\n\
@@ -588,7 +672,7 @@ to = \"log:value\"\n\
 			))
 		},
 		"ocr" => {
-			let lang = proc_t.get("lang").and_then(|i| i.as_str()).unwrap_or("ja-JP");
+			let lang = toml_str(proc_t.get("lang").and_then(|i| i.as_str()).unwrap_or("ja-JP"));
 			Some(format!(
 				"{hdr}\
 [[nodes]]\n\
@@ -600,7 +684,7 @@ position = [80, 200]\n\
 id = \"lang\"\n\
 feature = \"flowgraph.literal.string\"\n\
 position = [80, 380]\n\
-properties.value = \"{lang}\"\n\
+properties.value = {lang}\n\
 \n\
 [[nodes]]\n\
 id = \"ocr\"\n\
@@ -617,7 +701,7 @@ from = \"in:exec_out\"\n\
 to = \"ocr:exec_in\"\n\
 [[edges]]\n\
 from = \"in:content\"\n\
-to = \"ocr:data_url\"\n\
+to = \"ocr:source\"\n\
 [[edges]]\n\
 from = \"lang:value\"\n\
 to = \"ocr:lang\"\n\
@@ -628,7 +712,7 @@ to = \"log:exec_in\"\n\
 from = \"ocr:text\"\n\
 to = \"log:value\"\n\
 # TODO: v1 の load_from / lines / check_result_lang は自動変換されていません。\n\
-# 入力として `data_url` には screenshot.capture などが直接繋がる想定です。\n",
+# 入力 `source` は画像のdata URL、ファイルパス、URLを受け取ります。\n",
 				hdr = header("Migrated: ocr", "v1 ocr processor の骨格（Windows 専用）。", &["migrated", "ocr"])
 			))
 		},
@@ -830,8 +914,8 @@ to = \"log:exec_in\"\n\
 [[edges]]\n\
 from = \"in:content\"\n\
 to = \"log:value\"\n\
-# TODO: v1 の web_input_path / web_input_method / web_input_body_format は自動変換されていません。\n\
-# v2 では GET/POST はエンドポイント側で受けて ingress.web_input に統合される想定です。\n",
+# INFO: Web入力のURL・メソッド・対応する本文形式は移行処理で設定します。\n\
+# 未対応の形式や動的振り分けはMIGRATION-NOTES.mdで確認してください。\n",
 			hdr = header("Migrated: web-input", "v1 web-input processor の骨格。", &["migrated", "ingress", "web-input"])
 		)),
 		_ => None,
@@ -897,6 +981,34 @@ mod tests {
 	use super::*;
 	use std::path::PathBuf;
 
+	#[test]
+	fn generated_unknown_feature_is_reported_as_failed_migration() {
+		let out = tmp_dir("unknown-generated-feature");
+		let report = migrate_conf_str("[[processors]]\nfeature = \"dictionary-command\"\n", &out, false).unwrap();
+		assert!(report.has_errors());
+		assert!(report.entries.iter().any(|entry| entry.kind == EntryKind::Error
+			&& entry.message.contains("flowgraph.dictionary.command")));
+		let notes = std::fs::read_to_string(out.join("MIGRATION-NOTES.md")).unwrap();
+		assert!(notes.contains("flowgraph.dictionary.command"));
+		assert!(out.join("flowgraph/chat-dictionary-command/main.flowgraph.toml").is_file());
+		std::fs::remove_dir_all(out).unwrap();
+	}
+
+	#[test]
+	fn screenshot_and_ocr_migration_use_current_ports_and_escape_literals() {
+		for (feature, key, value) in [("screenshot", "title", "Game \"window\" \\ review"), ("ocr", "lang", "ja-JP")] {
+			let out = tmp_dir(feature);
+			let source = format!("[[processors]]\nfeature = {}\n{key} = {}\n", toml_str(feature), toml_str(value));
+			let report = migrate_conf_str(&source, &out, false).unwrap();
+			assert!(!report.has_errors(), "{}", report.summary());
+			let loaded = crate::flowgraph::loader::load_flowgraph_dir(&out.join("flowgraph")).unwrap();
+			assert!(loaded.diagnostics.iter().all(|d| d.severity != crate::flowgraph::loader::Severity::Error));
+			let graph = std::fs::read_to_string(out.join(format!("flowgraph/{feature}/main.flowgraph.toml"))).unwrap();
+			assert!(graph.contains(&format!("properties.value = {}", toml_str(value))));
+			std::fs::remove_dir_all(out).unwrap();
+		}
+	}
+
 	fn tmp_dir(label: &str) -> PathBuf {
 		let base = std::env::temp_dir().join(format!(
 			"vac-migrate-test-{}-{}-{}",
@@ -910,7 +1022,82 @@ mod tests {
 		base
 	}
 
+    #[test]
+    fn web_input_empty_path_keeps_legacy_root_endpoint() {
+        for (path, expected) in [("", "/"), ("   ", "/"), ("/", "/"), ("///", "/"), (" chat/ ", "/chat"), ("//chat/", "//chat")] {
+            let out = tmp_dir("web-path");
+            let input = format!("[[processors]]\nfeature='web-input'\nchannel_to='chat'\nweb_input_path='{path}'\n");
+            let report = migrate_conf_str(&input, &out, false).unwrap();
+            assert!(!report.has_errors(), "{}", report.summary());
+            let loaded = crate::flowgraph::loader::load_file(&out.join("flowgraph/web-input/main.flowgraph.toml"), Some("migrated")).unwrap();
+            let endpoints = crate::bridges::collect_all(&loaded.node_meta).web_input;
+            assert_eq!(endpoints.len(), 1);
+            assert_eq!(endpoints[0].path, expected, "legacy path {path:?}");
+            std::fs::remove_dir_all(out).unwrap();
+        }
+    }
+
+    #[test]
+    fn web_input_body_formats_and_defaults_survive_migration() {
+        for (format, expected) in [("toml", "toml"), ("msgpack", "msgpack"), ("messagepack", "msgpack"), ("json", "json")] {
+            let out = tmp_dir(format);
+            let report = migrate_conf_str(&format!("[[processors]]\nfeature='web-input'\nchannel_to='chat'\nweb_input_body_format='{format}'\n"), &out, false).unwrap();
+            assert!(!report.has_errors(), "{}", report.summary());
+            let source = std::fs::read_to_string(out.join("flowgraph/web-input/main.flowgraph.toml")).unwrap();
+            let graph: toml::Value = toml::from_str(&source).unwrap();
+            let props = &graph["nodes"][0]["properties"];
+            assert_eq!(props["path"].as_str(), Some("/input"));
+            assert_eq!(props["method"].as_str(), Some("POST"));
+            assert_eq!(props["body_format"].as_str(), Some(expected));
+            std::fs::remove_dir_all(out).unwrap();
+        }
+    }
+
+    #[test]
+    fn web_input_endpoint_settings_survive_migration() {
+        let out = tmp_dir("web-endpoint");
+        let input = "[[processors]]\nfeature='web-input'\nchannel_to='chat'\nweb_input_path='/chat-message'\nweb_input_method='GET'\nweb_input_body_format='json'\n";
+        let report = migrate_conf_str(input, &out, false).unwrap();
+        assert!(!report.has_errors(), "{}", report.summary());
+        let source = std::fs::read_to_string(out.join("flowgraph/web-input/main.flowgraph.toml")).unwrap();
+        let graph: toml::Value = toml::from_str(&source).unwrap();
+        let node = graph["nodes"].as_array().unwrap().iter().find(|n|n["id"].as_str()==Some("in")).unwrap();
+        assert_eq!(node.get("properties").and_then(|p|p.get("path")).and_then(|v|v.as_str()), Some("/chat-message"));
+        assert_eq!(node["properties"]["method"].as_str(), Some("GET"));
+        assert_eq!(node["properties"]["fixed_channel"].as_str(), Some("chat"));
+        std::fs::remove_dir_all(out).unwrap();
+    }
+
 	#[test]
+	fn activation_metadata_survives_migration_and_loader() {
+        for (suffix, fields, enabled, groups) in [
+            ("disabled", "is_enabled=false\ngroup=['streaming','assistant']", false, vec!["streaming", "assistant"]),
+            ("disabled-ungrouped", "is_enabled=false", false, vec![]),
+            ("default", "", true, vec![]),
+        ] {
+            let out = std::env::temp_dir().join(format!("vac-activation-{suffix}-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            let report = migrate_conf_str(&format!("[[processors]]\nfeature='web-input'\nchannel_to='user'\n{fields}\n"), &out, false).unwrap();
+            assert!(!report.has_errors(), "{}", report.summary());
+            let file = report.written_files.iter().find(|p|p.file_name().is_some_and(|n|n=="main.flowgraph.toml")).unwrap();
+            let loaded = crate::flowgraph::loader::load_file(file, Some("migrated")).unwrap();
+            let activation = loaded.file_activation.get("migrated").unwrap();
+            assert_eq!(activation.default_enabled, enabled);
+            assert_eq!(activation.mode_groups, groups);
+            let conf: crate::conf::Conf = toml::from_str("workers=1").unwrap();
+            assert_eq!(crate::flowgraph::activation::file_effective_exec_active("migrated", activation, &conf, None),enabled);
+            std::fs::remove_dir_all(out).unwrap();
+        }
+    }
+
+    #[test]
+    fn activation_invalid_types_are_not_silently_enabled() {
+        for fields in ["is_enabled='false'", "group='streaming'", "group=[1]", "group=['']"] {
+            let processor: DocumentMut = fields.parse().unwrap();
+            assert!(preserve_activation("[[nodes]]\nid='x'\nfeature='flowgraph.literal.string'\n",processor.as_table()).is_err());
+        }
+    }
+
+    #[test]
 	fn minimal_v1_conf_converts() {
 		let src = r#"
 workers = 8
@@ -923,13 +1110,23 @@ channel_to = "tts"
 dictionary_files = ["dict.txt"]
 
 [[processors]]
+feature = "web-input"
+channel_to = "user"
+
+[[processors]]
 feature = "os-tts"
 channel_from = "tts"
 voice_name = "Microsoft Haruka Desktop"
 "#;
 		let out = tmp_dir("minimal");
-		let report = migrate_conf_str(src, &out, false).unwrap();
-		assert_eq!(report.entries.iter().filter(|e| e.kind == EntryKind::Converted).count(), 2);
+        let source = tmp_dir("minimal-source");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("dict.txt"), "うさぎ USAGI\n").unwrap();
+        std::fs::write(source.join("conf.toml"), src).unwrap();
+        let report = migrate_conf_file(&source.join("conf.toml"), &out, false).unwrap();
+        assert!(!report.has_errors(), "{:?}", report.entries);
+        std::fs::remove_dir_all(&source).unwrap();
+		assert_eq!(report.entries.iter().filter(|e| e.kind == EntryKind::Converted).count(), 3);
 		let conf_out = std::fs::read_to_string(out.join("conf.toml")).unwrap();
 		assert!(conf_out.contains("workers = 8"));
 		assert!(!conf_out.contains("[[processors]]"));
@@ -940,7 +1137,7 @@ voice_name = "Microsoft Haruka Desktop"
 	}
 
 	#[test]
-	fn voice_processor_is_kept() {
+	fn voice_processor_converts_to_flowgraph() {
 		let src = r#"
 [[processors]]
 feature = "voice"
@@ -950,9 +1147,16 @@ voice_vosk_model_path = "vosk-model-small-ja-0.22"
 		let out = tmp_dir("voice");
 		let report = migrate_conf_str(src, &out, false).unwrap();
 		let conf_out = std::fs::read_to_string(out.join("conf.toml")).unwrap();
-		assert!(conf_out.contains("[[processors]]"));
-		assert!(conf_out.contains("voice_vosk_model_path"));
-		assert!(report.entries.iter().any(|e| e.kind == EntryKind::Warning));
+		let graph_out = std::fs::read_to_string(out.join("flowgraph/voice-input/main.flowgraph.toml")).unwrap();
+		assert!(!conf_out.contains("[[processors]]"));
+		assert!(out.join("flowgraph/voice-input/main.flowgraph.toml").exists());
+		assert!(graph_out.contains("feature = \"flowgraph.ingress.voice\""));
+		assert!(graph_out.contains("properties.model_path = \"vosk-model-small-ja-0.22\""));
+		assert!(graph_out.contains("properties.fixed_channel = \"user\""));
+		assert!(report
+			.entries
+			.iter()
+			.any(|e| e.kind == EntryKind::Converted && e.feature.as_deref() == Some("voice")));
 		std::fs::remove_dir_all(&out).ok();
 	}
 

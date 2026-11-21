@@ -61,7 +61,7 @@
 - 目的: 起動が通り、認証が疎通し、最小 UI が描画されることを確認する。
 - シナリオ:
   1. `baseURL/gui/?token=<fixture token>` に navigate。
-  2. `TabNav`（Live / Setup / Flowgraph / Logs / Tools）が描画される。
+  2. `Main tabs` navigation（Now / Live / Modes / Flowgraph Studio / Resources / Observability / Settings）が描画される。
   3. `/api/v1/control/channels` が 200 を返す（HTTP 直叩きで認証を確認）。
 - 失敗条件: 500 / 401 / Tab が表示されない / `ToastLayer` に fatal トーストが残る。
 
@@ -70,7 +70,7 @@
 - 目的: γ-4a の dirty tracking + Ctrl+S + fixture 往復の生存確認。
 - 実装:
   1. 事前に `GET /api/v1/control/flowgraph/file/sample` で TOML を snapshot。
-  2. Flowgraph タブ → ファイルツリーの `sample` を開き、`.svelte-flow` + `#in` /
+  2. Flowgraph Studio → ファイルツリーの `sample` を開き、`.svelte-flow` + `#in` /
      `#log` の可視を確認。
   3. Save ボタン label が `Save`（clean）であることを確認。
   4. Palette の検索入力に `util.log` を入れ、`flowgraph.util.log` のみに絞ってから
@@ -96,7 +96,7 @@
   1. Preflight: `GET /api/v1/control/table/sample_dict` で現在値を取り、
      `Dr.USAGI` 行の replacement が `ドクターウサギ` でなければ先に戻す（中断した
      前回 run の自己治癒）。
-  2. Live タブ（既定表示）の `Dictionary Editor` を `<h3>` + `xpath=ancestor::section[1]`
+  2. `Live` タブへ移動し、`Dictionary Editor` を `<h3>` + `xpath=ancestor::section[1]`
      で掴み、検索入力で `Dr.USAGI` 行に絞って [編集] を開く。
   3. 編集フォーム内で `replacement` を `MINE-<nonce>` に書き換える。
   4. **別クライアント (Playwright `request`)** で同じ row を `PATCH` し、
@@ -124,9 +124,9 @@
 - シナリオ:
   1. `/gui/` ロード後、`GET /api/v1/control/tables` で `sample_dict`
      (quick_add 指定あり) が返ることを事前確認。
-  2. Live Quick-Add widget の source / replacement 入力を埋めて [Learn] クリック。
+  2. 辞書タブの Live Quick-Add widget で reading / surface 入力を埋めて [Learn] クリック。
   3. `page.waitForRequest` で `POST /flowgraph/default/trigger/sample::learn`
-     を捕捉し、body (`source`/`replacement`/`kind=literal`/`by=gui:quick_add`) と
+     を捕捉し、body (`reading`/`surface`/`part_of_speech=名詞`/`by=gui:quick_add`) と
      レスポンス 202 Accepted を検証。
   4. 履歴カウンタが `(1)` に変わり、展開して [Undo] を押すと
      `POST /flowgraph/default/trigger/sample::forget` が `mode=latest` で飛ぶ。
@@ -149,11 +149,11 @@
 ### 3.1 `control-panel-smoke.spec.ts` — **完了 (ν-2.1)**
 
 - 目的: 起動が通り、認証が疎通し、最小 UI が描画されることを確認。
-- 実装: `/gui/?token=...` ロード → `<nav aria-label="Main tabs">` の "Live"
+- 実装: `/gui/?token=...` ロード → `<nav aria-label="Main tabs">` の "Now"
   ボタン可視 → `GET /api/v1/control/ping` に Bearer token を載せて 200。
-- 実装メモ: `TabNav.svelte` は `<button>` + `<nav aria-label>` 構造で、`role="tab"`
+- 実装メモ: main navigation は `<button>` + `<nav aria-label>` 構造で、`role="tab"`
   は使われていない。`getByRole('navigation', { name: 'Main tabs' })` でスコープを
-  切り、その中の `getByRole('button', { name: /live/i })` を見る形に確定。
+  切り、その中の `getByRole('button', { name: /now/i })` を見る形に確定。
 
 ---
 
@@ -165,7 +165,7 @@ Rust 側 (`src/conf.rs`) に新規フィールドは足さない。**既存の c
 |---|---|---|
 | `workers` | `2` | E2E 側で並列度を落として再現性を上げる |
 | `log_level` | `"Debug"` | 失敗時に `test-results/` に残ったログから回帰を追える |
-| `web_ui_address` | `"127.0.0.1:57098"` | 開発の 57000 / dev server 5173 と衝突しない |
+| `web_ui_address` | `"127.0.0.1:46098"` | 開発の 57000 / dev server 5173 と衝突せず、Windows動的割当範囲より下 |
 | `state_data_path` | 未設定（RON 永続化なし） | 各テストは空状態から始まる |
 | `runtime_dir` | `"target/e2e-runtime"` | 一時ディレクトリを OS 既定から分離 |
 | `flowgraph_dir` | `"tests/e2e/fixtures/flowgraph"` | 最小の sample flowgraph 同梱 |
@@ -199,7 +199,7 @@ webServer: [
   {
     command: 'cargo run --quiet --release --bin virtual-avatar-connect -- ../conf.fixture.e2e.toml',
     cwd: '..',
-    url: 'http://127.0.0.1:57098/gui/',
+    url: 'http://127.0.0.1:46098/gui/',
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
   },
@@ -289,7 +289,7 @@ webServer: [
 | Windows の file lock で `target/release/*.exe` が掴まれて fixture 側再起動が失敗 | fixture の `runtime_dir` を `target/e2e-runtime` に分離し、PID も session_id で隔離 |
 | svelte-flow の DOM 構造変更で selector が脆くなる | `data-testid` を最小限刺し、role 経路に寄せる（§5.3）|
 | OS 固有フォント差分 | ν-2 時点で visual regression を使わない決定（§5.4） |
-| VAC 起動ポート衝突（既に別プロセスが 57098 を使っている） | fixture を 57098 固定とし、conflict 時は開発者に kill を促すエラーメッセージ |
+| VAC 起動ポート衝突（既に別プロセスが 46098 を使っている） | fixture を 46098 固定とし、競合プロセスを確認してから再実行する |
 | Table 型 `PortSpec::with_default(SocketValue::Table(Table::empty()))` が engine で coerce されず `MissingRequiredInput` を吐く（§3.4 実装中に遭遇） | fixture 側に `flowgraph.table.from_json` (Pure) を挟んで空 Table を供給する回避策を採用。ν-β で engine 側を修正し fixture を簡素化する |
 
 ---

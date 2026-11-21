@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { sharedUsage } from '../src/lib/flowgraph/sharedUsage.ts';
+import type { FlowgraphSharePlan } from '../src/lib/types.ts';
+const base:FlowgraphSharePlan={root_dir:'isolated/one',source_digests:{first:'1',second:'2',shared:'3'},files:['first','shared'],references:[],package_references:[],static_references:[],type_references:[],unverified:[],portable_feature_verified:false};
+const ref=(from_file:string,target:string)=>({from_file,target,instance_id:'use',graph:target,error:null});
+const all={...base,files:['first','second','shared'],references:[ref('first','shared'),ref('second','shared'),ref('second','shared')]};
+assert.deepEqual(sharedUsage(base,all).incoming,[{from:'second',target:'shared'}]);
+assert.throws(()=>sharedUsage(base,{...all,root_dir:'isolated/two'}));
+assert.throws(()=>sharedUsage(base,{...all,source_digests:{...all.source_digests,second:'changed'}}));
+assert.throws(()=>sharedUsage(base,{...all,source_digests:{first:'1',shared:'3'}}));
+assert.equal(sharedUsage(base,{...all,references:[{...ref('second','shared'),target:null,error:'ambiguous'}]}).unresolved,1);
+console.log('PASS: outside consumers, deduplication, profile/revision mismatch, unresolved references');

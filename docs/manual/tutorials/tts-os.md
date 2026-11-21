@@ -2,7 +2,7 @@
 
 OS 標準の TTS（Windows SAPI / macOS say / Linux の tts crate バックエンド）で読み上げる最小サンプル。
 
-> ソース: [`flowgraph.example/tts-os/main.flowgraph.toml`](../../../flowgraph.example/tts-os/main.flowgraph.toml) + [`conf.example-tts.toml`](../../../conf.example-tts.toml)
+> ソース: [`flowgraph.example/tts-os/main.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/tts-os/main.flowgraph.toml) + [`conf.example-tts.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/conf.example-tts.toml)
 
 ## ねらい
 
@@ -30,7 +30,7 @@ ingress.web_input ─→ tts.speak (engine="os", voice="")
 
 ## 声を変える
 
-- Windows: `--test-os-tts` で使えるボイス一覧を出し、`voice` literal を書き換え
+- Windows: OS の音声設定や SAPI 対応ツールで使えるボイス名を確認し、`voice` literal を書き換え
 - macOS: `say -v ?` で一覧、同様に `voice` literal を書き換え
 
 ## 応用

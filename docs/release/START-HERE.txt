@@ -1,0 +1,65 @@
+UN Virtual Avatar Connect 2.0.0 — はじめに
+
+1. 起動
+配布ZIPをフォルダーへ展開し、virtual-avatar-connect-desktop.exe を起動します。
+EXEだけを取り出さず、同梱のDLL・worker・models・licensesを一緒に置いてください。
+RustやNode.jsのインストールは不要です。
+設定画面には Microsoft Edge WebView2 Runtime が必要です。
+未導入の場合はMicrosoft公式ページのEvergreen Runtimeを導入してから起動してください。
+Edgeブラウザー本体とは別の実行環境です。
+https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section
+MSVCP140.dll / VCRUNTIME140.dll / VCRUNTIME140_1.dll がないというエラーは、
+Microsoft Visual C++ v14 Redistributableのx64版を導入してから再試行してください。
+https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/
+
+2. 使いたい機能を選ぶ
+初回画面で用途別の構成を作成するか、既存設定を取り込みます。
+通知・チャット・クリップ紹介だけならAI契約、API key、マイク、アバターは不要です。
+Twitch接続は利用する配信者・投稿用アカウントを確認して認証します。
+AIを使う場合は「AIパートナー」で役割・モデル・API key・観測対象を設定します。
+機能は左の「機能を探す」から開けます。高度な構成編集はFlowgraph Studioで行います。
+保存だけでは稼働中へ反映されない設定があります。画面の適用・再起動案内を確認してください。
+通常起動では、既に起動中のVACがあればその画面を開きます。
+設定ファイルを明示して複数のVACを使う場合は、操作対象とプロファイル名を確認してください。
+
+ホームのモードボタンから、登録済みのモードへ直接切り替えられます。
+OBSやUNAvatar・UNMotionなどを連動させる場合は「連携」でアプリを登録し、
+「動作モード」の「モード別のアプリ設定」で起動・終了などを指定します。
+設定を保存するだけでは起動・終了しません。実際の操作はモード切替時に行います。
+VAC終了時にアプリを残すかどうかも、登録したアプリごとに設定できます。
+UNA・UNMは「終了する範囲」を「登録アプリだけ」にすると、Renderer/Capturerの
+終了をSupervisor自身の設定に任せられます。未保存入力を守るには「強制終了しない」を
+選びます。トレイ収納が有効なら、終了要求後も動作を続ける場合があります。
+
+3. 終了
+ウィンドウを閉じるとトレイに常駐します。停止する場合はアプリの終了操作を使います。
+未保存の編集を確認してから終了してください。
+
+4. 更新前の退避と復元
+対象の設定を使うVACをすべて終了し、旧配布フォルダーと設定を別の場所へコピーします。
+通常の管理プロファイルは %APPDATA%\UN Virtual Avatar Connect\ 全体を退避します。
+UN_VAC_CONFIG_DIRを指定している場合はその指定先です。
+profilesだけでなくsettings.tomlとdeleted-profilesも含めます。
+conf.tomlを指定して起動している場合は、そのフォルダーと外部参照ファイルも退避します。
+プロファイルの共有ZIPには認証情報や編集履歴が含まれず、完全なバックアップではありません。
+新EXEを別フォルダーに置くだけでは設定は分離されません。
+戻す場合はVACを終了し、移行後の編集を別途残してから、旧設定と旧配布物を組にして戻します。
+新旧の設定を混ぜず、元と同じ保存先指定で起動します。
+マイクのミュート状態も保存されるため、再開前に確認してください。
+
+5. 詳細な使い方
+配布版と同じ時点の初回設定: manual/quickstart.md
+v1からの移行・復元: manual/v1-to-v2-migration.md
+全マニュアルの目次: manual/index.md
+マニュアルは同梱しており、テキストエディターでも読めます。
+ソースコード・開発計画へのリンクはWeb版を開きます。Web版は更新されるため、
+配布版と異なる場合があります。
+
+マニュアル（開発中の最新版。配布版との差がある場合があります）:
+https://github.com/usagi/virtual-avatar-connect/blob/v2/docs/manual/index.md
+初回設定:
+https://github.com/usagi/virtual-avatar-connect/blob/v2/docs/manual/quickstart.md
+v1からの移行:
+https://github.com/usagi/virtual-avatar-connect/blob/v2/docs/manual/v1-to-v2-migration.md
+
+UNVAC本体のライセンスは同梱LICENSE、第三者のライセンス表記はlicensesおよびmodelsを参照してください。

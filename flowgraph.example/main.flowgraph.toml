@@ -3,7 +3,7 @@
 # 最小構成の Flowgraph。文字列リテラル 1 個を Log ノードに繋ぐだけ。
 # `main.flowgraph.toml` なので fq name は `main::<node_id>`（folder shortcut: `::<node_id>`）。
 #
-# 起動時に一度だけ log に "Hello, VAC Flowgraph!" が出る。GUI の Flowgraph タブを
+# 起動時に一度だけ log に "Hello, VAC Flowgraph!" が出る。GUI の Flowgraph Studio を
 # 開くと、左ツリーで `main` を選ぶことでキャンバスに可視化される。
 #
 # 使い方:

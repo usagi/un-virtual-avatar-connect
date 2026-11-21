@@ -13,7 +13,7 @@
 //! 位置オフセットは GUI から `position_offset` で受け取り、各ノード position に加算する。
 
 use super::{parse_fragment, Fragment, FragmentDangling, FragmentFile, SCRATCH_PATH};
-use crate::flowgraph::loader::file::{parse_flowgraph_file, EdgeEntry, FlowgraphFile};
+use crate::flowgraph::loader::file::{parse_flowgraph_file, EdgeEntry, FlowgraphFile, FlowgraphGroupDef};
 use crate::flowgraph::loader::reference::parse_port_ref;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -62,7 +62,7 @@ pub enum PasteTarget {
 }
 
 /// paste 動作オプション。
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PasteOptions {
 	#[serde(default)]
 	pub on_conflict_node: OnConflict,
@@ -95,7 +95,7 @@ pub struct PasteRequest {
 // ---------------------------------------------------------------------------
 
 /// paste 結果レポート。GUI は `imported_nodes` / `unresolved_danglings` を表示する。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasteReport {
 	pub written_files: Vec<WrittenFile>,
 	pub imported_nodes: Vec<ImportedNode>,
@@ -106,14 +106,19 @@ pub struct PasteReport {
 }
 
 /// 書き出したファイルの fq (root 相対、拡張子なし) と 実 path。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WrittenFile {
+	/// Original fragment file FQ for folder imports; absent for node merges.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub original_fq: Option<String>,
+	/// BLAKE3 of the serialized bytes successfully published by this write.
+	pub content_digest: String,
 	pub fq: String,
 	pub path: String,
 }
 
 /// 取り込んだノードの ID 変換結果。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportedNode {
 	pub fq_file: String,
 	pub original_id: String,
@@ -121,7 +126,7 @@ pub struct ImportedNode {
 }
 
 /// スキップされたノード（on_conflict_node = skip で衝突したケース）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkippedNode {
 	pub fq_file: String,
 	pub original_id: String,
@@ -146,17 +151,41 @@ pub enum PasteError {
 	Io { path: PathBuf, err: std::io::Error },
 	#[error("既存ファイル TOML パース失敗 ({path}): {err}")]
 	ExistingParse { path: PathBuf, err: String },
+	#[error("取込計画後に保存先が変更されました。上書きしていません: {0}")]
+	DestinationChanged(PathBuf),
+	#[error("保存処理の途中で失敗しました。保存済みファイルとバックアップを確認してください: {source}")]
+	PartialWrite { source: Box<PasteError>, report: Box<PasteReport> },
 }
 
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Called before publication; an error prevents this file from being written.
+pub(crate) trait WriteObserver {
+    fn purpose_id(&self) -> Option<String> { None }
+    fn graphs_planned(&self, _files: &[PlannedGraph], _report: &PasteReport) -> std::io::Result<()> { Ok(()) }
+    fn before_write(&self, path: &Path, before: Option<&[u8]>, after: &[u8], source: Option<&str>) -> std::io::Result<()>;
+    fn graphs_completed(&self, _report: &PasteReport) -> std::io::Result<()> { Ok(()) }
+}
+
+/// Exact post-remapping content, retained before the first folder publication.
+#[derive(Debug, Serialize)]
+pub(crate) struct PlannedGraph {
+    pub original_fq: String,
+    pub fq: String,
+    pub content: String,
+    pub before_digest: Option<String>,
+}
+
 /// fragment TOML + ターゲットを入力に、ディスクへ反映する。
 ///
 /// 成功時でも `unresolved_danglings` が残るケースがある（GUI が remap を指定しなかった場合）。
 /// `.bak` はファイル上書き時のみ作成する。
 pub fn paste_fragment(root: &Path, req: &PasteRequest) -> Result<PasteReport, PasteError> {
+    paste_fragment_observed(root, req, None)
+}
+pub(crate) fn paste_fragment_observed(root: &Path, req: &PasteRequest, observer: Option<&dyn WriteObserver>) -> Result<PasteReport, PasteError> {
 	if !root.exists() {
 		return Err(PasteError::RootMissing(root.to_path_buf()));
 	}
@@ -172,18 +201,25 @@ pub fn paste_fragment(root: &Path, req: &PasteRequest) -> Result<PasteReport, Pa
 	};
 
 	// (1) target の fq prefix / 1 ファイル fq を確定。
-	match &req.target {
+	let result = match &req.target {
 		PasteTarget::File { fq } => {
 			let fq = normalize_fq(fq)?;
-			paste_into_single_file(root, &fq, &fragment, &req.options, &mut report)?;
+			paste_into_single_file(root, &fq, &fragment, &req.options, &mut report, observer)
 		}
 		PasteTarget::Folder { path } => {
 			let prefix = normalize_folder_prefix(path)?;
-			paste_into_folder(root, &prefix, &fragment, &req.options, &mut report)?;
+			paste_into_folder(root, &prefix, &fragment, &req.options, &mut report, observer)
 		}
+	};
+	if let Err(error) = result {
+		return Err(with_write_progress(error, report));
 	}
-
 	Ok(report)
+}
+
+fn with_write_progress(error: PasteError, report: PasteReport) -> PasteError {
+	if report.written_files.is_empty() && report.backups.is_empty() { return error; }
+	PasteError::PartialWrite { source: Box::new(error), report: Box::new(report) }
 }
 
 // ---------------------------------------------------------------------------
@@ -196,26 +232,46 @@ fn paste_into_single_file(
 	fragment: &Fragment,
 	options: &PasteOptions,
 	report: &mut PasteReport,
+    observer: Option<&dyn WriteObserver>,
 ) -> Result<(), PasteError> {
 	// fragment は複数ファイルを含む可能性がある（scope=file/folder/mixed）。
 	// PasteTarget::File は scope=nodes が主用途で、scratch 1 本を前提にするが、
 	// ここは「すべての fragment.files のノード/エッジを 1 ファイルに合流する」挙動に定義する。
 	// （GUI が間違って scope=file 用の fragment を File target に投げても fail-open する。）
 	let dest_path = fq_to_file_path(root, target_fq);
-	let existing = load_existing_file(&dest_path)?;
+	let expected = read_destination(&dest_path)?;
+	let existing = expected.as_deref().map(|bytes| parse_destination(&dest_path, bytes)).transpose()?;
 
+	let is_new = existing.is_none();
 	let mut merged_doc = existing.unwrap_or_default();
+	if is_new {
+		if let Some(first) = fragment.files.first() {
+			merged_doc.graph.kind = first.graph.kind;
+		}
+	}
 	let mut rewrite_map: HashMap<(String, String), String> = HashMap::new(); // (source_fq, src_id) → new_id
-	let mut existing_ids: HashSet<String> = merged_doc.nodes.iter().map(|n| n.id.clone()).collect();
+	let mut existing_ids: HashSet<String> = merged_doc
+		.nodes
+		.iter()
+		.map(|n| n.id.clone())
+		.chain(merged_doc.instances.iter().map(|i| i.id.clone()))
+		.collect();
 
 	for ff in &fragment.files {
+		merge_instances_into(ff, target_fq, &mut merged_doc, &mut rewrite_map, &mut existing_ids, options, report);
 		merge_nodes_into(ff, target_fq, &mut merged_doc, &mut rewrite_map, &mut existing_ids, options, report);
+		merge_declarations(ff, &mut merged_doc, &rewrite_map)?;
 	}
 	merge_edges_into(fragment, target_fq, &mut merged_doc, &rewrite_map);
+	for ff in &fragment.files {
+		merge_groups_into(ff, &mut merged_doc, &rewrite_map);
+	}
 	apply_remaps_into(fragment, target_fq, &mut merged_doc, &rewrite_map, options, report);
 
-	write_file_atomic(&dest_path, &merged_doc, true, report)?;
+	let content_digest = write_file_atomic_observed(&dest_path, &merged_doc, expected.as_deref(), report, observer, None)?;
 	report.written_files.push(WrittenFile {
+		original_fq: None,
+		content_digest,
 		fq: target_fq.to_string(),
 		path: dest_path.display().to_string().replace('\\', "/"),
 	});
@@ -232,67 +288,189 @@ fn paste_into_folder(
 	fragment: &Fragment,
 	options: &PasteOptions,
 	report: &mut PasteReport,
+    observer: Option<&dyn WriteObserver>,
 ) -> Result<(), PasteError> {
-	// fragment.files の path (例: "chat/main.flowgraph.toml") を prefix に寄せる。
-	// SCRATCH_PATH は Folder target では「prefix 直下の __scratch__ ファイル」に落とす。
-	for ff in &fragment.files {
-		// 相対パス検証（`..` 禁止、必ず `.flowgraph.toml` 終わり）。
-		let rel = sanitize_fragment_path(&ff.path)?;
-
-		let final_fq = if prefix_fq.is_empty() {
-			rel.clone()
-		} else {
-			format!("{prefix_fq}/{rel}")
-		};
-		let dest_path = fq_to_file_path(root, &final_fq);
-
-		// ファイル単位の衝突確認
-		let exists = dest_path.exists();
-		if exists {
+	// Reserve all destinations before writing: a renamed file must not steal
+	// another incoming file's name, and references need the complete mapping.
+	let sources = fragment
+		.files
+		.iter()
+		.map(|f| sanitize_fragment_path(&f.path))
+		.collect::<Result<Vec<_>, _>>()?;
+	let destinations = sources
+		.iter()
+		.map(|fq| {
+			if prefix_fq.is_empty() {
+				fq.clone()
+			} else {
+				format!("{prefix_fq}/{fq}")
+			}
+		})
+		.collect::<Vec<_>>();
+	let mut reserved: HashSet<String> = destinations.iter().cloned().collect();
+	let mut mapping = HashMap::new();
+	let mut planned_replacements = HashMap::new();
+	let mut skipped = HashSet::new();
+	for (source, requested) in sources.iter().zip(&destinations) {
+		let mut dest = requested.clone();
+		let mut expected = read_destination(&fq_to_file_path(root, &dest))?;
+		if expected.is_some() {
 			match options.on_conflict_file {
 				OnConflictFile::Skip => {
-					report.skipped_files.push(final_fq);
-					continue;
+					skipped.insert(source.clone());
+					report.skipped_files.push(dest.clone());
 				}
 				OnConflictFile::Rename => {
-					let renamed_fq = find_unused_rename(root, &final_fq);
-					let renamed_path = fq_to_file_path(root, &renamed_fq);
-					paste_single_fragment_file_fresh(ff, &renamed_fq, &renamed_path, fragment, options, report)?;
-					continue;
+					expected = None;
+					for n in 1..u64::MAX {
+						let candidate = format!("{requested}_{n}");
+						if !reserved.contains(&candidate) && !fq_to_file_path(root, &candidate).exists() {
+							dest = candidate;
+							break;
+						}
+					}
 				}
-				OnConflictFile::Overwrite => {
-					paste_single_fragment_file_fresh(ff, &final_fq, &dest_path, fragment, options, report)?;
-					continue;
-				}
-				OnConflictFile::Merge => {
-					paste_single_fragment_file_merge(ff, &final_fq, &dest_path, fragment, options, report)?;
-					continue;
-				}
+				_ => {}
 			}
 		}
-
-		// 新規ファイル作成。
-		paste_single_fragment_file_fresh(ff, &final_fq, &dest_path, fragment, options, report)?;
+		reserved.insert(dest.clone());
+		planned_replacements.insert(source.clone(), expected);
+		mapping.insert(source.clone(), dest);
+	}
+	let known = sources.iter().cloned().collect::<HashSet<_>>();
+	let mut planned = Vec::new();
+	for (ff, source) in fragment.files.iter().zip(&sources) {
+		if skipped.contains(source) {
+			continue;
+		}
+		let final_fq = &mapping[source];
+		let dest_path = fq_to_file_path(root, final_fq);
+		let mut moved = ff.clone();
+		let rewrite_path = |raw: &str| -> String {
+			use crate::flowgraph::loader::reference::{resolve_fq_ref, PortRefStr, ResolveContext};
+			let reference = PortRefStr {
+				fq_path: Some(raw.to_owned()),
+				node_id: "_".into(),
+				port: "_".into(),
+			};
+			let ctx = ResolveContext {
+				current_file_fq: source.clone(),
+				known_file_fqs: known.clone(),
+			};
+			resolve_fq_ref(&reference, &ctx)
+				.ok()
+				.and_then(|fq| mapping.get(&fq).cloned())
+				.unwrap_or_else(|| raw.to_owned())
+		};
+		let rewrite_port = |raw: &str| -> String {
+			match parse_port_ref(raw) {
+				Ok(port) => match port.fq_path {
+					Some(path) => format!("{}::{}:{}", rewrite_path(&path), port.node_id, port.port),
+					None => raw.to_owned(),
+				},
+				Err(_) => raw.to_owned(),
+			}
+		};
+		for e in &mut moved.edges {
+			e.from = rewrite_port(&e.from);
+			e.to = rewrite_port(&e.to);
+		}
+		for instance in &mut moved.instances {
+			instance.graph = rewrite_path(&instance.graph);
+		}
+		for port in &mut moved.graph.inputs {
+			port.to = rewrite_port(&port.to);
+		}
+		for port in &mut moved.graph.outputs {
+			port.from = rewrite_port(&port.from);
+		}
+		if let Some(package) = &mut moved.package {
+			for export in &mut package.exports {
+				*export = rewrite_path(export);
+			}
+		}
+		// Apply each unresolved connection only to its owning file.
+		let mut local = fragment.clone();
+		local.danglings.retain(|d| d.in_file.as_ref().is_none_or(|fq| fq == source));
+		for d in &mut local.danglings {
+			if let Some(from) = &mut d.edge_from {
+				*from = rewrite_port(from);
+			}
+			if let Some(to) = &mut d.edge_to {
+				*to = rewrite_port(to);
+			}
+		}
+		// Cross-file endpoints need ID allocations from every destination first.
+		let incoming_edges = std::mem::take(&mut moved.edges);
+		let expected = planned_replacements[source].clone();
+		let doc = if let Some(bytes) = expected.as_deref().filter(|_| options.on_conflict_file == OnConflictFile::Merge) {
+			prepare_fragment_file_merge(&moved, final_fq, parse_destination(&dest_path, bytes)?, &local, options, report)?
+		} else {
+			prepare_fragment_file_fresh(&moved, final_fq, &local, options, report)?
+		};
+		planned.push((final_fq.clone(), dest_path, doc, incoming_edges, expected, source.clone()));
+	}
+	let global_rewrite = report
+		.imported_nodes
+		.iter()
+		.map(|node| {
+			(
+				(format!("{}.flowgraph.toml", node.fq_file), node.original_id.clone()),
+				node.new_id.clone(),
+			)
+		})
+		.collect::<HashMap<_, _>>();
+	for (fq, _, doc, incoming_edges, _, _) in &mut planned {
+		for edge in incoming_edges.iter() {
+			let rewritten = rewrite_edge_endpoints(edge, &format!("{fq}.flowgraph.toml"), &global_rewrite);
+			if !edge_already_present(&doc.edges, &rewritten) {
+				doc.edges.push(rewritten);
+			}
+		}
+		serialize_flowgraph_file(doc)?;
+	}
+	for (_, path, _, _, expected, _) in &planned {
+		check_destination(path, expected.as_deref())?;
+	}
+    if let Some(observer) = observer {
+        let files = planned.iter().map(|(fq, _, doc, _, expected, source)| {
+            Ok(PlannedGraph {original_fq:source.clone(),fq:fq.clone(),
+                content:serialize_flowgraph_file(doc)?,
+                before_digest:expected.as_deref().map(|bytes|blake3::hash(bytes).to_hex().to_string())})
+        }).collect::<Result<Vec<_>, PasteError>>()?;
+        observer.graphs_planned(&files, report).map_err(|err|PasteError::Io {path:root.into(),err})?;
+    }
+	for (fq, path, doc, _, expected, source) in planned {
+		// A file appearing after planning is a conflict, never new overwrite permission.
+		let content_digest = write_file_atomic_observed(&path, &doc, expected.as_deref(), report, observer, Some(&source))?;
+		report.written_files.push(WrittenFile {
+			original_fq: Some(source),
+			content_digest,
+			fq,
+			path: path.display().to_string().replace('\\', "/"),
+		});
 	}
 	Ok(())
 }
 
-fn paste_single_fragment_file_fresh(
+fn prepare_fragment_file_fresh(
 	ff: &FragmentFile,
 	final_fq: &str,
-	dest_path: &Path,
 	fragment: &Fragment,
 	options: &PasteOptions,
 	report: &mut PasteReport,
-) -> Result<(), PasteError> {
+) -> Result<FlowgraphFile, PasteError> {
 	let mut doc = FlowgraphFile {
+		activation_chain: Vec::new(),
 		meta: ff.meta.clone(),
-		package: None,
+		graph: ff.graph.clone(),
+		package: ff.package.clone(),
 		nodes: Vec::new(),
 		edges: Vec::new(),
-		enums: Vec::new(),
-		types: Vec::new(),
+		enums: ff.enums.clone(),
+		types: ff.types.clone(),
 		groups: Vec::new(),
+		instances: ff.instances.clone(),
 	};
 	let mut rewrite: HashMap<(String, String), String> = HashMap::new();
 	let mut existing_ids: HashSet<String> = HashSet::new();
@@ -300,54 +478,153 @@ fn paste_single_fragment_file_fresh(
 
 	// edges: ff 内部のものだけ対象（scope 越えは paste_single_fragment_file 系では特殊化不要）。
 	for e in &ff.edges {
-		let rewritten = rewrite_edge_endpoints(e, final_fq, &rewrite);
+		let rewritten = rewrite_edge_endpoints(e, &ff.path, &rewrite);
 		if !edge_already_present(&doc.edges, &rewritten) {
 			doc.edges.push(rewritten);
 		}
 	}
+	merge_groups_into(ff, &mut doc, &rewrite);
 
 	// dangling remap（この fragment 全体に対して適用、in_file が final_fq 相当のみ拾う）。
 	apply_remaps_into(fragment, final_fq, &mut doc, &rewrite, options, report);
 
-	write_file_atomic(dest_path, &doc, dest_path.exists(), report)?;
-	report.written_files.push(WrittenFile {
-		fq: final_fq.to_string(),
-		path: dest_path.display().to_string().replace('\\', "/"),
-	});
-	Ok(())
+	Ok(doc)
 }
 
-fn paste_single_fragment_file_merge(
+fn prepare_fragment_file_merge(
 	ff: &FragmentFile,
 	final_fq: &str,
-	dest_path: &Path,
+	existing: FlowgraphFile,
 	fragment: &Fragment,
 	options: &PasteOptions,
 	report: &mut PasteReport,
-) -> Result<(), PasteError> {
-	let existing = load_existing_file(dest_path)?.unwrap_or_default();
+) -> Result<FlowgraphFile, PasteError> {
 	let mut doc = existing;
 	let mut rewrite: HashMap<(String, String), String> = HashMap::new();
-	let mut existing_ids: HashSet<String> = doc.nodes.iter().map(|n| n.id.clone()).collect();
+	let mut existing_ids: HashSet<String> = doc
+		.nodes
+		.iter()
+		.map(|n| n.id.clone())
+		.chain(doc.instances.iter().map(|i| i.id.clone()))
+		.collect();
+	merge_instances_into(ff, final_fq, &mut doc, &mut rewrite, &mut existing_ids, options, report);
 	merge_nodes_into(ff, final_fq, &mut doc, &mut rewrite, &mut existing_ids, options, report);
+	merge_declarations(ff, &mut doc, &rewrite)?;
 	for e in &ff.edges {
-		let rewritten = rewrite_edge_endpoints(e, final_fq, &rewrite);
+		let rewritten = rewrite_edge_endpoints(e, &ff.path, &rewrite);
 		if !edge_already_present(&doc.edges, &rewritten) {
 			doc.edges.push(rewritten);
 		}
 	}
+	merge_groups_into(ff, &mut doc, &rewrite);
 	apply_remaps_into(fragment, final_fq, &mut doc, &rewrite, options, report);
-	write_file_atomic(dest_path, &doc, true, report)?;
-	report.written_files.push(WrittenFile {
-		fq: final_fq.to_string(),
-		path: dest_path.display().to_string().replace('\\', "/"),
-	});
-	Ok(())
+	Ok(doc)
 }
 
 // ---------------------------------------------------------------------------
 // Node merge
 // ---------------------------------------------------------------------------
+
+fn merge_declarations(ff: &FragmentFile, doc: &mut FlowgraphFile, rewrite: &HashMap<(String, String), String>) -> Result<(), PasteError> {
+	fn equal<T: Serialize>(a: &T, b: &T) -> Result<bool, PasteError> {
+		Ok(serde_json::to_value(a).map_err(|e| PasteError::Parse(e.to_string()))?
+			== serde_json::to_value(b).map_err(|e| PasteError::Parse(e.to_string()))?)
+	}
+	macro_rules! merge_named {
+		($target:expr_2021, $incoming:expr_2021, $key:ident, $label:expr_2021) => {
+			for item in $incoming {
+				if let Some(existing) = $target.iter().find(|existing| existing.$key == item.$key) {
+					if !equal(existing, item)? {
+						return Err(PasteError::Parse(format!(
+							"{} '{}' の定義が競合する。別ファイルへの追加または名前の変更が必要。",
+							$label, item.$key
+						)));
+					}
+				} else {
+					$target.push(item.clone());
+				}
+			}
+		};
+	}
+	merge_named!(doc.enums, &ff.enums, id, "enum");
+	merge_named!(doc.types, &ff.types, id, "type");
+	if let Some(package) = &ff.package {
+		if let Some(existing) = &doc.package {
+			if !equal(existing, package)? {
+				return Err(PasteError::Parse("package定義が競合する。別ファイルへの追加が必要。".into()));
+			}
+		} else {
+			doc.package = Some(package.clone());
+		}
+	}
+	let mut graph = ff.graph.clone();
+	// Only this source file's local IDs may rewrite its public interface.
+	let local = rewrite
+		.iter()
+		.filter(|((file, _), _)| file == &ff.path)
+		.map(|(k, v)| (k.clone(), v.clone()))
+		.collect();
+	for port in &mut graph.inputs {
+		port.to = rewrite_single_endpoint(&port.to, &ff.path, &local);
+	}
+	for port in &mut graph.outputs {
+		port.from = rewrite_single_endpoint(&port.from, &ff.path, &local);
+	}
+	if graph.kind != crate::flowgraph::loader::file::GraphKind::Entry || !graph.inputs.is_empty() || !graph.outputs.is_empty() {
+		if doc.graph.kind != graph.kind {
+			return Err(PasteError::Parse(
+				"entryとmoduleは同じファイルへ統合できない。別ファイルへの追加が必要。".into(),
+			));
+		}
+		merge_named!(doc.graph.inputs, &graph.inputs, name, "graph input");
+		merge_named!(doc.graph.outputs, &graph.outputs, name, "graph output");
+	}
+	Ok(())
+}
+
+fn merge_instances_into(
+	ff: &FragmentFile,
+	target_fq: &str,
+	doc: &mut FlowgraphFile,
+	rewrite: &mut HashMap<(String, String), String>,
+	existing_ids: &mut HashSet<String>,
+	options: &PasteOptions,
+	report: &mut PasteReport,
+) {
+	for instance in &ff.instances {
+		let id = if existing_ids.contains(&instance.id) {
+			match options.on_conflict_node {
+				OnConflict::Suffix => allocate_suffixed_id(&instance.id, existing_ids),
+				OnConflict::Skip => {
+					report.skipped_nodes.push(SkippedNode {
+						fq_file: target_fq.into(),
+						original_id: instance.id.clone(),
+						reason: "id-conflict".into(),
+					});
+					continue;
+				}
+				OnConflict::Overwrite => {
+					doc.nodes.retain(|node| node.id != instance.id);
+					doc.instances.retain(|old| old.id != instance.id);
+					instance.id.clone()
+				}
+			}
+		} else {
+			instance.id.clone()
+		};
+		existing_ids.insert(id.clone());
+		let mut copied = instance.clone();
+		copied.id = id.clone();
+		copied.position = apply_position_offset(copied.position, options.position_offset);
+		rewrite.insert((ff.path.clone(), instance.id.clone()), id.clone());
+		doc.instances.push(copied);
+		report.imported_nodes.push(ImportedNode {
+			fq_file: target_fq.into(),
+			original_id: instance.id.clone(),
+			new_id: id,
+		});
+	}
+}
 
 fn merge_nodes_into(
 	ff: &FragmentFile,
@@ -377,6 +654,7 @@ fn merge_nodes_into(
 				OnConflict::Overwrite => {
 					// 既存の同 id ノードを除去してから新規 push。
 					doc.nodes.retain(|n| n.id != node.id);
+					doc.instances.retain(|i| i.id != node.id);
 					existing_ids.insert(node.id.clone());
 					node.id.clone()
 				}
@@ -389,9 +667,7 @@ fn merge_nodes_into(
 		let mut copied = node.clone();
 		copied.id = new_id.clone();
 		copied.position = apply_position_offset(copied.position, options.position_offset);
-		if new_id != node.id {
-			rewrite.insert((ff.path.clone(), node.id.clone()), new_id.clone());
-		}
+		rewrite.insert((ff.path.clone(), node.id.clone()), new_id.clone());
 		doc.nodes.push(copied);
 		report.imported_nodes.push(ImportedNode {
 			fq_file: target_fq.to_string(),
@@ -421,6 +697,58 @@ fn allocate_suffixed_id(base: &str, existing: &HashSet<String>) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Group merge
+// ---------------------------------------------------------------------------
+
+fn merge_groups_into(ff: &FragmentFile, doc: &mut FlowgraphFile, rewrite: &HashMap<(String, String), String>) {
+	if ff.groups.is_empty() {
+		return;
+	}
+	let existing_nodes: HashSet<String> = doc.nodes.iter().map(|n| n.id.clone()).collect();
+	let mut existing_group_ids: HashSet<String> = doc.groups.iter().map(|g| g.id.clone()).collect();
+	for group in &ff.groups {
+		let node_ids = group
+			.node_ids
+			.iter()
+			.map(|node_id| rewrite_node_id(node_id, &ff.path, rewrite))
+			.filter(|node_id| existing_nodes.contains(node_id))
+			.collect::<Vec<_>>();
+		if node_ids.is_empty() {
+			continue;
+		}
+		let id = if existing_group_ids.contains(&group.id) {
+			allocate_suffixed_group_id(&group.id, &existing_group_ids)
+		} else {
+			group.id.clone()
+		};
+		existing_group_ids.insert(id.clone());
+		doc.groups.push(FlowgraphGroupDef {
+			id,
+			label: group.label.clone(),
+			node_ids,
+			color: group.color.clone(),
+		});
+	}
+}
+
+fn rewrite_node_id(node_id: &str, source_path: &str, rewrite: &HashMap<(String, String), String>) -> String {
+	rewrite
+		.get(&(source_path.to_owned(), node_id.to_owned()))
+		.cloned()
+		.unwrap_or_else(|| node_id.to_owned())
+}
+
+fn allocate_suffixed_group_id(base: &str, existing: &HashSet<String>) -> String {
+	for n in 1..u64::MAX {
+		let candidate = format!("{base}_{n}");
+		if !existing.contains(&candidate) {
+			return candidate;
+		}
+	}
+	unreachable!("u64 空間を使い切ることはない")
+}
+
+// ---------------------------------------------------------------------------
 // Edge merge
 // ---------------------------------------------------------------------------
 
@@ -429,7 +757,10 @@ fn merge_edges_into(fragment: &Fragment, target_fq: &str, doc: &mut FlowgraphFil
 		for e in &ff.edges {
 			// 元 fragment では fragment 内 edge だけがここに来る（dangling は別）。
 			// rewrite 辞書で node_id を書き換えつつ doc に追加。
-			let rewritten = rewrite_edge_endpoints(e, target_fq, rewrite);
+			let rewritten = EdgeEntry {
+				from: rewrite_merged_endpoint(&e.from, &ff.path, rewrite),
+				to: rewrite_merged_endpoint(&e.to, &ff.path, rewrite),
+			};
 			if !edge_already_present(&doc.edges, &rewritten) {
 				doc.edges.push(rewritten);
 			}
@@ -440,32 +771,44 @@ fn merge_edges_into(fragment: &Fragment, target_fq: &str, doc: &mut FlowgraphFil
 	let _ = target_fq;
 }
 
-fn rewrite_edge_endpoints(e: &EdgeEntry, _target_fq: &str, rewrite: &HashMap<(String, String), String>) -> EdgeEntry {
+fn rewrite_edge_endpoints(e: &EdgeEntry, source_path: &str, rewrite: &HashMap<(String, String), String>) -> EdgeEntry {
 	EdgeEntry {
-		from: rewrite_single_endpoint(&e.from, rewrite),
-		to: rewrite_single_endpoint(&e.to, rewrite),
+		from: rewrite_single_endpoint(&e.from, source_path, rewrite),
+		to: rewrite_single_endpoint(&e.to, source_path, rewrite),
 	}
 }
 
-/// `node_id:port` または `path::node_id:port` の node_id を rewrite map で置き換える。
-/// rewrite key は `(ff.path, source_id)`。ファイルを問わず書き換え対象になりうるが、簡易実装
-/// として ff.path に依らず source_id が一致すれば rewrite する方針（scope=nodes で
-/// 十分安全、scope=file でも通常 1 ファイルに収まる）。
-fn rewrite_single_endpoint(s: &str, rewrite: &HashMap<(String, String), String>) -> String {
-	let Ok(pr) = parse_port_ref(s) else {
-		return s.to_string();
+/// Resolve by source file and ID; identical IDs in other files are unrelated.
+fn rewritten_endpoint(s: &str, source_path: &str, rewrite: &HashMap<(String, String), String>, flatten: bool) -> String {
+	use crate::flowgraph::loader::reference::{resolve_fq_ref, ResolveContext};
+	let Ok(port) = parse_port_ref(s) else {
+		return s.to_owned();
 	};
-	// rewrite 辞書の value を source_id 逆引き。
-	for ((_ffpath, src_id), new_id) in rewrite {
-		if src_id == &pr.node_id {
-			if let Some(fqp) = &pr.fq_path {
-				return format!("{fqp}::{new_id}:{}", pr.port);
-			} else {
-				return format!("{new_id}:{}", pr.port);
-			}
+	let ctx = ResolveContext {
+		current_file_fq: source_path.trim_end_matches(".flowgraph.toml").to_owned(),
+		known_file_fqs: rewrite
+			.keys()
+			.map(|(file, _)| file.trim_end_matches(".flowgraph.toml").to_owned())
+			.collect(),
+	};
+	let Ok(fq) = resolve_fq_ref(&port, &ctx) else {
+		return s.to_owned();
+	};
+	let Some(id) = rewrite.get(&(format!("{fq}.flowgraph.toml"), port.node_id.clone())) else {
+		return s.to_owned();
+	};
+	if !flatten {
+		if let Some(path) = port.fq_path {
+			return format!("{path}::{id}:{}", port.port);
 		}
 	}
-	s.to_string()
+	format!("{id}:{}", port.port)
+}
+fn rewrite_single_endpoint(s: &str, source_path: &str, rewrite: &HashMap<(String, String), String>) -> String {
+	rewritten_endpoint(s, source_path, rewrite, false)
+}
+fn rewrite_merged_endpoint(s: &str, source_path: &str, rewrite: &HashMap<(String, String), String>) -> String {
+	rewritten_endpoint(s, source_path, rewrite, true)
 }
 
 fn edge_already_present(edges: &[EdgeEntry], e: &EdgeEntry) -> bool {
@@ -507,7 +850,11 @@ fn apply_remaps_into(
 						continue;
 					}
 				};
-				let rewritten = rewrite_edge_endpoints(&EdgeEntry { from, to }, target_fq, rewrite);
+				let rewritten = rewrite_edge_endpoints(
+					&EdgeEntry { from, to },
+					&format!("{}.flowgraph.toml", d.in_file.as_deref().unwrap_or(target_fq)),
+					rewrite,
+				);
 				if !edge_already_present(&doc.edges, &rewritten) {
 					doc.edges.push(rewritten);
 				}
@@ -535,74 +882,83 @@ fn fq_to_file_path(root: &Path, fq: &str) -> PathBuf {
 	PathBuf::from(s)
 }
 
-fn load_existing_file(path: &Path) -> Result<Option<FlowgraphFile>, PasteError> {
-	if !path.exists() {
-		return Ok(None);
+fn read_destination(path: &Path) -> Result<Option<Vec<u8>>, PasteError> {
+	match std::fs::read(path) {
+		Ok(bytes) => Ok(Some(bytes)),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+		Err(err) => Err(PasteError::Io { path: path.into(), err }),
 	}
-	let src = std::fs::read_to_string(path).map_err(|err| PasteError::Io {
-		path: path.to_path_buf(),
-		err,
-	})?;
-	let doc = parse_flowgraph_file(&src, Some(path)).map_err(|e| PasteError::ExistingParse {
-		path: path.to_path_buf(),
-		err: e.to_string(),
-	})?;
-	Ok(Some(doc))
+}
+fn parse_destination(path: &Path, bytes: &[u8]) -> Result<FlowgraphFile, PasteError> {
+	let text = std::str::from_utf8(bytes).map_err(|error| PasteError::ExistingParse { path: path.into(), err: error.to_string() })?;
+	parse_flowgraph_file(text, Some(path)).map_err(|error| PasteError::ExistingParse { path: path.into(), err: error.to_string() })
+}
+#[cfg(test)]
+fn load_existing_file(path: &Path) -> Result<Option<FlowgraphFile>, PasteError> {
+	read_destination(path)?.as_deref().map(|bytes| parse_destination(path, bytes)).transpose()
+}
+fn check_destination(path: &Path, expected: Option<&[u8]>) -> Result<(), PasteError> {
+	if read_destination(path)?.as_deref() != expected {
+		return Err(PasteError::DestinationChanged(path.into()));
+	}
+	Ok(())
 }
 
-fn write_file_atomic(path: &Path, doc: &FlowgraphFile, make_backup: bool, report: &mut PasteReport) -> Result<(), PasteError> {
-	if let Some(parent) = path.parent() {
-		std::fs::create_dir_all(parent).map_err(|err| PasteError::Io {
-			path: parent.to_path_buf(),
-			err,
-		})?;
-	}
-	if make_backup && path.exists() {
-		let bak = path.with_extension("toml.bak");
-		if let Err(err) = std::fs::copy(path, &bak) {
-			return Err(PasteError::Io { path: bak.clone(), err });
-		}
-		report.backups.push(bak.display().to_string().replace('\\', "/"));
-	}
-	let text = serialize_flowgraph_file(doc)?;
-	std::fs::write(path, text).map_err(|err| PasteError::Io {
-		path: path.to_path_buf(),
-		err,
-	})?;
-	Ok(())
+#[cfg(test)]
+fn write_file_atomic(path: &Path, doc: &FlowgraphFile, expected: Option<&[u8]>, report: &mut PasteReport) -> Result<String, PasteError> {
+    write_file_atomic_observed(path, doc, expected, report, None, None)
+}
+fn write_file_atomic_observed(path: &Path, doc: &FlowgraphFile, expected: Option<&[u8]>, report: &mut PasteReport, observer: Option<&dyn WriteObserver>, source: Option<&str>) -> Result<String, PasteError> {
+    use std::io::Write;
+    let text = serialize_flowgraph_file(doc)?;
+    let digest = blake3::hash(text.as_bytes()).to_hex().to_string();
+    if let Some(observer) = observer {
+        observer.before_write(path, expected, text.as_bytes(), source).map_err(|err| PasteError::Io {path:path.into(),err})?;
+    }
+    write_file_atomic_with(path, expected, report, |file| file.write_all(text.as_bytes()))?;
+    Ok(digest)
+}
+
+fn write_file_atomic_with(
+    path: &Path, expected: Option<&[u8]>, report: &mut PasteReport,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> Result<(), PasteError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let parent = path.parent().ok_or_else(|| PasteError::InvalidTarget(path.display().to_string()))?;
+    std::fs::create_dir_all(parent).map_err(|err| PasteError::Io { path: parent.into(), err })?;
+    let temporary = parent.join(format!(".vac-import-{}-{}-{}.tmp", std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)));
+    let io_error = |path: &Path, err| PasteError::Io { path: path.into(), err };
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temporary).map_err(|err| io_error(&temporary, err))?;
+    struct Temporary(std::path::PathBuf);
+    impl Drop for Temporary { fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); } }
+    let _cleanup = Temporary(temporary.clone());
+    let staged = write(&mut file).and_then(|_| file.sync_all());
+    // Close before propagating an error: cleanup must not depend on whether the
+    // filesystem permits removing a file while its writer handle remains open.
+    drop(file);
+    staged.map_err(|err| io_error(&temporary, err))?;
+    check_destination(path, expected)?;
+    if expected.is_some() {
+        let bak = path.with_extension("toml.bak");
+        std::fs::copy(path, &bak).map_err(|err| io_error(&bak, err))?;
+        report.backups.push(bak.display().to_string().replace('\\', "/"));
+    }
+    if expected.is_some() {
+        std::fs::rename(&temporary, path).map_err(|err| io_error(path, err))?;
+    } else {
+        // Publish without truncating a destination created since the caller checked.
+        std::fs::hard_link(&temporary, path).map_err(|err| io_error(path, err))?;
+    }
+    Ok(())
 }
 
 /// `FlowgraphFile` を TOML 文字列化。spec §7.4 の format-preserving は対象外（本処理は paste/import で
 /// 新規 or 完全上書きされるケース専用）。
 fn serialize_flowgraph_file(doc: &FlowgraphFile) -> Result<String, PasteError> {
-	let mut root = toml::Table::new();
-	if let Some(meta) = &doc.meta {
-		let v = toml::Value::try_from(meta).map_err(|e| PasteError::Parse(format!("meta: {e}")))?;
-		if let toml::Value::Table(t) = v {
-			root.insert("meta".into(), toml::Value::Table(t));
-		}
-	}
-	// nodes / edges は必ず配列として配置（Vec が空でも書き出しは省略）。
-	if !doc.nodes.is_empty() {
-		let v = toml::Value::try_from(&doc.nodes).map_err(|e| PasteError::Parse(format!("nodes: {e}")))?;
-		root.insert("nodes".into(), v);
-	}
-	if !doc.edges.is_empty() {
-		let v = toml::Value::try_from(&doc.edges).map_err(|e| PasteError::Parse(format!("edges: {e}")))?;
-		root.insert("edges".into(), v);
-	}
-	toml::to_string_pretty(&toml::Value::Table(root)).map_err(|e| PasteError::Parse(format!("serialize: {e}")))
-}
-
-fn find_unused_rename(root: &Path, base_fq: &str) -> String {
-	for n in 1..u64::MAX {
-		let candidate = format!("{base_fq}_{n}");
-		let p = fq_to_file_path(root, &candidate);
-		if !p.exists() {
-			return candidate;
-		}
-	}
-	unreachable!()
+	toml::to_string_pretty(doc).map_err(|e| PasteError::Parse(format!("serialize: {e}")))
 }
 
 fn normalize_fq(s: &str) -> Result<String, PasteError> {
@@ -713,10 +1069,230 @@ mod tests {
 					properties: t,
 				}],
 				edges: vec![],
+				groups: vec![],
+				..Default::default()
 			}],
 			danglings: vec![],
 		};
 		serialize_fragment(&frag).unwrap()
+	}
+
+	#[test]
+	fn folder_merge_cross_file_edges_follow_imported_node_ids() {
+		let dir = mk_dir();
+		write_file(
+			&dir.path().join("b.flowgraph.toml"),
+			"[[nodes]]\nid = 'sink'\nfeature = 'flowgraph.util.log'\n",
+		);
+		let mut fragment = parse_fragment(&make_scratch_fragment("value", None)).unwrap();
+		fragment.files[0].path = "a.flowgraph.toml".into();
+		fragment.files[0].edges.push(EdgeEntry {
+			from: "value:value".into(),
+			to: "b::sink:value".into(),
+		});
+		let mut second = fragment.files[0].clone();
+		second.path = "b.flowgraph.toml".into();
+		second.nodes[0].id = "sink".into();
+		second.nodes[0].feature = "flowgraph.util.log".into();
+		second.nodes[0].properties.clear();
+		second.edges.clear();
+		fragment.files.push(second);
+		paste_fragment(
+			dir.path(),
+			&PasteRequest {
+				fragment_toml: serialize_fragment(&fragment).unwrap(),
+				target: PasteTarget::Folder { path: String::new() },
+				options: PasteOptions {
+					on_conflict_file: OnConflictFile::Merge,
+					..Default::default()
+				},
+			},
+		)
+		.unwrap();
+		let first = load_existing_file(&dir.path().join("a.flowgraph.toml")).unwrap().unwrap();
+		let second = load_existing_file(&dir.path().join("b.flowgraph.toml")).unwrap().unwrap();
+		assert_eq!(first.edges[0].to, "b::sink_1:value");
+		assert_eq!(
+			second.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(),
+			vec!["sink", "sink_1"]
+		);
+		crate::flowgraph::loader::dir::load_flowgraph_dir(dir.path()).expect("merged graph loads");
+	}
+
+	#[test]
+	fn late_folder_merge_conflict_leaves_all_destinations_unchanged() {
+		let dir = mk_dir();
+		let first_path = dir.path().join("a.flowgraph.toml");
+		let last_path = dir.path().join("z.flowgraph.toml");
+		let original_first = "[[nodes]]\nid = 'original'\nfeature = 'flowgraph.util.log'\n";
+		let original_last = "[[enums]]\nid = 'Mood'\nvariants = ['calm']\n";
+		write_file(&first_path, original_first);
+		write_file(&last_path, original_last);
+		let mut fragment = parse_fragment(&make_scratch_fragment("added", None)).unwrap();
+		fragment.files[0].path = "a.flowgraph.toml".into();
+		let mut middle = fragment.files[0].clone();
+		middle.path = "new.flowgraph.toml".into();
+		fragment.files.push(middle);
+		let mut last = fragment.files[0].clone();
+		last.path = "z.flowgraph.toml".into();
+		last.enums.push(crate::flowgraph::loader::file::FlowgraphEnumDef {
+			id: "Mood".into(),
+			variants: vec!["angry".into()],
+			..Default::default()
+		});
+		fragment.files.push(last);
+		let result = paste_fragment(
+			dir.path(),
+			&PasteRequest {
+				fragment_toml: serialize_fragment(&fragment).unwrap(),
+				target: PasteTarget::Folder { path: String::new() },
+				options: PasteOptions {
+					on_conflict_file: OnConflictFile::Merge,
+					..Default::default()
+				},
+			},
+		);
+		assert!(result.is_err());
+		assert_eq!(fs::read_to_string(&first_path).unwrap(), original_first);
+		assert_eq!(fs::read_to_string(&last_path).unwrap(), original_last);
+		assert!(!dir.path().join("new.flowgraph.toml").exists());
+		assert!(!first_path.with_extension("toml.bak").exists());
+	}
+
+	#[test]
+	fn multi_file_merge_scopes_duplicate_ids_and_cross_file_edges() {
+		let dir = mk_dir();
+		let mut fragment = parse_fragment(&make_scratch_fragment("value", None)).unwrap();
+		let first = &mut fragment.files[0];
+		first.path = "a.flowgraph.toml".into();
+		let mut sink = first.nodes[0].clone();
+		sink.id = "sink".into();
+		sink.feature = "flowgraph.util.log".into();
+		sink.properties.clear();
+		first.nodes.push(sink);
+		first.edges.push(EdgeEntry {
+			from: "value:value".into(),
+			to: "sink:value".into(),
+		});
+		first.groups.push(FlowgraphGroupDef {
+			id: "group".into(),
+			node_ids: vec!["value".into(), "sink".into()],
+			..Default::default()
+		});
+		let mut second = first.clone();
+		second.path = "b.flowgraph.toml".into();
+		second.edges.push(EdgeEntry {
+			from: "a::value:value".into(),
+			to: "sink:value".into(),
+		});
+		fragment.files.push(second);
+		paste_fragment(
+			dir.path(),
+			&PasteRequest {
+				fragment_toml: serialize_fragment(&fragment).unwrap(),
+				target: PasteTarget::File { fq: "combined".into() },
+				options: Default::default(),
+			},
+		)
+		.unwrap();
+		let doc = load_existing_file(&dir.path().join("combined.flowgraph.toml")).unwrap().unwrap();
+		assert!(doc.edges.iter().any(|e| e.from == "value:value" && e.to == "sink:value"));
+		assert!(doc.edges.iter().any(|e| e.from == "value_1:value" && e.to == "sink_1:value"));
+		assert!(doc.edges.iter().any(|e| e.from == "value:value" && e.to == "sink_1:value"));
+		assert_eq!(doc.groups[0].node_ids, vec!["value", "sink"]);
+		assert_eq!(doc.groups[1].node_ids, vec!["value_1", "sink_1"]);
+	}
+
+	#[test]
+	fn merge_preserves_instances_and_rewrites_their_connections() {
+		let dir = mk_dir();
+		let path = dir.path().join("main.flowgraph.toml");
+		write_file(&path, "[[nodes]]\nid = 'child'\nfeature = 'flowgraph.util.log'\n");
+		let text = r#"
+[fragment]
+schema = "vac-flowgraph-fragment/v2"
+exported_at = "2026-10-16T00:00:00Z"
+scope = "file"
+[[fragment.files]]
+path = "source.flowgraph.toml"
+[[fragment.files.nodes]]
+id = "input"
+feature = "flowgraph.ingress.web_input"
+[[fragment.files.instances]]
+id = "child"
+graph = "module"
+[[fragment.files.edges]]
+from = "input:exec_out"
+to = "child:exec_in"
+[[fragment.files.enums]]
+id = "Mood"
+variants = ["happy", "calm"]
+"#;
+		paste_fragment(
+			dir.path(),
+			&PasteRequest {
+				fragment_toml: text.into(),
+				target: PasteTarget::File { fq: "main".into() },
+				options: Default::default(),
+			},
+		)
+		.unwrap();
+		let doc = load_existing_file(&path).unwrap().unwrap();
+		assert!(doc.nodes.iter().any(|n| n.id == "child"));
+		assert_eq!(doc.instances[0].id, "child_1");
+		assert_eq!(doc.edges[0].to, "child_1:exec_in");
+		assert_eq!(doc.enums[0].variants, vec!["happy", "calm"]);
+	}
+
+	#[test]
+	fn module_paste_into_new_file_retains_public_interface() {
+		let dir = mk_dir();
+		let mut fragment = parse_fragment(&make_scratch_fragment("value", None)).unwrap();
+		fragment.files[0].graph.kind = crate::flowgraph::loader::file::GraphKind::Module;
+		fragment.files[0]
+			.graph
+			.outputs
+			.push(crate::flowgraph::loader::file::GraphOutputPort {
+				name: "result".into(),
+				ty: "string".into(),
+				from: "value:value".into(),
+			});
+		paste_fragment(
+			dir.path(),
+			&PasteRequest {
+				fragment_toml: serialize_fragment(&fragment).unwrap(),
+				target: PasteTarget::File { fq: "module".into() },
+				options: Default::default(),
+			},
+		)
+		.unwrap();
+		let doc = load_existing_file(&dir.path().join("module.flowgraph.toml")).unwrap().unwrap();
+		assert_eq!(doc.graph.kind, crate::flowgraph::loader::file::GraphKind::Module);
+		assert_eq!(doc.graph.outputs[0].from, "value:value");
+	}
+
+	#[test]
+	fn conflicting_type_merge_does_not_modify_destination() {
+		let dir = mk_dir();
+		let path = dir.path().join("main.flowgraph.toml");
+		let original = "[[enums]]\nid = 'Mood'\nvariants = ['calm']\n";
+		write_file(&path, original);
+		let mut fragment = parse_fragment(&make_scratch_fragment("added", None)).unwrap();
+		fragment.files[0].enums.push(crate::flowgraph::loader::file::FlowgraphEnumDef {
+			id: "Mood".into(),
+			variants: vec!["angry".into()],
+			..Default::default()
+		});
+		let result = paste_fragment(
+			dir.path(),
+			&PasteRequest {
+				fragment_toml: serialize_fragment(&fragment).unwrap(),
+				target: PasteTarget::File { fq: "main".into() },
+				options: Default::default(),
+			},
+		);
+		assert!(result.is_err());
+		assert_eq!(fs::read_to_string(path).unwrap(), original);
 	}
 
 	#[test]
@@ -736,6 +1312,66 @@ mod tests {
 		let p = td.path().join("mynew.flowgraph.toml");
 		let text = fs::read_to_string(&p).unwrap();
 		assert!(text.contains("id = \"lit\""));
+	}
+
+	#[test]
+	fn paste_group_metadata_rewrites_conflicting_node_ids() {
+		let td = mk_dir();
+		write_file(
+			&td.path().join("dest.flowgraph.toml"),
+			r#"
+[[nodes]]
+id = "a"
+feature = "flowgraph.literal.string"
+"#,
+		);
+		let frag = Fragment {
+			header: FragmentHeader {
+				schema: FRAGMENT_SCHEMA_V1.into(),
+				exported_at: "2026-04-17T00:00:00Z".into(),
+				origin: None,
+				scope: FragmentScope::Nodes,
+			},
+			files: vec![FragmentFile {
+				path: SCRATCH_PATH.into(),
+				meta: None,
+				nodes: vec![
+					NodeEntry {
+						id: "a".into(),
+						feature: "flowgraph.literal.string".into(),
+						position: None,
+						properties: toml::Table::new(),
+					},
+					NodeEntry {
+						id: "b".into(),
+						feature: "flowgraph.log.info".into(),
+						position: None,
+						properties: toml::Table::new(),
+					},
+				],
+				edges: vec![],
+				groups: vec![FlowgraphGroupDef {
+					id: "g1".into(),
+					label: Some("Pair".into()),
+					node_ids: vec!["a".into(), "b".into()],
+					color: Some("#38bdf8".into()),
+				}],
+				..Default::default()
+			}],
+			danglings: vec![],
+		};
+		let req = PasteRequest {
+			fragment_toml: serialize_fragment(&frag).unwrap(),
+			target: PasteTarget::File { fq: "dest".into() },
+			options: PasteOptions::default(),
+		};
+		let _ = paste_fragment(td.path(), &req).unwrap();
+		let text = fs::read_to_string(td.path().join("dest.flowgraph.toml")).unwrap();
+		let parsed = parse_flowgraph_file(&text, None).unwrap();
+		assert!(parsed.nodes.iter().any(|n| n.id == "a_1"), "{text}");
+		assert_eq!(parsed.groups.len(), 1, "{text}");
+		assert_eq!(parsed.groups[0].id, "g1");
+		assert_eq!(parsed.groups[0].node_ids, vec!["a_1".to_string(), "b".to_string()]);
 	}
 
 	#[test]
@@ -853,6 +1489,8 @@ value = "OLD"
 					},
 				}],
 				edges: vec![],
+				groups: vec![],
+				..Default::default()
 			}],
 			danglings: vec![],
 		};
@@ -861,9 +1499,23 @@ value = "OLD"
 			target: PasteTarget::Folder { path: "imported".into() },
 			options: PasteOptions::default(),
 		};
+        struct RejectPlan;
+        impl WriteObserver for RejectPlan {
+            fn graphs_planned(&self,files:&[PlannedGraph],report:&PasteReport)->std::io::Result<()> {
+                assert_eq!(files.len(),1);
+                assert_eq!(files[0].fq,"imported/chat/bot");
+                assert!(files[0].content.contains("flowgraph.literal.string"));
+                assert!(report.written_files.is_empty());
+                Err(std::io::Error::other("journal unavailable"))
+            }
+            fn before_write(&self,_:&Path,_:Option<&[u8]>,_:&[u8],_:Option<&str>)->std::io::Result<()> {panic!("must not publish without complete plan")}
+        }
+        assert!(paste_fragment_observed(td.path(),&req,Some(&RejectPlan)).is_err());
+        assert!(!td.path().join("imported/chat/bot.flowgraph.toml").exists());
 		let report = paste_fragment(td.path(), &req).unwrap();
 		assert_eq!(report.written_files.len(), 1);
 		assert_eq!(report.written_files[0].fq, "imported/chat/bot");
+		assert_eq!(report.written_files[0].original_fq.as_deref(), Some("chat/bot"));
 		assert!(td.path().join("imported/chat/bot.flowgraph.toml").exists());
 	}
 
@@ -901,6 +1553,8 @@ value = "x"
 					},
 				}],
 				edges: vec![],
+				groups: vec![],
+				..Default::default()
 			}],
 			danglings: vec![],
 		};
@@ -915,6 +1569,11 @@ value = "x"
 		let report = paste_fragment(td.path(), &req).unwrap();
 		assert_eq!(report.written_files.len(), 1);
 		assert_eq!(report.written_files[0].fq, "chat/bot_1");
+		assert_eq!(report.written_files[0].original_fq.as_deref(), Some("chat/bot"));
+		let mut skipped = req.clone();
+		skipped.options.on_conflict_file = OnConflictFile::Skip;
+		let skipped_report = paste_fragment(td.path(), &skipped).unwrap();
+		assert!(skipped_report.written_files.is_empty());
 	}
 
 	#[test]
@@ -951,6 +1610,8 @@ feature = "flowgraph.log.info"
 					},
 				}],
 				edges: vec![],
+				groups: vec![],
+				..Default::default()
 			}],
 			danglings: vec![FragmentDangling {
 				kind: "edge_endpoint".into(),
@@ -995,6 +1656,8 @@ feature = "flowgraph.log.info"
 				meta: None,
 				nodes: vec![],
 				edges: vec![],
+				groups: vec![],
+				..Default::default()
 			}],
 			danglings: vec![
 				FragmentDangling {
@@ -1060,6 +1723,54 @@ feature = "flowgraph.log.info"
 		assert_eq!(sanitize_fragment_path("chat/bot.flowgraph.toml").unwrap(), "chat/bot");
 		assert_eq!(sanitize_fragment_path(SCRATCH_PATH).unwrap(), "__scratch__");
 	}
+    #[test]
+    fn failed_staging_preserves_destination_and_removes_temporary_file() {
+        for existing in [false, true] {
+            let root = mk_dir();
+            let path = root.path().join("main.flowgraph.toml");
+            if existing { fs::write(&path, b"original").unwrap(); }
+            let expected = read_destination(&path).unwrap();
+            let mut report = PasteReport {written_files:vec![],imported_nodes:vec![],skipped_nodes:vec![],skipped_files:vec![],unresolved_danglings:vec![],backups:vec![]};
+            let result = write_file_atomic_with(&path, expected.as_deref(), &mut report, |file| {
+                file.write_all(b"incomplete")?;
+                Err(std::io::Error::other("injected staging failure"))
+            });
+            assert!(matches!(result, Err(PasteError::Io { .. })));
+            assert_eq!(read_destination(&path).unwrap(), expected);
+            assert!(report.backups.is_empty());
+            assert!(report.written_files.is_empty());
+            assert_eq!(fs::read_dir(root.path()).unwrap().count(), usize::from(existing));
+        }
+    }
+
+    #[test]
+    fn atomic_publish_preserves_existing_destination_and_backup() {
+        let root = mk_dir();
+        let path = root.path().join("main.flowgraph.toml");
+        let replacement_planned = read_destination(&path).unwrap();
+        assert!(replacement_planned.is_none());
+        // Another writer creates the formerly empty destination after planning.
+        std::fs::write(&path, b"# original exact bytes\r\n").unwrap();
+        let doc: FlowgraphFile = toml::from_str("[meta]\ntitle='replacement'\n").unwrap();
+        let mut report=PasteReport {written_files:vec![],imported_nodes:vec![],skipped_nodes:vec![],skipped_files:vec![],unresolved_danglings:vec![],backups:vec![]};
+        assert!(write_file_atomic(&path,&doc,replacement_planned.as_deref(),&mut report).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(),b"# original exact bytes\r\n");
+        let original = std::fs::read(&path).unwrap();
+        std::fs::write(&path, b"# edited after planning").unwrap();
+        assert!(matches!(write_file_atomic(&path,&doc,Some(&original),&mut report), Err(PasteError::DestinationChanged(_))));
+        assert_eq!(std::fs::read(&path).unwrap(), b"# edited after planning");
+        assert!(report.backups.is_empty());
+        std::fs::remove_file(&path).unwrap();
+        assert!(matches!(write_file_atomic(&path,&doc,Some(&original),&mut report), Err(PasteError::DestinationChanged(_))));
+        assert!(!path.exists());
+        std::fs::write(&path, &original).unwrap();
+        let digest = write_file_atomic(&path,&doc,Some(&original),&mut report).unwrap();
+        assert_eq!(digest, blake3::hash(&std::fs::read(&path).unwrap()).to_hex().to_string());
+        assert_eq!(std::fs::read(path.with_extension("toml.bak")).unwrap(),b"# original exact bytes\r\n");
+        assert!(std::fs::read_to_string(&path).unwrap().contains("replacement"));
+        assert!(std::fs::read_dir(root.path()).unwrap().all(|e|!e.unwrap().file_name().to_string_lossy().ends_with(".tmp")));
+    }
+
 }
 
 /// dangling remap 表の alias（δ-7a の暫定定義と同義）。

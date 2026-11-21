@@ -40,6 +40,11 @@ pub struct DelayState {
 }
 
 impl NodeDescriptor for DelayNode {
+	fn input_is_active(&self, port: &str, fired: &crate::flowgraph::node::ExecFireSet) -> Result<bool, NodeExecError> {
+		// Resume consumes the stored value, not inputs from the original event.
+		Ok(!fired.contains("__resume__") || fired.contains("exec_in") || port == "__pending_id__")
+	}
+
 	fn describe(&self) -> NodeSpec {
 		NodeSpec {
 			feature: "flowgraph.util.delay".into(),
@@ -125,6 +130,56 @@ mod tests {
 	use crate::flowgraph::nodes::log::LogNode;
 	use std::sync::Arc;
 	use std::time::Duration;
+
+	async fn transient_ingress_resume(debounce: bool) {
+		use crate::flowgraph::{engine::create_trigger_bus, nodes::{ingress::WebInputIngressNode, literal::IntLiteralNode, signal_util::DebounceNode, json_ops::JsonStringifyNode}};
+		let mut b = FlowgraphBuilder::new();
+		b.add_node("input", NodeImpl::pure(Arc::new(WebInputIngressNode)), InputMap::new());
+		b.add_node("timer", if debounce { NodeImpl::stateful(Arc::new(DebounceNode)) } else { NodeImpl::stateful(Arc::new(DelayNode)) }, InputMap::new());
+		b.add_node("duration", NodeImpl::pure(Arc::new(IntLiteralNode)), [("value".into(), SocketValue::Int(10))].into_iter().collect());
+		b.add_node("log", NodeImpl::effectful(Arc::new(LogNode)), InputMap::new());
+		b.add_node("stringify", NodeImpl::pure(Arc::new(JsonStringifyNode)), InputMap::new());
+		b.connect(PortRef::new("input", "meta"), PortRef::new("timer", "value"));
+		b.connect(PortRef::new("duration", "value"), PortRef::new("timer", if debounce { "deadtime_ms" } else { "delay_ms" }));
+		b.connect(PortRef::new("timer", if debounce { "value_out" } else { "value" }), PortRef::new("stringify", "value"));
+		b.connect(PortRef::new("stringify", "text"), PortRef::new("log", "value"));
+		if debounce {
+			b.connect_exec(PortRef::new("input", "exec_out"), PortRef::new("log", "exec_in"));
+		} else {
+			b.connect_exec(PortRef::new("input", "exec_out"), PortRef::new("timer", "exec_in"));
+			b.connect_exec(PortRef::new("timer", "exec_out"), PortRef::new("log", "exec_in"));
+		}
+		let mut program = b.build().unwrap();
+		let (handle, rx) = create_trigger_bus();
+		let sender = handle.clone();
+		let task = tokio::spawn(async move {
+			for label in ["A", "B"] {
+				sender.send(TriggerEvent::new("input").with_exec("__trigger__").with_override("__meta__", SocketValue::Json(serde_json::json!({"label":label})))).unwrap();
+			}
+			if debounce {
+				tokio::time::sleep(Duration::from_millis(60)).await;
+				sender.send(TriggerEvent::new("input").with_exec("__trigger__").with_override("__meta__", SocketValue::Json(serde_json::json!({"label":"C"})))).unwrap();
+			}
+		});
+		let mut ctx = ExecCtx::default();
+		let result = program.run_forever_with_bus(&mut ctx, handle, rx, tokio::time::sleep(Duration::from_millis(150)), None).await;
+		let sent = task.await;
+		result.expect("transient upstream must not be pulled on completion");
+		sent.unwrap();
+		if debounce {
+			assert_eq!(ctx.trace.len(), 3);
+			assert!(ctx.trace[2].contains("B"), "latest settled value: {:?}", ctx.trace);
+		} else {
+			assert_eq!(ctx.trace.len(), 2);
+			assert!(ctx.trace.iter().any(|line| line.contains("A")));
+			assert!(ctx.trace.iter().any(|line| line.contains("B")));
+		}
+	}
+
+	#[tokio::test]
+	async fn delay_transient_ingress_resume() { transient_ingress_resume(false).await; }
+	#[tokio::test]
+	async fn debounce_transient_ingress_resume() { transient_ingress_resume(true).await; }
 
 	#[tokio::test]
 	async fn delay_on_one_shot_execute_does_not_fire_out() {

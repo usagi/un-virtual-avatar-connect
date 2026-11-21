@@ -78,6 +78,56 @@ pub struct BosResponse {
 	pub entries: Vec<BosEntry>,
 }
 
+fn builtin_obs_template_entries() -> Vec<BosEntry> {
+	[
+		(
+			"obs-template-subtitle",
+			"OBS Template Subtitle",
+			BosCategory::Subtitles,
+			"/obs-template/subtitle",
+		),
+		(
+			"obs-template-conversation",
+			"OBS Template Conversation",
+			BosCategory::Subtitles,
+			"/obs-template/conversation",
+		),
+		("obs-template-chat", "OBS Template Chat", BosCategory::Other, "/obs-template/chat"),
+		("obs-template-raid", "OBS Template Raid", BosCategory::Effects, "/obs-template/raid"),
+		(
+			"obs-template-effect",
+			"OBS Template Effects",
+			BosCategory::Effects,
+			"/obs-template/effect",
+		),
+	]
+	.into_iter()
+	.map(|(id, title, category, url)| BosEntry {
+		id: id.to_string(),
+		title: title.to_string(),
+		category,
+		url: url.to_string(),
+		path: format!("builtin:{url}"),
+		supports_channel_param: true,
+		user_defined: false,
+	})
+	.collect()
+}
+
+fn sort_entries(entries: &mut [BosEntry]) {
+	entries.sort_by(|a, b| {
+		let order = |c: BosCategory| match c {
+			BosCategory::Subtitles => 0,
+			BosCategory::Bgm => 1,
+			BosCategory::Effects => 2,
+			BosCategory::Other => 3,
+		};
+		order(a.category)
+			.cmp(&order(b.category))
+			.then_with(|| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()))
+	});
+}
+
 #[get("/bos")]
 pub async fn get_bos(state: Data<SharedState>) -> impl Responder {
 	let document_root = {
@@ -86,10 +136,12 @@ pub async fn get_bos(state: Data<SharedState>) -> impl Responder {
 	};
 
 	let Some(root) = document_root else {
+		let mut entries = builtin_obs_template_entries();
+		sort_entries(&mut entries);
 		return HttpResponse::Ok().json(BosResponse {
 			document_root: None,
 			url_prefix: "/browser-output".to_string(),
-			entries: Vec::new(),
+			entries,
 		});
 	};
 
@@ -142,17 +194,8 @@ pub async fn get_bos(state: Data<SharedState>) -> impl Responder {
 		}
 	}
 
-	entries.sort_by(|a, b| {
-		let order = |c: BosCategory| match c {
-			BosCategory::Subtitles => 0,
-			BosCategory::Bgm => 1,
-			BosCategory::Effects => 2,
-			BosCategory::Other => 3,
-		};
-		order(a.category)
-			.cmp(&order(b.category))
-			.then_with(|| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()))
-	});
+	entries.extend(builtin_obs_template_entries());
+	sort_entries(&mut entries);
 
 	HttpResponse::Ok().json(BosResponse {
 		document_root: Some(root_canon.display().to_string()),
@@ -168,7 +211,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
 	use super::util::{guess_category, title_from_id};
-	use super::BosCategory;
+	use super::{builtin_obs_template_entries, BosCategory};
 
 	#[test]
 	fn category_guess() {
@@ -185,5 +228,21 @@ mod tests {
 		assert_eq!(title_from_id("subtitles-3"), "Subtitles 3");
 		assert_eq!(title_from_id("bgm-player"), "Bgm Player");
 		assert_eq!(title_from_id("effects"), "Effects");
+	}
+
+	#[test]
+	fn builtin_obs_templates_are_bos_entries() {
+		let entries = builtin_obs_template_entries();
+		assert!(entries
+			.iter()
+			.any(|e| e.id == "obs-template-subtitle" && e.url == "/obs-template/subtitle"));
+		assert!(entries
+			.iter()
+			.any(|e| e.id == "obs-template-raid" && e.category == BosCategory::Effects));
+		assert!(entries
+			.iter()
+			.any(|e| e.id == "obs-template-effect" && e.category == BosCategory::Effects));
+		assert!(entries.iter().all(|e| e.supports_channel_param));
+		assert!(entries.iter().all(|e| !e.user_defined));
 	}
 }

@@ -1,0 +1,150 @@
+# UNVAC 2.0: Twitch chat command -> AvatarIntent -> UNMF/Z dry-run。
+#
+# Twitch chat に slash command が来たとき、固定の AvatarIntent を UNMF に変換し、
+# UNMF/Z dry-run publish まで流す。AI tool 経路とは別に、チャット起点の
+# preset reaction を確認するための最小例。
+#
+# 実運用では:
+#   1. `conf.example-twitch.toml` を参考に Twitch OAuth を設定する
+#   2. UNAvatar Renderer profile の UNMF/Z input key を `unmfz_base_key.value` と一致させる
+#   3. `dry_run.value = false` にする
+
+[meta]
+title = "Twitch slash command to avatar expression"
+description = "Twitch slash command maps a preset AvatarIntent to UNMF/Z dry-run"
+tags = ["example", "twitch", "avatar", "unmfz"]
+
+[[nodes]]
+id = "twitch_in"
+feature = "flowgraph.ingress.twitch"
+position = [80, 100]
+
+[[nodes]]
+id = "slash"
+feature = "flowgraph.literal.string"
+position = [80, 260]
+properties.value = "/"
+
+[[nodes]]
+id = "match_command"
+feature = "flowgraph.command.match"
+position = [320, 100]
+
+[[nodes]]
+id = "avatar_intent"
+feature = "flowgraph.literal.json"
+position = [560, 320]
+properties.value = { target_link_id = "kaltsit_ai", intents = [
+  { kind = "expression", name = "smile", intensity = 0.55, duration_ms = 1200, curve = "hold" },
+  { kind = "head_nod", count = 1, intensity = 0.35, duration_ms = 700, curve = "ease_out" },
+] }
+
+[[nodes]]
+id = "elapsed_ms"
+feature = "flowgraph.literal.int"
+position = [560, 560]
+properties.value = 350
+
+[[nodes]]
+id = "to_unmf"
+feature = "flowgraph.avatar.intent_to_unmf"
+position = [820, 100]
+
+[[nodes]]
+id = "unmfz_base_key"
+feature = "flowgraph.literal.string"
+position = [820, 360]
+properties.value = "un-motion/frame/kaltsit-ai"
+
+[[nodes]]
+id = "unmfz_topic_mode"
+feature = "flowgraph.literal.string"
+position = [820, 440]
+properties.value = "frame"
+
+[[nodes]]
+id = "unmfz_schema_major"
+feature = "flowgraph.literal.int"
+position = [820, 520]
+properties.value = 1
+
+[[nodes]]
+id = "dry_run"
+feature = "flowgraph.literal.bool"
+position = [820, 600]
+properties.value = true
+
+[[nodes]]
+id = "publish_unmfz"
+feature = "flowgraph.unmfz.publish"
+position = [1100, 100]
+
+[[nodes]]
+id = "log_key"
+feature = "flowgraph.util.log"
+position = [1380, 100]
+
+[[nodes]]
+id = "log_no_match"
+feature = "flowgraph.util.log"
+position = [820, 240]
+
+[[edges]]
+from = "twitch_in:exec_out"
+to = "match_command:exec_in"
+
+[[edges]]
+from = "twitch_in:content"
+to = "match_command:content"
+
+[[edges]]
+from = "slash:value"
+to = "match_command:prefix"
+
+[[edges]]
+from = "match_command:on_command"
+to = "publish_unmfz:exec_in"
+
+[[edges]]
+from = "match_command:on_other"
+to = "log_no_match:exec_in"
+
+[[edges]]
+from = "match_command:original"
+to = "log_no_match:value"
+
+[[edges]]
+from = "avatar_intent:value"
+to = "to_unmf:intent"
+
+[[edges]]
+from = "elapsed_ms:value"
+to = "to_unmf:elapsed_ms"
+
+[[edges]]
+from = "to_unmf:unmf"
+to = "publish_unmfz:unmf"
+
+[[edges]]
+from = "unmfz_base_key:value"
+to = "publish_unmfz:base_key_expr"
+
+[[edges]]
+from = "unmfz_topic_mode:value"
+to = "publish_unmfz:topic_mode"
+
+[[edges]]
+from = "unmfz_schema_major:value"
+to = "publish_unmfz:schema_major"
+
+[[edges]]
+from = "dry_run:value"
+to = "publish_unmfz:dry_run"
+
+[[edges]]
+from = "publish_unmfz:on_success"
+to = "log_key:exec_in"
+
+[[edges]]
+from = "publish_unmfz:key_expr"
+to = "log_key:value"

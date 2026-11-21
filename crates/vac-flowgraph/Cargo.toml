@@ -1,7 +1,8 @@
 [package]
+rust-version = "1.100"
 name = "vac-flowgraph"
 version = "0.10.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 jiff = { version = "0.2.24", features = ["serde"] }

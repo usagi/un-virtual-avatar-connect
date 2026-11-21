@@ -1,0 +1,19 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "game-text-transcription",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "cases": [
+    {
+      "id": "transcription",
+      "content": "ケルシー先生、画面下部の日本語字幕をそのまま読んで。固有名詞も文字どおりに。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required",
+      "speech_includes": [
+        "ソトア"
+      ]
+    }
+  ]
+}

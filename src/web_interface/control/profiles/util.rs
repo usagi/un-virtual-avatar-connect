@@ -49,7 +49,7 @@ pub(crate) fn safe_basename(dir: &Path, filename: &str) -> Result<PathBuf, HttpR
 			"ファイル名が空です。",
 		));
 	}
-	if trimmed.contains('/') || trimmed.contains('\\') {
+	if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains(':') || trimmed.ends_with('.') {
 		return Err(err_response(
 			actix_web::http::StatusCode::BAD_REQUEST,
 			"invalid_filename",
@@ -75,12 +75,17 @@ pub(crate) fn safe_basename(dir: &Path, filename: &str) -> Result<PathBuf, HttpR
 			format!("拡張子は `.toml` のみです: {trimmed:?}"),
 		));
 	}
-	Ok(dir.join(trimmed))
+	let path = dir.join(trimmed);
+	if crate::profile_store::is_managed_metadata_path(&path) {
+		return Err(err_response(actix_web::http::StatusCode::FORBIDDEN, "managed_metadata",
+			"管理情報は管理プロファイル画面から操作してください。起動用の設定ファイルではありません。"));
+	}
+	Ok(path)
 }
 
 /// バックアップファイル名を組み立てる。`conf.toml` → `conf.toml.bak-20260417-123456` 形式。
 pub(crate) fn backup_path(original: &Path) -> PathBuf {
-	let ts = jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string();
+	let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
 	let orig_name = original.file_name().and_then(|s| s.to_str()).unwrap_or("conf.toml");
 	let bak_name = format!("{}.bak-{}", orig_name, ts);
 	original.with_file_name(bak_name)

@@ -1,0 +1,40 @@
+# 音声を出さずに接続を確認する例。成功と失敗を別のログへ送る。
+[meta]
+title = "辞書を通した文章と読込失敗の確認"
+[[instances]]
+id = "dictionary"
+graph = "./replace"
+[[nodes]]
+id = "input"
+feature = "flowgraph.ingress.web_input"
+[[nodes]]
+id = "path"
+feature = "flowgraph.literal.string"
+properties.value = "graph-file:reading.tsv"
+[[nodes]]
+id = "ready"
+feature = "flowgraph.util.log"
+[[nodes]]
+id = "failed"
+feature = "flowgraph.util.log"
+[[edges]]
+from = "input:exec_out"
+to = "dictionary:run"
+[[edges]]
+from = "input:content"
+to = "dictionary:text"
+[[edges]]
+from = "path:value"
+to = "dictionary:path"
+[[edges]]
+from = "dictionary:ready"
+to = "ready:exec_in"
+[[edges]]
+from = "dictionary:text"
+to = "ready:value"
+[[edges]]
+from = "dictionary:failed"
+to = "failed:exec_in"
+[[edges]]
+from = "dictionary:error"
+to = "failed:value"

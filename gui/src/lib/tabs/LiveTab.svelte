@@ -1,41 +1,89 @@
 <script lang="ts">
- /**
-  * Live タブ（γ-2a + γ-2c + γ-6a + γ-8c + φ-3e + φ-4）。
-  *
-  * - 最上段: 大型 Pause / 再開
-  * - 中段: 字幕プレビュー（BosPreview: select + URL コピー + iframe）
-  * - 中下段 1: **V2 Live Quick-Add (φ-4)** — Flowgraph `glossary.learn` ノードに
-  *   1-shot trigger を発火して配信中に即語録を追加する。`[[control_api.tables]]`
-  *   に `quick_add` を指定した Table が対象。
-  * - 中下段 2: **Glossary Editor Pane (φ-3 / GRN)** — Control API 経由で
-  *   `role = "glossary"` の TSV を GUI から直接編集する。
-  * - 中下段 3: V1 widget（`DictionaryQuickAddWidget`）— modify processor 時代の
-  *   dead code 寄りだが、環境によっては依然 `modify` を使っていることがあるため
-  *   互換のため残す。V2 への完全移行後に χ で削除予定。
-  * - 下段: Ingress (テスト発話 投入) + OBS 連携ウィジェット
-  *
-  * Widget foundation（`widgets/`）は γ-6a で導入。今後ここに connected
-  * ウィジェットを並べていく。
-  */
- import BigPauseButtons from '../BigPauseButtons.svelte';
- import BosPreview from '../BosPreview.svelte';
- import IngressPanel from '../IngressPanel.svelte';
- import DictionaryQuickAddWidget from '../widgets/DictionaryQuickAddWidget.svelte';
- import ObsControlWidget from '../widgets/ObsControlWidget.svelte';
- import DictionaryEditorPane from '../control/dictionary/DictionaryEditorPane.svelte';
- import DictionaryLiveQuickAdd from '../control/dictionary/DictionaryLiveQuickAdd.svelte';
+	import FeatureAnchor from "../FeatureAnchor.svelte";
+	/** 配信中の操作を主面に置き、構成・互換機能は段階的に開示する。 */
+	import BigPauseButtons from "../BigPauseButtons.svelte";
+	import BosOutputManager from "../BosOutputManager.svelte";
+	import BosPreview from "../BosPreview.svelte";
+	import IngressPanel from "../IngressPanel.svelte";
+	import QuickEffectsPanel from "../QuickEffectsPanel.svelte";
+	import ObsControlWidget from "../widgets/ObsControlWidget.svelte";
+	import LiveAiControlPanel from "../live/LiveAiControlPanel.svelte";
+	import VoiceInputControl from "../VoiceInputControl.svelte";
+	import ReadinessPanel from "../ReadinessPanel.svelte";
+	import PreflightSelfTestPanel from "../PreflightSelfTestPanel.svelte";
+	import { runtimeSnapshotStore } from "../runtimeSnapshot.svelte";
+	import { tabNavStore } from "../tabs.svelte";
+
+	const readiness = $derived(runtimeSnapshotStore.snapshot?.readiness ?? null);
+	const preparationNeedsAttention = $derived(readiness?.status === "attention" || readiness?.status === "blocked");
+	const preparationLabel = $derived(
+		readiness === null
+			? "確認中"
+			: readiness.status === "blocked"
+				? "対応が必要"
+				: readiness.status === "attention"
+					? "確認が必要"
+					: "準備完了"
+	);
 </script>
 
-<div class="space-y-4">
- <BigPauseButtons />
- <BosPreview />
- <DictionaryLiveQuickAdd />
- <section class="rounded border border-surface-200-800 bg-surface-50-950 p-3">
-  <DictionaryEditorPane />
- </section>
- <DictionaryQuickAddWidget />
- <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-  <IngressPanel />
-  <ObsControlWidget />
- </div>
-</div>
+<section class="grid gap-4">
+	<header>
+		<h2 class="text-xl font-semibold">ライブ</h2>
+	</header>
+
+	<div class="grid items-start gap-4 xl:grid-cols-2">
+		<FeatureAnchor id="live-ai"><LiveAiControlPanel /></FeatureAnchor>
+		<FeatureAnchor id="voice"><VoiceInputControl /></FeatureAnchor>
+	</div>
+
+	<FeatureAnchor id="effects"><QuickEffectsPanel /></FeatureAnchor>
+
+	<div class="mt-1 border-t border-surface-200-800">
+		<details class="group border-b border-surface-200-800" open={preparationNeedsAttention || tabNavStore.featureFocus?.id === "preflight"}>
+			<summary class="flex cursor-pointer list-none items-center justify-between gap-3 py-3 text-sm font-semibold">
+				<span>配信準備</span>
+				<span
+					class:text-error-500={readiness?.status === "blocked"}
+					class:text-warning-500={readiness?.status === "attention"}
+					class:text-success-500={readiness?.status === "ready"}
+					class="text-xs font-medium"
+				>
+					{preparationLabel}
+				</span>
+			</summary>
+			<div class="grid gap-4 pb-5">
+				<ReadinessPanel requiredOnly currentTab="live" />
+				<FeatureAnchor id="preflight"><PreflightSelfTestPanel /></FeatureAnchor>
+			</div>
+		</details>
+
+		<details class="group border-b border-surface-200-800">
+			<summary class="cursor-pointer list-none py-3 text-sm font-semibold">配信入出力</summary>
+			<div class="grid gap-4 pb-5">
+				<div class="grid gap-4 xl:grid-cols-[minmax(24rem,0.9fr)_minmax(28rem,1.1fr)]">
+					<FeatureAnchor id="ingress"><IngressPanel /></FeatureAnchor>
+					<FeatureAnchor id="obs"><ObsControlWidget /></FeatureAnchor>
+				</div>
+				<section aria-labelledby="live-preview-heading">
+					<h3 id="live-preview-heading" class="mb-2 text-sm font-semibold">出力プレビュー</h3>
+					<FeatureAnchor id="preview"><BosPreview /></FeatureAnchor>
+				</section>
+			</div>
+		</details>
+
+		<details class="group border-b border-surface-200-800">
+			<summary class="cursor-pointer list-none py-3 text-sm font-semibold">補助操作</summary>
+			<div class="grid gap-4 pb-4">
+				<details>
+					<summary class="cursor-pointer text-xs font-semibold opacity-70">一括停止と再開</summary>
+					<div class="pt-3"><FeatureAnchor id="pause"><BigPauseButtons /></FeatureAnchor></div>
+				</details>
+				<details class="border-t border-surface-200-800 pt-3">
+					<summary class="cursor-pointer text-xs font-semibold opacity-70">出力管理</summary>
+					<div class="pt-3"><FeatureAnchor id="outputs"><BosOutputManager /></FeatureAnchor></div>
+				</details>
+			</div>
+		</details>
+	</div>
+</section>

@@ -23,19 +23,23 @@
 //!   現状 file レベルのみ。GUI 表示用の精緻化は δ-6 で `toml_edit` span 化予定。
 //! - include ディレクティブ: **非採用**（フォルダ走査で十分、明示的 include は混乱のもと）。
 
+pub mod composition;
 pub mod diagnostic;
 pub mod dir;
 pub mod file;
 pub mod reference;
 
+pub use composition::{
+	CrossFilePortalSummary, GraphCompositionSummary, GraphDefinitionSummary, GraphInstanceSummary, GraphInterfacePortSummary,
+};
 pub use diagnostic::{
 	Diagnostic, DiagnosticCode, FlowgraphFileActivationMeta, GraphCapabilityNode, GraphCapabilitySummary, GraphSignature,
 	GraphSignatureFile, GraphSignaturePort, GraphSignatureTrigger, GraphStateNode, LoadError, LoadReport, LoadedNodeMeta, PackageLockEntry,
-	PackageManifestSummary, Severity, TypeSchemaSummary,
+	PackageManifestSummary, Severity, TypeSchemaGraphSummary, TypeSchemaSummary,
 };
 pub use dir::{fq_path_of_file, is_flowgraph_file, load_flowgraph_dir, walk_flowgraph_dir};
 pub use file::{
 	file_activation_meta, load_file, normalized_library_id, parse_flowgraph_file, EdgeEntry, FileMeta, FlowgraphEnumDef, FlowgraphFile,
-	FlowgraphTypeDef, NodeEntry,
+	FlowgraphTypeDef, GraphDeclaration, GraphInputPort, GraphInstance, GraphKind, GraphOutputPort, NodeEntry,
 };
 pub use reference::{parse_port_ref, resolve_fq_ref, PortRefStr, ResolveContext};

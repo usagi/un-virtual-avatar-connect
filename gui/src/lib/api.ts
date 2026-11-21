@@ -11,168 +11,216 @@
  */
 
 import { buildAuthHeader } from "./auth";
+import type { PerceptionView, PerceptionEdit, PerceptionSaveResult } from "./perceptionSetupTypes";
+import type { FlowgraphSharePlan, FlowgraphCompanionInventory } from "./types";
+import type { DictionarySetupInput, DictionarySetupPreview, DictionarySetupSaveInput, DictionarySetupSaved } from "./control/dictionary/dictionarySetup";
+import type { DictionaryConnectionInput, DictionaryConnectionPreview, DictionaryConnectionSaveInput, DictionaryConnectionSaved, DictionaryConnectionRecoveryInput, DictionaryConnectionRecovery } from "./control/dictionary/dictionaryConnection";
 import {
-  ControlApiError,
-  type AiReloadRequest,
-  type DictionaryEntryRequest,
-  type DictionaryEntryResponse,
-  type DictionaryContentResponse,
-  type OpenExternalResponse,
-  type RegexContentResponse,
-  type RegexEntryRequest,
-  type RegexEntryResponse,
-  type OAuthAccount,
-  type OAuthCancelResponse,
-  type OAuthDeleteTokensResponse,
-  type OAuthSessionView,
-  type OAuthStartResponse,
-  type IngressRequest,
-  type IngressResponse,
-  type PauseOutcome,
-  type PauseTarget,
-  type AiPersonaConfigResponse,
-  type BosResponse,
-  type NodePutConfigRequest,
-  type NodePutConfigResponse,
-  type ManagedAppMinimizeResponse,
-  type ManagedAppStartResponse,
-  type ManagedAppStopRequest,
-  type ManagedAppStopResponse,
-  type ManagedAppRestartResponse,
-  type ManagedAppsResponse,
-  type ProcessorConfigResponse,
-  type PingResponse,
-  type ProfileCloneRequest,
-  type ProfileContentResponse,
-  type ProfileOpResponse,
-  type ProfilePutContentRequest,
-  type ProfileRenameRequest,
-  type ProfilesResponse,
-  type ReloadRequest,
-  type ReloadResponse,
-  type CurrentModeResponse,
-  type ControlEventHistoryResponse,
-  type ModePlanRequest,
-  type ModeTransitRequest,
-  type ModeTransitResponse,
-  type ModeTransitionPlan,
-  type ModesListResponse,
-  type PutCurrentModeBody,
-  type RuntimeModeTransitionStatus,
-  type RestartRequest,
-  type RestartResponse,
-  type ShutdownRequest,
-  type ShutdownResponse,
-  type RunWithDto,
-  type RunWithListResponse,
-  type RunWithMutationResponse,
-  type StateSnapshot,
-  type VmcBindRequest,
-  type VmcForwardRequest,
-  type VmcPassthroughStatusView,
-  type VmcStatusResponse,
-  type WhoAmIResponse,
-  type FlowgraphNodeCatalogResponse,
-  type FlowgraphSocketTypeExpr,
-  type FlowgraphTreeResponse,
-  type FlowgraphFileResponse,
-  type FlowgraphDiagnosticsResponse,
-  type FlowgraphSignature,
-  type FlowgraphCreateFileRequest,
-  type FlowgraphPutFileRequest,
-  type FlowgraphWriteFileResponse,
-  type FlowgraphOpenExternalResponse,
-  type FlowgraphReloadResponse,
-  type FlowgraphReloadPreservingStateResponse,
-  type FlowgraphRestoreStateSnapshotResponse,
-  type FlowgraphSaveLoadedStateSnapshotResponse,
-  type FlowgraphSaveLiveStateSnapshotResponse,
-  type FragmentCopyRequest,
-  type FragmentCopyResponse,
-  type FragmentPasteRequest,
-  type FragmentPasteResponse,
-  type ZipImportOutcome,
-  type TableCatalogResponse,
-  type TableFileDto,
-  type TableMutationResponse,
-  type PutTableRequest,
-  type TableEntryRequest,
-  type TriggerNodeRequest,
-  type TriggerNodeResponse,
+	ControlApiError,
+	type AiReloadRequest,
+	type DictionaryEntryRequest,
+	type DictionaryEntryResponse,
+	type DictionaryContentResponse,
+	type OpenExternalResponse,
+	type RegexContentResponse,
+	type RegexEntryRequest,
+	type RegexEntryResponse,
+	type OAuthAccount,
+	type OAuthCancelResponse,
+	type OAuthDeleteTokensResponse,
+	type OAuthSessionView,
+	type OAuthStartResponse,
+	type TwitchAuthorizationResponse,
+	type TwitchRewardsResponse,
+	type GoogleOAuthDeleteTokensResponse,
+	type GoogleOAuthPollRequest,
+	type GoogleOAuthPollResponse,
+	type GoogleOAuthStartRequest,
+	type GoogleOAuthStartResponse,
+	type GoogleOAuthStatusResponse,
+	type IngressRequest,
+	type IngressResponse,
+	type PreflightSelfTestStatus,
+	type AvatarMotionSelfTestResponse,
+	type ChatOutputSelfTestRequest,
+	type ChatOutputSelfTestResponse,
+	type SubtitleSelfTestRequest,
+	type SubtitleSelfTestResponse,
+	type TtsSelfTestRequest,
+	type TtsSelfTestResponse,
+	type QuickEffectEnqueueRequest,
+	type QuickEffectItem,
+	type QuickEffectMoveRequest,
+	type QuickEffectPresetsPutRequest,
+	type QuickEffectPresetsResponse,
+	type QuickEffectsResponse,
+	type PauseOutcome,
+	type PauseTarget,
+	type AiPersonaConfigResponse,
+	type BosResponse,
+	type NodePutConfigRequest,
+	type NodePutConfigResponse,
+	type ManagedAppMinimizeResponse,
+	type ManagedAppStartResponse,
+	type ManagedAppStopRequest,
+	type ManagedAppStopResponse,
+	type ManagedAppRestartResponse,
+	type ManagedAppsResponse,
+	type UnAppApiCommandRequest,
+	type UnAppApiCommandResponse,
+	type UnAppApiCommandHistoryResponse,
+	type ProcessorConfigResponse,
+	type PingResponse,
+	type ProfileCloneRequest,
+	type ProfileContentResponse,
+	type ProfileOpResponse,
+	type ProfilePutContentRequest,
+	type ProfileRenameRequest,
+	type ProfilesResponse,
+	type ReloadRequest,
+	type ReloadResponse,
+	type CurrentModeResponse,
+	type ControlEventHistoryResponse,
+	type ModePlanRequest,
+	type ModeTransitRequest,
+	type ModeTransitResponse,
+	type ModeTransitionPlan,
+	type ModesListResponse,
+	type PutCurrentModeBody,
+	type RuntimeModeTransitionStatus,
+	type RestartRequest,
+	type RestartResponse,
+	type ShutdownRequest,
+	type ShutdownResponse,
+	type RunWithDto,
+	type RunWithListResponse,
+	type RunWithMutationResponse,
+	type StateSnapshot,
+	type VmcBindRequest,
+	type VmcForwardRequest,
+	type VmcPassthroughStatusView,
+	type VmcStatusResponse,
+	type WhoAmIResponse,
+	type PutVoiceInputState,
+	type VoiceInputState,
+	type FlowgraphNodeCatalogResponse,
+	type FlowgraphSocketTypeExpr,
+	type FlowgraphTreeResponse,
+	type FlowgraphFileResponse,
+	type FlowgraphDiagnosticsResponse,
+	type FlowgraphSignature,
+	type FlowgraphCreateFileRequest,
+	type FlowgraphPutFileRequest,
+	type FlowgraphWriteFileResponse,
+	type FlowgraphRecoveryPlan,
+	type CreateDesktopProfileRequest,
+	type ConfigureDesktopAiRequest,
+	type DesktopAiMutationResponse,
+	type DesktopAiSetupStatus,
+	type DesktopProfileMutationResponse,
+	type DesktopProfilesResponse,
+	type DesktopProfileTemplateEntry,
+	type FlowgraphOpenExternalResponse,
+	type FlowgraphReloadResponse,
+	type FlowgraphReloadPreservingStateResponse,
+	type FlowgraphRestoreStateSnapshotResponse,
+	type FlowgraphSaveLoadedStateSnapshotResponse,
+	type FlowgraphSaveLiveStateSnapshotResponse,
+	type FragmentCopyRequest,
+	type ZipExportRequest,
+	type FragmentCopyResponse,
+	type FragmentPasteRequest,
+	type FragmentPasteResponse,
+	type ZipImportOutcome,
+	type TableCatalogResponse,
+	type TableFileDto,
+	type TableMutationResponse,
+	type PutTableRequest,
+	type TableEntryRequest,
+	type TriggerNodeRequest,
+	type TriggerNodeResponse,
 } from "./types";
 
 /** `GET /flowgraph/parse-unit` の JSON。Phase ξ-5 プロパティエディタの単位検証用。 */
 export type FlowgraphParseUnitResponse = {
-  valid: boolean;
-  dimension: string | null;
-  canonical_unit: string | null;
-  error: string | null;
+	valid: boolean;
+	dimension: string | null;
+	canonical_unit: string | null;
+	error: string | null;
 };
 
 /** `GET /flowgraph/parse-socket-type` の JSON。LF-5 generic 型文字列検証用。 */
 export type FlowgraphParseSocketTypeResponse = {
-  valid: boolean;
-  canonical_type: string | null;
-  type_expr: FlowgraphSocketTypeExpr | null;
-  error: string | null;
+	valid: boolean;
+	canonical_type: string | null;
+	type_expr: FlowgraphSocketTypeExpr | null;
+	error: string | null;
 };
 
 /** `GET /flowgraph/socket-type-compatibility` の JSON。LF-5 型接続検証用。 */
 export type FlowgraphSocketTypeCompatibilityResponse = {
-  valid: boolean;
-  compatible: boolean | null;
-  from_canonical_type: string | null;
-  to_canonical_type: string | null;
-  from_type_expr: FlowgraphSocketTypeExpr | null;
-  to_type_expr: FlowgraphSocketTypeExpr | null;
-  error: string | null;
+	valid: boolean;
+	compatible: boolean | null;
+	from_canonical_type: string | null;
+	to_canonical_type: string | null;
+	from_type_expr: FlowgraphSocketTypeExpr | null;
+	to_type_expr: FlowgraphSocketTypeExpr | null;
+	error: string | null;
 };
 
 const API_BASE = "/api/v1/control";
 
+/** Purpose operations retain their binary/partial-write response contracts. */
+export function requestPurposeResponse(action: string, init: RequestInit): Promise<Response> {
+ const headers = new Headers(init.headers);
+ for (const [name, value] of Object.entries(buildAuthHeader())) headers.set(name, value);
+ return fetch(`${API_BASE}/flowgraph/purposes/${encodeURIComponent(action)}`, { ...init, headers });
+}
+
+
 type JsonInit = Omit<RequestInit, "body" | "headers"> & {
-  body?: unknown;
-  /**
-   * 追加リクエストヘッダ（`If-Match`、`X-Request-Id` など）。
-   * `Accept` / `Authorization` / `Content-Type` は内部で管理するため
-   * ここで指定しても上書きされる。
-   */
-  extraHeaders?: Record<string, string>;
+	body?: unknown;
+	/**
+	 * 追加リクエストヘッダ（`If-Match`、`X-Request-Id` など）。
+	 * `Accept` / `Authorization` / `Content-Type` は内部で管理するため
+	 * ここで指定しても上書きされる。
+	 */
+	extraHeaders?: Record<string, string>;
 };
 
 async function request<T>(path: string, init: JsonInit = {}): Promise<T> {
-  const { body, extraHeaders, ...rest } = init;
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    ...(extraHeaders ?? {}),
-    ...buildAuthHeader(),
-  };
-  let finalBody: BodyInit | undefined;
-  if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    finalBody = JSON.stringify(body);
-  }
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...rest,
-    headers,
-    body: finalBody,
-  });
-  if (!res.ok) {
-    let errBody: unknown;
-    try {
-      errBody = await res.json();
-    } catch {
-      try {
-        errBody = await res.text();
-      } catch {
-        errBody = null;
-      }
-    }
-    throw new ControlApiError(res.status, res.statusText, errBody);
-  }
-  // 204 No Content など
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+	const { body, extraHeaders, ...rest } = init;
+	const headers: Record<string, string> = {
+		Accept: "application/json",
+		...(extraHeaders ?? {}),
+		...buildAuthHeader(),
+	};
+	let finalBody: BodyInit | undefined;
+	if (body !== undefined) {
+		headers["Content-Type"] = "application/json";
+		finalBody = JSON.stringify(body);
+	}
+	const res = await fetch(`${API_BASE}${path}`, {
+		...rest,
+		headers,
+		body: finalBody,
+	});
+	if (!res.ok) {
+		let errBody: unknown;
+		try {
+			errBody = await res.json();
+		} catch {
+			try {
+				errBody = await res.text();
+			} catch {
+				errBody = null;
+			}
+		}
+		throw new ControlApiError(res.status, res.statusText, errBody);
+	}
+	// 204 No Content など
+	if (res.status === 204) return undefined as T;
+	return (await res.json()) as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,717 +228,784 @@ async function request<T>(path: string, init: JsonInit = {}): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export const api = {
-  // --- Health ---
-  ping(): Promise<PingResponse> {
-    return request<PingResponse>("/ping");
-  },
-  whoami(): Promise<WhoAmIResponse> {
-    return request<WhoAmIResponse>("/whoami");
-  },
+	// --- Health ---
+	ping(): Promise<PingResponse> {
+		return request<PingResponse>("/ping");
+	},
+	whoami(): Promise<WhoAmIResponse> {
+		return request<WhoAmIResponse>("/whoami");
+	},
 
-  // --- Snapshot ---
-  snapshot(): Promise<StateSnapshot> {
-    return request<StateSnapshot>("/snapshot");
-  },
-  eventHistory(
-    limit = 100,
-    kind?: string,
-  ): Promise<ControlEventHistoryResponse> {
-    const params = new URLSearchParams({ limit: String(limit) });
-    if (kind) params.set("kind", kind);
-    return request<ControlEventHistoryResponse>(
-      `/events/history?${params.toString()}`,
-    );
-  },
+	// --- Snapshot ---
+	snapshot(): Promise<StateSnapshot> {
+		return request<StateSnapshot>("/snapshot");
+	},
+	setVoiceInput(req: PutVoiceInputState): Promise<VoiceInputState> {
+		return request<VoiceInputState>("/voice-input", { method: "PUT", body: req });
+	},
+	eventHistory(limit = 100, kind?: string): Promise<ControlEventHistoryResponse> {
+		const params = new URLSearchParams({ limit: String(limit) });
+		if (kind) params.set("kind", kind);
+		return request<ControlEventHistoryResponse>(`/events/history?${params.toString()}`);
+	},
 
-  // --- Pause / Resume ---
-  pause(target: PauseTarget): Promise<PauseOutcome> {
-    return request<PauseOutcome>("/pause", { method: "POST", body: target });
-  },
-  resume(target: PauseTarget): Promise<PauseOutcome> {
-    return request<PauseOutcome>("/resume", { method: "POST", body: target });
-  },
+	// --- Pause / Resume ---
+	pause(target: PauseTarget): Promise<PauseOutcome> {
+		return request<PauseOutcome>("/pause", { method: "POST", body: target });
+	},
+	resume(target: PauseTarget): Promise<PauseOutcome> {
+		return request<PauseOutcome>("/resume", { method: "POST", body: target });
+	},
 
-  // --- Reload ---
-  reload(req: ReloadRequest): Promise<ReloadResponse> {
-    return request<ReloadResponse>("/reload", { method: "POST", body: req });
-  },
+	// --- Reload ---
+	reload(req: ReloadRequest): Promise<ReloadResponse> {
+		return request<ReloadResponse>("/reload", { method: "POST", body: req });
+	},
 
-  reloadAiPersona(
-    id: string | null,
-    changes: AiReloadRequest,
-  ): Promise<ReloadResponse> {
-    const body: ReloadRequest = { target: "ai_persona", id, ...changes };
-    return request<ReloadResponse>("/reload", { method: "POST", body });
-  },
+	reloadAiPersona(id: string | null, changes: AiReloadRequest): Promise<ReloadResponse> {
+		const body: ReloadRequest = { target: "ai_persona", id, ...changes };
+		return request<ReloadResponse>("/reload", { method: "POST", body });
+	},
 
-  reloadModifyFiles(id: string | null = null): Promise<ReloadResponse> {
-    return request<ReloadResponse>("/reload", {
-      method: "POST",
-      body: { target: "modify_files", id } satisfies ReloadRequest,
-    });
-  },
+	reloadModifyFiles(id: string | null = null): Promise<ReloadResponse> {
+		return request<ReloadResponse>("/reload", {
+			method: "POST",
+			body: { target: "modify_files", id } satisfies ReloadRequest,
+		});
+	},
 
-  // --- Runtime Modes ---
-  modesList(): Promise<ModesListResponse> {
-    return request<ModesListResponse>("/modes");
-  },
-  currentMode(): Promise<CurrentModeResponse> {
-    return request<CurrentModeResponse>("/modes/current");
-  },
-  putCurrentMode(req: PutCurrentModeBody): Promise<CurrentModeResponse> {
-    return request<CurrentModeResponse>("/modes/current", {
-      method: "PUT",
-      body: req,
-    });
-  },
-  modePlan(req: ModePlanRequest): Promise<ModeTransitionPlan> {
-    return request<ModeTransitionPlan>("/modes/plan", {
-      method: "POST",
-      body: req,
-    });
-  },
-  modeTransit(req: ModeTransitRequest): Promise<ModeTransitResponse> {
-    return request<ModeTransitResponse>("/modes/transit", {
-      method: "POST",
-      body: req,
-    });
-  },
-  modeTransition(): Promise<RuntimeModeTransitionStatus> {
-    return request<RuntimeModeTransitionStatus>("/modes/transition");
-  },
+	// --- Runtime Modes ---
+	modesList(): Promise<ModesListResponse> {
+		return request<ModesListResponse>("/modes");
+	},
+	currentMode(): Promise<CurrentModeResponse> {
+		return request<CurrentModeResponse>("/modes/current");
+	},
+	putCurrentMode(req: PutCurrentModeBody): Promise<CurrentModeResponse> {
+		return request<CurrentModeResponse>("/modes/current", {
+			method: "PUT",
+			body: req,
+		});
+	},
+	modePlan(req: ModePlanRequest): Promise<ModeTransitionPlan> {
+		return request<ModeTransitionPlan>("/modes/plan", {
+			method: "POST",
+			body: req,
+		});
+	},
+	modeTransit(req: ModeTransitRequest): Promise<ModeTransitResponse> {
+		return request<ModeTransitResponse>("/modes/transit", {
+			method: "POST",
+			body: req,
+		});
+	},
+	modeTransition(): Promise<RuntimeModeTransitionStatus> {
+		return request<RuntimeModeTransitionStatus>("/modes/transition");
+	},
 
-  // --- OAuth (Twitch DCF) ---
-  oauthStart(account: OAuthAccount): Promise<OAuthStartResponse> {
-    return request<OAuthStartResponse>(`/oauth/twitch/${account}/start`, {
-      method: "POST",
-    });
-  },
-  oauthStatus(account: OAuthAccount): Promise<OAuthSessionView> {
-    return request<OAuthSessionView>(`/oauth/twitch/${account}/status`);
-  },
-  /**
-   * `/status` は「セッションなし」時に 404 を返す。UI 初期化で「セッションがあれば表示する」用途では
-   * 404 を `null` に正規化したほうが扱いやすいので、専用の変種を提供する。
-   */
-  async oauthStatusOrNull(
-    account: OAuthAccount,
-  ): Promise<OAuthSessionView | null> {
-    try {
-      return await request<OAuthSessionView>(`/oauth/twitch/${account}/status`);
-    } catch (e) {
-      if (e instanceof ControlApiError && e.status === 404) return null;
-      throw e;
-    }
-  },
-  oauthCancel(account: OAuthAccount): Promise<OAuthCancelResponse> {
-    return request<OAuthCancelResponse>(`/oauth/twitch/${account}/cancel`, {
-      method: "POST",
-    });
-  },
-  /**
-   * 保存済みトークンファイルを破棄する。強制的に再認可を要求したい場面（別アカウントに切り替える、
-   * 挙動が怪しい、など）で使う。既存 eventsub 接続のメモリ上トークンは本操作では無効化されない。
-   */
-  oauthDeleteTokens(account: OAuthAccount): Promise<OAuthDeleteTokensResponse> {
-    return request<OAuthDeleteTokensResponse>(
-      `/oauth/twitch/${account}/tokens`,
-      { method: "DELETE" },
-    );
-  },
-  /**
-   * 任意の ChannelDatum を VAC のパイプラインへ投入する。
-   * `POST /input` と違って `[[processors]]` の webinput 設定に依存せず、常に叩ける。
-   */
-  ingress(req: IngressRequest): Promise<IngressResponse> {
-    return request<IngressResponse>("/ingress", { method: "POST", body: req });
-  },
+	// --- OAuth (Twitch DCF) ---
+	oauthStart(account: OAuthAccount): Promise<OAuthStartResponse> {
+		return request<OAuthStartResponse>(`/oauth/twitch/${account}/start`, {
+			method: "POST",
+		});
+	},
+	oauthOpen(account: OAuthAccount): Promise<{ opened: boolean }> {
+		return request(`/oauth/twitch/${account}/open`, { method: "POST" });
+	},
+	oauthStatus(account: OAuthAccount): Promise<OAuthSessionView> {
+		return request<OAuthSessionView>(`/oauth/twitch/${account}/status`);
+	},
+	oauthAuthorization(account: OAuthAccount): Promise<TwitchAuthorizationResponse> {
+		return request<TwitchAuthorizationResponse>(`/oauth/twitch/${account}/authorization`);
+	},
+	/**
+	 * `/status` は「セッションなし」時に 404 を返す。UI 初期化で「セッションがあれば表示する」用途では
+	 * 404 を `null` に正規化したほうが扱いやすいので、専用の変種を提供する。
+	 */
+	async oauthStatusOrNull(account: OAuthAccount): Promise<OAuthSessionView | null> {
+		try {
+			return await request<OAuthSessionView>(`/oauth/twitch/${account}/status`);
+		} catch (e) {
+			if (e instanceof ControlApiError && e.status === 404) return null;
+			throw e;
+		}
+	},
+	oauthCancel(account: OAuthAccount): Promise<OAuthCancelResponse> {
+		return request<OAuthCancelResponse>(`/oauth/twitch/${account}/cancel`, {
+			method: "POST",
+		});
+	},
+	/**
+	 * 保存済みトークンファイルを破棄する。強制的に再認可を要求したい場面（別アカウントに切り替える、
+	 * 挙動が怪しい、など）で使う。既存 eventsub 接続のメモリ上トークンは本操作では無効化されない。
+	 */
+	oauthDeleteTokens(account: OAuthAccount): Promise<OAuthDeleteTokensResponse> {
+		return request<OAuthDeleteTokensResponse>(`/oauth/twitch/${account}/tokens`, { method: "DELETE" });
+	},
+	twitchRewards(): Promise<TwitchRewardsResponse> {
+		return request<TwitchRewardsResponse>("/oauth/twitch/broadcaster/rewards");
+	},
 
-  // --- BOS (γ-2a) ---
-  /**
-   * Broadcast Output Sources（OBS 向けブラウザソース一覧）を取得する。
-   * `document_root` 配下の `index.html` を持つサブディレクトリがエントリとして返る。
-   */
-  bos(): Promise<BosResponse> {
-    return request<BosResponse>("/bos");
-  },
+	// --- OAuth (Google Sheets Device Flow) ---
+	googleSheetsOAuthStatus(): Promise<GoogleOAuthStatusResponse> {
+		return request<GoogleOAuthStatusResponse>("/oauth/google/sheets/status");
+	},
+	googleSheetsOAuthStart(req: GoogleOAuthStartRequest): Promise<GoogleOAuthStartResponse> {
+		return request<GoogleOAuthStartResponse>("/oauth/google/sheets/start", {
+			method: "POST",
+			body: req,
+		});
+	},
+	googleSheetsOAuthPoll(req: GoogleOAuthPollRequest): Promise<GoogleOAuthPollResponse> {
+		return request<GoogleOAuthPollResponse>("/oauth/google/sheets/poll", {
+			method: "POST",
+			body: req,
+		});
+	},
+	googleSheetsOAuthDeleteTokens(): Promise<GoogleOAuthDeleteTokensResponse> {
+		return request<GoogleOAuthDeleteTokensResponse>("/oauth/google/sheets/tokens", { method: "DELETE" });
+	},
+	/**
+	 * 任意の ChannelDatum を VAC のパイプラインへ投入する。
+	 * `POST /input` と違って `[[processors]]` の webinput 設定に依存せず、常に叩ける。
+	 */
+	ingress(req: IngressRequest): Promise<IngressResponse> {
+		return request<IngressResponse>("/ingress", { method: "POST", body: req });
+	},
+	preflightSelfTestStatus(): Promise<PreflightSelfTestStatus> {
+		return request<PreflightSelfTestStatus>("/preflight/self-test");
+	},
+	preflightTtsSelfTest(req: TtsSelfTestRequest): Promise<TtsSelfTestResponse> {
+		return request<TtsSelfTestResponse>("/preflight/self-test/tts", { method: "POST", body: req });
+	},
+	preflightSubtitleSelfTest(req: SubtitleSelfTestRequest = {}): Promise<SubtitleSelfTestResponse> {
+		return request<SubtitleSelfTestResponse>("/preflight/self-test/subtitles", { method: "POST", body: req });
+	},
+	preflightChatOutputSelfTest(req: ChatOutputSelfTestRequest = {}): Promise<ChatOutputSelfTestResponse> {
+		return request<ChatOutputSelfTestResponse>("/preflight/self-test/chat-output", { method: "POST", body: req });
+	},
+	preflightAvatarMotionSelfTest(): Promise<AvatarMotionSelfTestResponse> {
+		return request<AvatarMotionSelfTestResponse>("/preflight/self-test/avatar-motion", { method: "POST" });
+	},
+	quickEffects(limit = 50): Promise<QuickEffectsResponse> {
+		const params = new URLSearchParams({ limit: String(limit) });
+		return request<QuickEffectsResponse>(`/quick_effects?${params.toString()}`);
+	},
+	quickEffectPresets(): Promise<QuickEffectPresetsResponse> {
+		return request<QuickEffectPresetsResponse>("/quick_effects/presets");
+	},
+	putQuickEffectPresets(req: QuickEffectPresetsPutRequest): Promise<QuickEffectPresetsResponse> {
+		return request<QuickEffectPresetsResponse>("/quick_effects/presets", {
+			method: "PUT",
+			body: req,
+		});
+	},
+	enqueueQuickEffect(req: QuickEffectEnqueueRequest): Promise<QuickEffectItem> {
+		return request<QuickEffectItem>("/quick_effects", {
+			method: "POST",
+			body: req,
+		});
+	},
+	cancelQuickEffect(id: string): Promise<QuickEffectItem> {
+		return request<QuickEffectItem>(`/quick_effects/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+	},
+	moveQuickEffect(id: string, req: QuickEffectMoveRequest): Promise<QuickEffectsResponse> {
+		return request<QuickEffectsResponse>(`/quick_effects/${encodeURIComponent(id)}/move`, { method: "POST", body: req });
+	},
 
-  // --- Managed Apps (γ-2b) ---
-  managedApps(): Promise<ManagedAppsResponse> {
-    return request<ManagedAppsResponse>("/managed_apps");
-  },
-  managedAppStart(id: string): Promise<ManagedAppStartResponse> {
-    return request<ManagedAppStartResponse>(
-      `/managed_apps/${encodeURIComponent(id)}/start`,
-      { method: "POST" },
-    );
-  },
-  managedAppStop(
-    id: string,
-    req: ManagedAppStopRequest = {},
-  ): Promise<ManagedAppStopResponse> {
-    return request<ManagedAppStopResponse>(
-      `/managed_apps/${encodeURIComponent(id)}/stop`,
-      {
-        method: "POST",
-        body: req,
-      },
-    );
-  },
-  managedAppMinimize(id: string): Promise<ManagedAppMinimizeResponse> {
-    return request<ManagedAppMinimizeResponse>(
-      `/managed_apps/${encodeURIComponent(id)}/minimize`,
-      {
-        method: "POST",
-      },
-    );
-  },
-  managedAppRestart(
-    id: string,
-    req: ManagedAppStopRequest = {},
-  ): Promise<ManagedAppRestartResponse> {
-    return request<ManagedAppRestartResponse>(
-      `/managed_apps/${encodeURIComponent(id)}/restart`,
-      {
-        method: "POST",
-        body: req,
-      },
-    );
-  },
+	// --- BOS (γ-2a) ---
+	/**
+	 * Broadcast Output Sources（OBS 向けブラウザソース一覧）を取得する。
+	 * `document_root` 配下の `index.html` を持つサブディレクトリがエントリとして返る。
+	 */
+	bos(): Promise<BosResponse> {
+		return request<BosResponse>("/bos");
+	},
 
-  // --- VMC passthrough (M3) ---
-  vmcStatus(): Promise<VmcStatusResponse> {
-    return request<VmcStatusResponse>("/vmc/status");
-  },
-  vmcBind(req: VmcBindRequest): Promise<VmcPassthroughStatusView> {
-    return request<VmcPassthroughStatusView>("/vmc/bind", {
-      method: "POST",
-      body: req,
-    });
-  },
-  vmcForwardAdd(
-    id: string,
-    req: VmcForwardRequest,
-  ): Promise<VmcPassthroughStatusView> {
-    return request<VmcPassthroughStatusView>(
-      `/vmc/${encodeURIComponent(id)}/forward/add`,
-      {
-        method: "POST",
-        body: req,
-      },
-    );
-  },
-  vmcForwardRemove(
-    id: string,
-    req: VmcForwardRequest,
-  ): Promise<VmcPassthroughStatusView> {
-    return request<VmcPassthroughStatusView>(
-      `/vmc/${encodeURIComponent(id)}/forward/remove`,
-      {
-        method: "POST",
-        body: req,
-      },
-    );
-  },
+	// --- Managed Apps (γ-2b) ---
+	managedApps(): Promise<ManagedAppsResponse> {
+		return request<ManagedAppsResponse>("/managed_apps");
+	},
+	managedAppStart(id: string): Promise<ManagedAppStartResponse> {
+		return request<ManagedAppStartResponse>(`/managed_apps/${encodeURIComponent(id)}/start`, { method: "POST" });
+	},
+	managedAppStop(id: string, req: ManagedAppStopRequest = {}): Promise<ManagedAppStopResponse> {
+		return request<ManagedAppStopResponse>(`/managed_apps/${encodeURIComponent(id)}/stop`, {
+			method: "POST",
+			body: req,
+		});
+	},
+	managedAppMinimize(id: string): Promise<ManagedAppMinimizeResponse> {
+		return request<ManagedAppMinimizeResponse>(`/managed_apps/${encodeURIComponent(id)}/minimize`, {
+			method: "POST",
+		});
+	},
+	managedAppRestart(id: string, req: ManagedAppStopRequest = {}): Promise<ManagedAppRestartResponse> {
+		return request<ManagedAppRestartResponse>(`/managed_apps/${encodeURIComponent(id)}/restart`, {
+			method: "POST",
+			body: req,
+		});
+	},
+	unAppApiCommand(req: UnAppApiCommandRequest): Promise<UnAppApiCommandResponse> {
+		return request<UnAppApiCommandResponse>("/un_app_api/command", {
+			method: "POST",
+			body: req,
+		});
+	},
+	unAppApiCommandHistory(limit = 50): Promise<UnAppApiCommandHistoryResponse> {
+		const params = new URLSearchParams({ limit: String(limit) });
+		return request<UnAppApiCommandHistoryResponse>(`/un_app_api/commands/history?${params.toString()}`);
+	},
 
-  // --- Processor / AI Persona config (γ-3a) ---
-  processorConfig(index: number): Promise<ProcessorConfigResponse> {
-    return request<ProcessorConfigResponse>(`/processors/${index}/config`);
-  },
-  aiPersonaConfig(index: number): Promise<AiPersonaConfigResponse> {
-    return request<AiPersonaConfigResponse>(`/ai_personas/${index}/config`);
-  },
+	// --- VMC passthrough (M3) ---
+	vmcStatus(): Promise<VmcStatusResponse> {
+		return request<VmcStatusResponse>("/vmc/status");
+	},
+	vmcBind(req: VmcBindRequest): Promise<VmcPassthroughStatusView> {
+		return request<VmcPassthroughStatusView>("/vmc/bind", {
+			method: "POST",
+			body: req,
+		});
+	},
+	vmcForwardAdd(id: string, req: VmcForwardRequest): Promise<VmcPassthroughStatusView> {
+		return request<VmcPassthroughStatusView>(`/vmc/${encodeURIComponent(id)}/forward/add`, {
+			method: "POST",
+			body: req,
+		});
+	},
+	vmcForwardRemove(id: string, req: VmcForwardRequest): Promise<VmcPassthroughStatusView> {
+		return request<VmcPassthroughStatusView>(`/vmc/${encodeURIComponent(id)}/forward/remove`, {
+			method: "POST",
+			body: req,
+		});
+	},
 
-  // --- Processor / AI Persona config update (γ-3b) ---
-  putProcessorConfig(
-    index: number,
-    req: NodePutConfigRequest,
-  ): Promise<NodePutConfigResponse> {
-    return request<NodePutConfigResponse>(`/processors/${index}/config`, {
-      method: "PUT",
-      body: req,
-    });
-  },
-  putAiPersonaConfig(
-    index: number,
-    req: NodePutConfigRequest,
-  ): Promise<NodePutConfigResponse> {
-    return request<NodePutConfigResponse>(`/ai_personas/${index}/config`, {
-      method: "PUT",
-      body: req,
-    });
-  },
+	// --- Processor / AI Persona config (γ-3a) ---
+	processorConfig(index: number): Promise<ProcessorConfigResponse> {
+		return request<ProcessorConfigResponse>(`/processors/${index}/config`);
+	},
+	aiPersonaConfig(index: number): Promise<AiPersonaConfigResponse> {
+		return request<AiPersonaConfigResponse>(`/ai_personas/${index}/config`);
+	},
 
-  // --- Restart / Profiles (γ-1) ---
-  profiles(): Promise<ProfilesResponse> {
-    return request<ProfilesResponse>("/profiles");
-  },
+	// --- Processor / AI Persona config update (γ-3b) ---
+	putProcessorConfig(index: number, req: NodePutConfigRequest): Promise<NodePutConfigResponse> {
+		return request<NodePutConfigResponse>(`/processors/${index}/config`, {
+			method: "PUT",
+			body: req,
+		});
+	},
+	putAiPersonaConfig(index: number, req: NodePutConfigRequest): Promise<NodePutConfigResponse> {
+		return request<NodePutConfigResponse>(`/ai_personas/${index}/config`, {
+			method: "PUT",
+			body: req,
+		});
+	},
 
-  // --- Profile operations (γ-4a) ---
-  profileContent(filename: string): Promise<ProfileContentResponse> {
-    return request<ProfileContentResponse>(
-      `/profiles/${encodeURIComponent(filename)}/content`,
-    );
-  },
-  profilePutContent(
-    filename: string,
-    req: ProfilePutContentRequest,
-  ): Promise<ProfileOpResponse> {
-    return request<ProfileOpResponse>(
-      `/profiles/${encodeURIComponent(filename)}/content`,
-      {
-        method: "PUT",
-        body: req,
-      },
-    );
-  },
-  profileClone(req: ProfileCloneRequest): Promise<ProfileOpResponse> {
-    return request<ProfileOpResponse>("/profiles/clone", {
-      method: "POST",
-      body: req,
-    });
-  },
-  profileRename(
-    filename: string,
-    req: ProfileRenameRequest,
-  ): Promise<ProfileOpResponse> {
-    return request<ProfileOpResponse>(
-      `/profiles/${encodeURIComponent(filename)}/rename`,
-      {
-        method: "POST",
-        body: req,
-      },
-    );
-  },
-  profileDelete(filename: string): Promise<ProfileOpResponse> {
-    return request<ProfileOpResponse>(
-      `/profiles/${encodeURIComponent(filename)}`,
-      { method: "DELETE" },
-    );
-  },
+	// --- Restart / Profiles (γ-1) ---
+	profiles(): Promise<ProfilesResponse> {
+		return request<ProfilesResponse>("/profiles");
+	},
+	desktopProfiles(): Promise<DesktopProfilesResponse> {
+		return request<DesktopProfilesResponse>("/desktop/profiles");
+	},
+	desktopProfileContent(id: string): Promise<{ content: string; revision: string }> {
+		return request(`/desktop/profiles/${encodeURIComponent(id)}/content`);
+	},
+	saveDesktopProfileContent(id: string, content: string, revision: string): Promise<{ content: string; revision: string }> {
+		return request(`/desktop/profiles/${encodeURIComponent(id)}/content`, { method: "PUT", body: { content, revision } });
+	},
+	desktopProfilePerception(id: string): Promise<PerceptionView> {
+		return request(`/desktop/profiles/${encodeURIComponent(id)}/perception`);
+	},
+	saveDesktopProfilePerception(id: string, revision: string, edit: PerceptionEdit): Promise<PerceptionSaveResult> {
+		return request(`/desktop/profiles/${encodeURIComponent(id)}/perception`, {method: "PUT", body: {revision,edit}});
+	},
+	deletedDesktopProfiles(): Promise<{ archive_id: string; profile_id: string; label: string }[]> {
+		return request("/desktop/deleted-profiles");
+	},
+	archiveDesktopProfile(id: string): Promise<{ ok: boolean }> {
+		return request(`/desktop/profiles/${encodeURIComponent(id)}/archive`, { method: "POST" });
+	},
+	restoreDesktopProfile(id: string): Promise<{ ok: boolean }> {
+		return request(`/desktop/deleted-profiles/${encodeURIComponent(id)}/restore`, { method: "POST" });
+	},
+	async checkConnectionToken(token: string): Promise<void> {
+		const response = await fetch(`${API_BASE}/ping`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: "no-store" });
+		if (!response.ok) throw new Error("Connection authentication failed");
+	},
+	localInstances(): Promise<{
+		current_pid: number;
+		profile_lookup_ok?: boolean;
+		instances: { pid: number; started_at: number; conf_path: string; gui_url: string; executable: string; profile?: { id: string; label: string; next_start: boolean } | null }[];
+	}> {
+		return request("/desktop/instances");
+	},
+	desktopProfileTemplates(): Promise<DesktopProfileTemplateEntry[]> {
+		return request<DesktopProfileTemplateEntry[]>("/desktop/profile-templates");
+	},
+	desktopAiSetup(): Promise<DesktopAiSetupStatus> {
+		return request<DesktopAiSetupStatus>("/desktop/active-profile/ai");
+	},
+	configureDesktopAi(req: ConfigureDesktopAiRequest): Promise<DesktopAiMutationResponse> {
+		return request<DesktopAiMutationResponse>("/desktop/active-profile/ai", { method: "PUT", body: req });
+	},
+	createDesktopProfile(req: CreateDesktopProfileRequest): Promise<DesktopProfileMutationResponse> {
+		return request<DesktopProfileMutationResponse>("/desktop/profiles", { method: "POST", body: req });
+	},
+	activateDesktopProfile(id: string): Promise<DesktopProfileMutationResponse> {
+		return request<DesktopProfileMutationResponse>(`/desktop/profiles/${encodeURIComponent(id)}/activate`, { method: "POST" });
+	},
+	renameDesktopProfile(id: string, label: string): Promise<DesktopProfileMutationResponse> {
+		return request(`/desktop/profiles/${encodeURIComponent(id)}/label`, { method: "PUT", body: { label } });
+	},
+	async importDesktopProfileBundle(id: string, label: string, bundle: Blob): Promise<DesktopProfileMutationResponse> {
+		const query = new URLSearchParams({ id, label });
+		const res = await fetch(`${API_BASE}/desktop/profiles/import-bundle?${query.toString()}`, {
+			method: "POST",
+			headers: {
+				Accept: "application/json",
+				"Content-Type": "application/zip",
+				...buildAuthHeader(),
+			},
+			body: bundle,
+		});
+		if (!res.ok) {
+			let errBody: unknown;
+			try {
+				errBody = await res.json();
+			} catch {
+				errBody = await res.text();
+			}
+			throw new ControlApiError(res.status, res.statusText, errBody);
+		}
+		return (await res.json()) as DesktopProfileMutationResponse;
+	},
+	async exportDesktopProfileBundle(id: string): Promise<Blob> {
+		const res = await fetch(`${API_BASE}/desktop/profiles/${encodeURIComponent(id)}/export-bundle`, {
+			headers: {
+				Accept: "application/zip",
+				...buildAuthHeader(),
+			},
+		});
+		if (!res.ok) {
+			let errBody: unknown;
+			try {
+				errBody = await res.json();
+			} catch {
+				errBody = await res.text();
+			}
+			throw new ControlApiError(res.status, res.statusText, errBody);
+		}
+		return res.blob();
+	},
 
-  // --- Modify dictionary / regex entries (γ-8a) ---
-  /**
-   * Modify processor の `writable_dictionary_file` に 1 行追加する。同一 (to, from) が既にあれば
-   * `already_present: true` で no-op。
-   */
-  addDictionaryEntry(
-    id: string,
-    req: DictionaryEntryRequest,
-  ): Promise<DictionaryEntryResponse> {
-    return request<DictionaryEntryResponse>(
-      `/modify/${encodeURIComponent(id)}/dictionary/entries`,
-      {
-        method: "POST",
-        body: req,
-      },
-    );
-  },
-  removeDictionaryEntry(
-    id: string,
-    req: DictionaryEntryRequest,
-  ): Promise<DictionaryEntryResponse> {
-    return request<DictionaryEntryResponse>(
-      `/modify/${encodeURIComponent(id)}/dictionary/entries`,
-      {
-        method: "DELETE",
-        body: req,
-      },
-    );
-  },
-  addRegexEntry(
-    id: string,
-    req: RegexEntryRequest,
-  ): Promise<RegexEntryResponse> {
-    return request<RegexEntryResponse>(
-      `/modify/${encodeURIComponent(id)}/regex/entries`,
-      {
-        method: "POST",
-        body: req,
-      },
-    );
-  },
-  removeRegexEntry(
-    id: string,
-    req: RegexEntryRequest,
-  ): Promise<RegexEntryResponse> {
-    return request<RegexEntryResponse>(
-      `/modify/${encodeURIComponent(id)}/regex/entries`,
-      {
-        method: "DELETE",
-        body: req,
-      },
-    );
-  },
+	// --- Profile operations (γ-4a) ---
+	profileContent(filename: string): Promise<ProfileContentResponse> {
+		return request<ProfileContentResponse>(`/profiles/${encodeURIComponent(filename)}/content`);
+	},
+	profilePutContent(filename: string, req: ProfilePutContentRequest): Promise<ProfileOpResponse> {
+		return request<ProfileOpResponse>(`/profiles/${encodeURIComponent(filename)}/content`, {
+			method: "PUT",
+			body: req,
+		});
+	},
+	profileBackups(): Promise<{ entries: { filename: string; original: string; size: number }[]; directory: string }> {
+		return request("/profile-backups");
+	},
+	profileRestore(backup: string, filename: string): Promise<ProfileOpResponse> {
+		return request("/profile-backups/restore", { method: "POST", body: { backup, filename } });
+	},
+	profileClone(req: ProfileCloneRequest): Promise<ProfileOpResponse> {
+		return request<ProfileOpResponse>("/profiles/clone", {
+			method: "POST",
+			body: req,
+		});
+	},
+	profileRename(filename: string, req: ProfileRenameRequest): Promise<ProfileOpResponse> {
+		return request<ProfileOpResponse>(`/profiles/${encodeURIComponent(filename)}/rename`, {
+			method: "POST",
+			body: req,
+		});
+	},
+	profileDelete(filename: string): Promise<ProfileOpResponse> {
+		return request<ProfileOpResponse>(`/profiles/${encodeURIComponent(filename)}`, { method: "DELETE" });
+	},
 
-  /**
-   * Modify processor の writable ファイルを OS 既定アプリで開く（γ-9）。VAC プロセス側で
-   * `cmd /C start` / `open` / `xdg-open` を fire-and-forget で起動する。パスはサーバ側で解決し、
-   * リクエストボディは取らない（任意パスの起動を禁止）。
-   */
-  openModifyFileExternal(
-    id: string,
-    kind: "dictionary" | "regex",
-  ): Promise<OpenExternalResponse> {
-    return request<OpenExternalResponse>(
-      `/modify/${encodeURIComponent(id)}/files/${kind}/open-external`,
-      { method: "POST" },
-    );
-  },
+	// --- Modify dictionary / regex entries (γ-8a) ---
+	/**
+	 * Modify processor の `writable_dictionary_file` に 1 行追加する。同一 (to, from) が既にあれば
+	 * `already_present: true` で no-op。
+	 */
+	addDictionaryEntry(id: string, req: DictionaryEntryRequest): Promise<DictionaryEntryResponse> {
+		return request<DictionaryEntryResponse>(`/modify/${encodeURIComponent(id)}/dictionary/entries`, {
+			method: "POST",
+			body: req,
+		});
+	},
+	removeDictionaryEntry(id: string, req: DictionaryEntryRequest): Promise<DictionaryEntryResponse> {
+		return request<DictionaryEntryResponse>(`/modify/${encodeURIComponent(id)}/dictionary/entries`, {
+			method: "DELETE",
+			body: req,
+		});
+	},
+	addRegexEntry(id: string, req: RegexEntryRequest): Promise<RegexEntryResponse> {
+		return request<RegexEntryResponse>(`/modify/${encodeURIComponent(id)}/regex/entries`, {
+			method: "POST",
+			body: req,
+		});
+	},
+	removeRegexEntry(id: string, req: RegexEntryRequest): Promise<RegexEntryResponse> {
+		return request<RegexEntryResponse>(`/modify/${encodeURIComponent(id)}/regex/entries`, {
+			method: "DELETE",
+			body: req,
+		});
+	},
 
-  /**
-   * Modify processor の全 `dictionary_files` の内容をファイル別にまとめて取得する（γ-8d）。
-   * `is_writable` の立っているファイルのみ行 API（{@link addDictionaryEntry} 等）で編集可能。
-   */
-  getDictionaryContent(id: string): Promise<DictionaryContentResponse> {
-    return request<DictionaryContentResponse>(
-      `/modify/${encodeURIComponent(id)}/dictionary/content`,
-    );
-  },
-  /** 同じく全 `regex_files` をファイル別に取得する（γ-8d）。 */
-  getRegexContent(id: string): Promise<RegexContentResponse> {
-    return request<RegexContentResponse>(
-      `/modify/${encodeURIComponent(id)}/regex/content`,
-    );
-  },
+	/**
+	 * Modify processor の writable ファイルを OS 既定アプリで開く（γ-9）。VAC プロセス側で
+	 * `cmd /C start` / `open` / `xdg-open` を fire-and-forget で起動する。パスはサーバ側で解決し、
+	 * リクエストボディは取らない（任意パスの起動を禁止）。
+	 */
+	openModifyFileExternal(id: string, kind: "dictionary" | "regex"): Promise<OpenExternalResponse> {
+		return request<OpenExternalResponse>(`/modify/${encodeURIComponent(id)}/files/${kind}/open-external`, { method: "POST" });
+	},
 
-  // --- run_with operations (γ-5a) ---
-  runWithList(): Promise<RunWithListResponse> {
-    return request<RunWithListResponse>("/run_with");
-  },
-  runWithAdd(entry: RunWithDto): Promise<RunWithMutationResponse> {
-    return request<RunWithMutationResponse>("/run_with", {
-      method: "POST",
-      body: entry,
-    });
-  },
-  runWithDelete(index: number): Promise<RunWithMutationResponse> {
-    return request<RunWithMutationResponse>(`/run_with/${index}`, {
-      method: "DELETE",
-    });
-  },
-  /**
-   * VAC を再起動する。成功時は現プロセスが `graceful_ms` 後に `exit(0)` し、同じバイナリが
-   * 新しい引数（= 新 conf path）で立ち上がる。GUI 側は WS の自動再接続を前提に UX を組むこと。
-   */
-  restart(req: RestartRequest = {}): Promise<RestartResponse> {
-    return request<RestartResponse>("/restart", { method: "POST", body: req });
-  },
+	/**
+	 * Modify processor の全 `dictionary_files` の内容をファイル別にまとめて取得する（γ-8d）。
+	 * `is_writable` の立っているファイルのみ行 API（{@link addDictionaryEntry} 等）で編集可能。
+	 */
+	getDictionaryContent(id: string): Promise<DictionaryContentResponse> {
+		return request<DictionaryContentResponse>(`/modify/${encodeURIComponent(id)}/dictionary/content`);
+	},
+	/** 同じく全 `regex_files` をファイル別に取得する（γ-8d）。 */
+	getRegexContent(id: string): Promise<RegexContentResponse> {
+		return request<RegexContentResponse>(`/modify/${encodeURIComponent(id)}/regex/content`);
+	},
 
-  /**
-   * VAC を穏やかに終了させる（Phase ε-1）。成功時はサーバ側が ShutdownBroker を trigger し、
-   * ManagedApp 停止 → actix graceful stop → bridges/ai/libretranslate cleanup を踏んで自然終了する。
-   * GUI 側は WS の切断を検知する（restart と違い自動再接続はしない）。
-   */
-  shutdown(req: ShutdownRequest = {}): Promise<ShutdownResponse> {
-    return request<ShutdownResponse>("/shutdown", {
-      method: "POST",
-      body: req,
-    });
-  },
+	// --- run_with operations (γ-5a) ---
+	runWithList(): Promise<RunWithListResponse> {
+		return request<RunWithListResponse>("/run_with");
+	},
+	twitchSetup(): Promise<{ source_path: string; revision: string; broadcaster: string; moderator: string; restart_required: boolean }> {
+		return request("/twitch/setup");
+	},
+	saveTwitchSetup(input: { expected_source: string; revision: string; broadcaster: string; moderator: string }): Promise<{ source_path: string; revision: string; broadcaster: string; moderator: string; restart_required: boolean }> {
+		return request("/twitch/setup", { method: "PUT", body: input });
+	},
+	runWithAdd(entry: RunWithDto, revision?: string | null): Promise<RunWithMutationResponse> {
+		return request<RunWithMutationResponse>("/run_with", {
+			method: "POST",
+			extraHeaders: revision ? { "If-Match": `b3:${revision}` } : undefined,
+			body: entry,
+		});
+	},
+	runWithUpdate(index: number, entry: RunWithDto, revision?: string | null): Promise<RunWithMutationResponse> {
+		return request<RunWithMutationResponse>(`/run_with/${index}`, {
+			method: "PUT",
+			extraHeaders: revision ? { "If-Match": `b3:${revision}` } : undefined,
+			body: entry,
+		});
+	},
+	runWithBatch(edits: { index: number; effective_id: string; entry?: RunWithDto; mode_actions?: Record<string, string> }[], revision: string, additions: RunWithDto[] = []): Promise<RunWithMutationResponse> {
+		return request<RunWithMutationResponse>("/run_with/batch", {
+			method: "PUT", extraHeaders: { "If-Match": `b3:${revision}` }, body: { edits, additions },
+		});
+	},
+	runWithDelete(index: number, revision?: string | null): Promise<RunWithMutationResponse> {
+		return request<RunWithMutationResponse>(`/run_with/${index}`, {
+			method: "DELETE",
+			extraHeaders: revision ? { "If-Match": `b3:${revision}` } : undefined,
+		});
+	},
+	/**
+	 * VAC を再起動する。成功時は現プロセスが `graceful_ms` 後に `exit(0)` し、同じバイナリが
+	 * 新しい引数（= 新 conf path）で立ち上がる。GUI 側は WS の自動再接続を前提に UX を組むこと。
+	 */
+	restart(req: RestartRequest = {}): Promise<RestartResponse> {
+		return request<RestartResponse>("/restart", { method: "POST", body: req });
+	},
 
-  // --- Flowgraph (δ-6) ---
-  /** 登録済み全 NodeSpec を取得する。パレット表示に使う。 */
-  flowgraphNodeCatalog(): Promise<FlowgraphNodeCatalogResponse> {
-    return request<FlowgraphNodeCatalogResponse>("/flowgraph/node-catalog");
-  },
-  /** Phase ξ-5: 単位文字列をサーバの `parse_unit` と同じルールで検証する。 */
-  flowgraphParseUnit(text: string): Promise<FlowgraphParseUnitResponse> {
-    const q = new URLSearchParams({ text });
-    return request<FlowgraphParseUnitResponse>(
-      `/flowgraph/parse-unit?${q.toString()}`,
-    );
-  },
-  /** LF-5: socket type 文字列をサーバの `SocketType::parse` と同じルールで検証する。 */
-  flowgraphParseSocketType(
-    text: string,
-  ): Promise<FlowgraphParseSocketTypeResponse> {
-    const q = new URLSearchParams({ text });
-    return request<FlowgraphParseSocketTypeResponse>(
-      `/flowgraph/parse-socket-type?${q.toString()}`,
-    );
-  },
-  /** LF-5: 上流型から下流型へ接続可能かをサーバの `SocketType::compatible_with` と同じルールで検証する。 */
-  flowgraphSocketTypeCompatibility(
-    from: string,
-    to: string,
-  ): Promise<FlowgraphSocketTypeCompatibilityResponse> {
-    const q = new URLSearchParams({ from, to });
-    return request<FlowgraphSocketTypeCompatibilityResponse>(
-      `/flowgraph/socket-type-compatibility?${q.toString()}`,
-    );
-  },
-  /** `flowgraph_dir` 配下のファイル一覧を取得する（各ファイルの meta / node 数 / パースエラー含む）。 */
-  flowgraphTree(): Promise<FlowgraphTreeResponse> {
-    return request<FlowgraphTreeResponse>("/flowgraph/tree");
-  },
-  /** 特定 fq のファイル内容と parsed 構造を取得する。 */
-  flowgraphFile(fq: string): Promise<FlowgraphFileResponse> {
-    return request<FlowgraphFileResponse>(`/flowgraph/file/${encodeFq(fq)}`);
-  },
-  /** 現在ランタイムが保持している診断 + node_meta を取得する。 */
-  flowgraphDiagnostics(): Promise<FlowgraphDiagnosticsResponse> {
-    return request<FlowgraphDiagnosticsResponse>("/flowgraph/diagnostics");
-  },
-  /** 現在ランタイムが保持している graph signature だけを取得する。 */
-  flowgraphSignature(): Promise<FlowgraphSignature> {
-    return request<FlowgraphSignature>("/flowgraph/signature");
-  },
-  /** ロード直後 snapshot を profile-local snapshot file へ明示保存する。live worker state ではない。 */
-  flowgraphSaveLoadedStateSnapshot(): Promise<FlowgraphSaveLoadedStateSnapshotResponse> {
-    return request<FlowgraphSaveLoadedStateSnapshotResponse>(
-      "/flowgraph/state-snapshot/loaded/save",
-      { method: "POST" },
-    );
-  },
-  /** live worker state snapshot を profile-local snapshot file へ明示保存する。自動保存ではない。 */
-  flowgraphSaveLiveStateSnapshot(): Promise<FlowgraphSaveLiveStateSnapshotResponse> {
-    return request<FlowgraphSaveLiveStateSnapshotResponse>(
-      "/flowgraph/state-snapshot/live/save",
-      { method: "POST" },
-    );
-  },
-  /** profile-local snapshot file envelope を明示 restore して reload する。自動 restore ではない。 */
-  flowgraphRestoreProfileLocalStateSnapshot(): Promise<FlowgraphRestoreStateSnapshotResponse> {
-    return request<FlowgraphRestoreStateSnapshotResponse>(
-      "/flowgraph/state-snapshot/profile-local/restore",
-      { method: "POST" },
-    );
-  },
-  /** 新規ファイル作成（省略時は空 `[meta]` テンプレート）。 */
-  flowgraphCreateFile(
-    req: FlowgraphCreateFileRequest,
-  ): Promise<FlowgraphWriteFileResponse> {
-    return request<FlowgraphWriteFileResponse>("/flowgraph/file", {
-      method: "POST",
-      body: req,
-    });
-  },
-  /** ファイル全体を指定内容で置き換える。 */
-  flowgraphPutFile(
-    fq: string,
-    req: FlowgraphPutFileRequest,
-  ): Promise<FlowgraphWriteFileResponse> {
-    return request<FlowgraphWriteFileResponse>(
-      `/flowgraph/file/${encodeFq(fq)}`,
-      {
-        method: "PUT",
-        body: req,
-      },
-    );
-  },
-  /** ファイルを `.bak` に退避してから削除する。 */
-  flowgraphDeleteFile(fq: string): Promise<FlowgraphWriteFileResponse> {
-    return request<FlowgraphWriteFileResponse>(
-      `/flowgraph/file/${encodeFq(fq)}`,
-      { method: "DELETE" },
-    );
-  },
-  /** OS 既定アプリで開く（`cmd /C start` / `open` / `xdg-open`）。 */
-  flowgraphOpenExternal(fq: string): Promise<FlowgraphOpenExternalResponse> {
-    return request<FlowgraphOpenExternalResponse>(
-      `/flowgraph/file/${encodeFq(fq)}/open-external`,
-      {
-        method: "POST",
-      },
-    );
-  },
-  /** ディスクから再ロードして診断を更新する。外部エディタ変更後の「Reload」相当。 */
-  flowgraphReload(): Promise<FlowgraphReloadResponse> {
-    return request<FlowgraphReloadResponse>("/flowgraph/reload", {
-      method: "POST",
-    });
-  },
-  /** live worker state を保存してから同じ snapshot file で reload / restore する。自動 reload ではない。 */
-  flowgraphReloadPreservingState(): Promise<FlowgraphReloadPreservingStateResponse> {
-    return request<FlowgraphReloadPreservingStateResponse>(
-      "/flowgraph/reload/preserve-state",
-      { method: "POST" },
-    );
-  },
-  // --- Fragment copy / paste (δ-7) ---
-  /** 指定した範囲を fragment TOML に切り出す。scope=nodes / file / folder / mixed をサポート。 */
-  flowgraphFragmentCopy(
-    req: FragmentCopyRequest,
-  ): Promise<FragmentCopyResponse> {
-    return request<FragmentCopyResponse>("/flowgraph/fragment/copy", {
-      method: "POST",
-      body: req,
-    });
-  },
-  /** fragment TOML をターゲットファイル / フォルダに書き戻す。衝突解消と dangling remap を含む。 */
-  flowgraphFragmentPaste(
-    req: FragmentPasteRequest,
-  ): Promise<FragmentPasteResponse> {
-    return request<FragmentPasteResponse>("/flowgraph/fragment/paste", {
-      method: "POST",
-      body: req,
-    });
-  },
-  // --- Fragment ZIP export / import (δ-7d) ---
-  /** CopyRequest 相当で ZIP バイナリをダウンロードする。戻り値は Blob（caller が save する）。 */
-  async flowgraphExportZip(req: FragmentCopyRequest): Promise<Blob> {
-    const headers: Record<string, string> = {
-      Accept: "application/zip",
-      "Content-Type": "application/json",
-      ...buildAuthHeader(),
-    };
-    const res = await fetch(`${API_BASE}/flowgraph/export/zip`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(req),
-    });
-    if (!res.ok) {
-      let errBody: unknown;
-      try {
-        errBody = await res.json();
-      } catch {
-        errBody = await res.text();
-      }
-      throw new ControlApiError(res.status, res.statusText, errBody);
-    }
-    return await res.blob();
-  },
-  /** ZIP バイナリを import。`dry_run=true` でプレビュー取得、false で本番。 */
-  async flowgraphImportZip(
-    zip: Blob | ArrayBuffer | Uint8Array,
-    params: {
-      dry_run: boolean;
-      target_prefix?: string;
-      on_conflict_node?: string;
-      on_conflict_file?: string;
+	/**
+	 * VAC を穏やかに終了させる（Phase ε-1）。成功時はサーバ側が ShutdownBroker を trigger し、
+	 * ManagedApp 停止 → actix graceful stop → bridges/ai/libretranslate cleanup を踏んで自然終了する。
+	 * GUI 側は WS の切断を検知する（restart と違い自動再接続はしない）。
+	 */
+	shutdown(req: ShutdownRequest = {}): Promise<ShutdownResponse> {
+		return request<ShutdownResponse>("/shutdown", {
+			method: "POST",
+			body: req,
+		});
+	},
+
+	// --- Flowgraph (δ-6) ---
+	/** 登録済み全 NodeSpec を取得する。パレット表示に使う。 */
+	flowgraphNodeCatalog(): Promise<FlowgraphNodeCatalogResponse> {
+		return request<FlowgraphNodeCatalogResponse>("/flowgraph/node-catalog");
+	},
+	/** Phase ξ-5: 単位文字列をサーバの `parse_unit` と同じルールで検証する。 */
+	flowgraphParseUnit(text: string): Promise<FlowgraphParseUnitResponse> {
+		const q = new URLSearchParams({ text });
+		return request<FlowgraphParseUnitResponse>(`/flowgraph/parse-unit?${q.toString()}`);
+	},
+	/** LF-5: socket type 文字列をサーバの `SocketType::parse` と同じルールで検証する。 */
+	flowgraphParseSocketType(text: string): Promise<FlowgraphParseSocketTypeResponse> {
+		const q = new URLSearchParams({ text });
+		return request<FlowgraphParseSocketTypeResponse>(`/flowgraph/parse-socket-type?${q.toString()}`);
+	},
+	/** LF-5: 上流型から下流型へ接続可能かをサーバの `SocketType::compatible_with` と同じルールで検証する。 */
+	flowgraphSocketTypeCompatibility(from: string, to: string): Promise<FlowgraphSocketTypeCompatibilityResponse> {
+		const q = new URLSearchParams({ from, to });
+		return request<FlowgraphSocketTypeCompatibilityResponse>(`/flowgraph/socket-type-compatibility?${q.toString()}`);
+	},
+	/** `flowgraph_dir` 配下のファイル一覧を取得する（各ファイルの meta / node 数 / パースエラー含む）。 */
+	flowgraphTree(): Promise<FlowgraphTreeResponse> {
+		return request<FlowgraphTreeResponse>("/flowgraph/tree");
+	},
+	/** 特定 fq のファイル内容と parsed 構造を取得する。 */
+	flowgraphFile(fq: string): Promise<FlowgraphFileResponse> {
+		return request<FlowgraphFileResponse>(`/flowgraph/file/${encodeFq(fq)}`);
+	},
+	/** 現在ランタイムが保持している診断 + node_meta を取得する。 */
+	flowgraphDiagnostics(): Promise<FlowgraphDiagnosticsResponse> {
+		return request<FlowgraphDiagnosticsResponse>("/flowgraph/diagnostics");
+	},
+	/** 現在ランタイムが保持している graph signature だけを取得する。 */
+	flowgraphSignature(): Promise<FlowgraphSignature> {
+		return request<FlowgraphSignature>("/flowgraph/signature");
+	},
+	/** ロード直後 snapshot を profile-local snapshot file へ明示保存する。live worker state ではない。 */
+	flowgraphSaveLoadedStateSnapshot(): Promise<FlowgraphSaveLoadedStateSnapshotResponse> {
+		return request<FlowgraphSaveLoadedStateSnapshotResponse>("/flowgraph/state-snapshot/loaded/save", { method: "POST" });
+	},
+	/** live worker state snapshot を profile-local snapshot file へ明示保存する。自動保存ではない。 */
+	flowgraphSaveLiveStateSnapshot(): Promise<FlowgraphSaveLiveStateSnapshotResponse> {
+		return request<FlowgraphSaveLiveStateSnapshotResponse>("/flowgraph/state-snapshot/live/save", { method: "POST" });
+	},
+	/** profile-local snapshot file envelope を明示 restore して reload する。自動 restore ではない。 */
+	flowgraphRestoreProfileLocalStateSnapshot(): Promise<FlowgraphRestoreStateSnapshotResponse> {
+		return request<FlowgraphRestoreStateSnapshotResponse>("/flowgraph/state-snapshot/profile-local/restore", { method: "POST" });
+	},
+	/** 新規ファイル作成（省略時は空 `[meta]` テンプレート）。 */
+	flowgraphCreateFile(req: FlowgraphCreateFileRequest): Promise<FlowgraphWriteFileResponse> {
+		return request<FlowgraphWriteFileResponse>("/flowgraph/file", {
+			method: "POST",
+			body: req,
+		});
+	},
+	/** ファイル全体を指定内容で置き換える。 */
+	flowgraphPutFile(fq: string, req: FlowgraphPutFileRequest): Promise<FlowgraphWriteFileResponse> {
+		return request<FlowgraphWriteFileResponse>(`/flowgraph/file/${encodeFq(fq)}`, {
+			method: "PUT",
+			body: req,
+		});
+	},
+	/** ファイルを `.bak` に退避してから削除する。 */
+	flowgraphDeleteFile(fq: string, expectedContent?: string, expectedRoot?: string): Promise<FlowgraphWriteFileResponse> {
+		return request<FlowgraphWriteFileResponse>(`/flowgraph/file/${encodeFq(fq)}`, { method: "DELETE", body: { expected_content: expectedContent, expected_root: expectedRoot } });
+	},
+	flowgraphRemovalPlan(fq: string): Promise<{ fq: string; root_dir: string; expected_content: string; can_delete: boolean; diagnostics: { message: string; file?: string; severity: string }[] }> {
+		return request(`/flowgraph/removal-plan/${encodeFq(fq)}`);
+	},
+	flowgraphBackups(fq: string): Promise<{ root_dir: string; fq: string; backups: string[] }> {
+		return request(`/flowgraph/backups/${encodeFq(fq)}`);
+	},
+	flowgraphRecoveryHistory(): Promise<{ root_dir: string; entries: { fq: string; current_present: boolean; backups: string[] }[] }> {
+		return request('/flowgraph/recovery-history');
+	},
+	flowgraphRecoveryPlan(fq: string, backup: string): Promise<FlowgraphRecoveryPlan> {
+		return request(`/flowgraph/recovery-plan/${encodeFq(fq)}`, { method: "POST", body: { backup } });
+	},
+	flowgraphRestoreFile(fq: string, plan: FlowgraphRecoveryPlan): Promise<FlowgraphWriteFileResponse> {
+		return request(`/flowgraph/restore-file/${encodeFq(fq)}`, { method: "POST", body: plan });
+	},
+	/** OS 既定アプリで開く（`cmd /C start` / `open` / `xdg-open`）。 */
+	flowgraphOpenExternal(fq: string): Promise<FlowgraphOpenExternalResponse> {
+		return request<FlowgraphOpenExternalResponse>(`/flowgraph/file/${encodeFq(fq)}/open-external`, {
+			method: "POST",
+		});
+	},
+	/** ディスクから再ロードして診断を更新する。外部エディタ変更後の「Reload」相当。 */
+	flowgraphReload(): Promise<FlowgraphReloadResponse> {
+		return request<FlowgraphReloadResponse>("/flowgraph/reload", {
+			method: "POST",
+		});
+	},
+	/** live worker state を保存してから同じ snapshot file で reload / restore する。自動 reload ではない。 */
+	flowgraphReloadPreservingState(): Promise<FlowgraphReloadPreservingStateResponse> {
+		return request<FlowgraphReloadPreservingStateResponse>("/flowgraph/reload/preserve-state", { method: "POST" });
+	},
+	// --- Fragment copy / paste (δ-7) ---
+	flowgraphSharePlan(files: string[]): Promise<FlowgraphSharePlan> {
+		return request<FlowgraphSharePlan>("/flowgraph/fragment/share-plan", { method: "POST", body: { files } });
+	},
+	flowgraphCompanions(): Promise<FlowgraphCompanionInventory> {
+		return request<FlowgraphCompanionInventory>("/flowgraph/fragment/companions");
+	},
+	/** 指定した範囲を fragment TOML に切り出す。scope=nodes / file / folder / mixed をサポート。 */
+	flowgraphFragmentCopy(req: FragmentCopyRequest): Promise<FragmentCopyResponse> {
+		return request<FragmentCopyResponse>("/flowgraph/fragment/copy", {
+			method: "POST",
+			body: req,
+		});
+	},
+	/** fragment TOML をターゲットファイル / フォルダに書き戻す。衝突解消と dangling remap を含む。 */
+	flowgraphFragmentPaste(req: FragmentPasteRequest): Promise<FragmentPasteResponse> {
+		return request<FragmentPasteResponse>("/flowgraph/fragment/paste", {
+			method: "POST",
+			body: req,
+		});
+	},
+	// --- Fragment ZIP export / import (δ-7d) ---
+	/** CopyRequest 相当で ZIP バイナリをダウンロードする。戻り値は Blob（caller が save する）。 */
+	async flowgraphExportZip(req: ZipExportRequest): Promise<Blob> {
+		const headers: Record<string, string> = {
+			Accept: "application/zip",
+			"Content-Type": "application/json",
+			...buildAuthHeader(),
+		};
+		const res = await fetch(`${API_BASE}/flowgraph/export/zip`, {
+			method: "POST",
+			headers,
+			body: JSON.stringify(req),
+		});
+		if (!res.ok) {
+			let errBody: unknown;
+			try {
+				errBody = await res.json();
+			} catch {
+				errBody = await res.text();
+			}
+			throw new ControlApiError(res.status, res.statusText, errBody);
+		}
+		return await res.blob();
+	},
+	/** ZIP バイナリを import。`dry_run=true` でプレビュー取得、false で本番。 */
+	async flowgraphImportZip(
+		zip: Blob | ArrayBuffer | Uint8Array,
+		params: {
+			dry_run: boolean;
+			expected_root?: string;
+			target_prefix?: string;
+			on_conflict_node?: string;
+			on_conflict_file?: string;
+		}
+	): Promise<ZipImportOutcome> {
+		const qs = new URLSearchParams();
+		qs.set("dry_run", params.dry_run ? "true" : "false");
+		if (params.expected_root) qs.set("expected_root", params.expected_root);
+		if (params.target_prefix !== undefined) qs.set("target_prefix", params.target_prefix);
+		if (params.on_conflict_node) qs.set("on_conflict_node", params.on_conflict_node);
+		if (params.on_conflict_file) qs.set("on_conflict_file", params.on_conflict_file);
+		const headers: Record<string, string> = {
+			Accept: "application/json",
+			"Content-Type": "application/zip",
+			...buildAuthHeader(),
+		};
+		const body: BodyInit =
+			zip instanceof Blob ? zip : zip instanceof Uint8Array ? new Blob([zip as unknown as BlobPart]) : new Blob([zip]);
+		const res = await fetch(`${API_BASE}/flowgraph/import/zip?${qs.toString()}`, {
+			method: "POST",
+			headers,
+			body,
+		});
+		if (!res.ok) {
+			let errBody: unknown;
+			try {
+				errBody = await res.json();
+			} catch {
+				errBody = await res.text();
+			}
+			throw new ControlApiError(res.status, res.statusText, errBody);
+		}
+		return (await res.json()) as ZipImportOutcome;
+	},
+
+	// ---------------------------------------------------------------------------
+	// Phase φ-1: Control Table CRUD
+	//
+	// 全ての mutation 系は `If-Match: b3:<content_hash>` で楽観ロックが効く。
+	// `ifMatch` 引数が省略された場合、GUI は「盲目上書き」になる点に注意
+	// （サーバ側は header 未指定を許容するが、GUI コンポーネントは常に直近の
+	// `content_hash` を渡すこと）。
+	// ---------------------------------------------------------------------------
+
+	listControlTables(): Promise<TableCatalogResponse> {
+		return request<TableCatalogResponse>("/tables");
+	},
+
+    dictionarySetupTarget(): Promise<{source_path: string; revision: string}> {
+        return request("/dictionary/setup");
     },
-  ): Promise<ZipImportOutcome> {
-    const qs = new URLSearchParams();
-    qs.set("dry_run", params.dry_run ? "true" : "false");
-    if (params.target_prefix !== undefined)
-      qs.set("target_prefix", params.target_prefix);
-    if (params.on_conflict_node)
-      qs.set("on_conflict_node", params.on_conflict_node);
-    if (params.on_conflict_file)
-      qs.set("on_conflict_file", params.on_conflict_file);
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      "Content-Type": "application/zip",
-      ...buildAuthHeader(),
-    };
-    const body: BodyInit =
-      zip instanceof Blob
-        ? zip
-        : zip instanceof Uint8Array
-          ? new Blob([zip as unknown as BlobPart])
-          : new Blob([zip]);
-    const res = await fetch(
-      `${API_BASE}/flowgraph/import/zip?${qs.toString()}`,
-      {
-        method: "POST",
-        headers,
-        body,
-      },
-    );
-    if (!res.ok) {
-      let errBody: unknown;
-      try {
-        errBody = await res.json();
-      } catch {
-        errBody = await res.text();
-      }
-      throw new ControlApiError(res.status, res.statusText, errBody);
-    }
-    return (await res.json()) as ZipImportOutcome;
-  },
+    previewDictionaryConnection(body: DictionaryConnectionInput): Promise<DictionaryConnectionPreview> {
+        return request<DictionaryConnectionPreview>("/dictionary/connection/preview", { method: "POST", body });
+    },
+    saveDictionaryConnection(body: DictionaryConnectionSaveInput): Promise<DictionaryConnectionSaved> {
+        return request<DictionaryConnectionSaved>("/dictionary/connection/save", { method: "POST", body });
+    },
+    dictionaryConnectionRecovery(body: DictionaryConnectionRecoveryInput): Promise<DictionaryConnectionRecovery> {
+        return request<DictionaryConnectionRecovery>("/dictionary/connection/recovery", { method: "POST", body });
+    },
+    restoreDictionaryConnection(body: DictionaryConnectionRecoveryInput & {transaction_id:string}): Promise<DictionaryConnectionRecovery> {
+        return request<DictionaryConnectionRecovery>("/dictionary/connection/restore", { method: "POST", body });
+    },
 
-  // ---------------------------------------------------------------------------
-  // Phase φ-1: Control Table CRUD
-  //
-  // 全ての mutation 系は `If-Match: b3:<content_hash>` で楽観ロックが効く。
-  // `ifMatch` 引数が省略された場合、GUI は「盲目上書き」になる点に注意
-  // （サーバ側は header 未指定を許容するが、GUI コンポーネントは常に直近の
-  // `content_hash` を渡すこと）。
-  // ---------------------------------------------------------------------------
+    previewDictionarySetup(body: DictionarySetupInput): Promise<DictionarySetupPreview> {
+        return request<DictionarySetupPreview>("/dictionary/setup/preview", { method: "POST", body });
+    },
 
-  listControlTables(): Promise<TableCatalogResponse> {
-    return request<TableCatalogResponse>("/tables");
-  },
+    registerDictionary(body: DictionarySetupSaveInput): Promise<DictionarySetupSaved> {
+        return request<DictionarySetupSaved>("/dictionary/setup/register", { method: "POST", body });
+    },
 
-  getControlTable(key: string): Promise<TableFileDto> {
-    return request<TableFileDto>(`/table/${encodeURIComponent(key)}`);
-  },
+	getControlTable(key: string): Promise<TableFileDto> {
+		return request<TableFileDto>(`/table/${encodeURIComponent(key)}`);
+	},
 
-  putControlTable(
-    key: string,
-    body: PutTableRequest,
-    ifMatch?: string,
-  ): Promise<TableMutationResponse> {
-    return request<TableMutationResponse>(`/table/${encodeURIComponent(key)}`, {
-      method: "PUT",
-      body,
-      extraHeaders: ifMatch ? { "If-Match": `b3:${ifMatch}` } : undefined,
-    });
-  },
+	putControlTable(key: string, body: PutTableRequest, ifMatch?: string): Promise<TableMutationResponse> {
+		return request<TableMutationResponse>(`/table/${encodeURIComponent(key)}`, {
+			method: "PUT",
+			body,
+			extraHeaders: ifMatch ? { "If-Match": `b3:${ifMatch}` } : undefined,
+		});
+	},
 
-  postControlTableEntry(
-    key: string,
-    body: TableEntryRequest,
-    ifMatch?: string,
-  ): Promise<TableMutationResponse> {
-    return request<TableMutationResponse>(
-      `/table/${encodeURIComponent(key)}/entry`,
-      {
-        method: "POST",
-        body,
-        extraHeaders: ifMatch ? { "If-Match": `b3:${ifMatch}` } : undefined,
-      },
-    );
-  },
+	postControlTableEntry(key: string, body: TableEntryRequest, ifMatch?: string): Promise<TableMutationResponse> {
+		return request<TableMutationResponse>(`/table/${encodeURIComponent(key)}/entry`, {
+			method: "POST",
+			body,
+			extraHeaders: ifMatch ? { "If-Match": `b3:${ifMatch}` } : undefined,
+		});
+	},
 
-  patchControlTableEntry(
-    key: string,
-    rowIndex: number,
-    body: TableEntryRequest,
-    ifMatch?: string,
-  ): Promise<TableMutationResponse> {
-    return request<TableMutationResponse>(
-      `/table/${encodeURIComponent(key)}/entry/${rowIndex}`,
-      {
-        method: "PATCH",
-        body,
-        extraHeaders: ifMatch ? { "If-Match": `b3:${ifMatch}` } : undefined,
-      },
-    );
-  },
+	patchControlTableEntry(key: string, rowIndex: number, body: TableEntryRequest, ifMatch?: string): Promise<TableMutationResponse> {
+		return request<TableMutationResponse>(`/table/${encodeURIComponent(key)}/entry/${rowIndex}`, {
+			method: "PATCH",
+			body,
+			extraHeaders: ifMatch ? { "If-Match": `b3:${ifMatch}` } : undefined,
+		});
+	},
 
-  deleteControlTableEntry(
-    key: string,
-    rowIndex: number,
-    ifMatch?: string,
-  ): Promise<TableMutationResponse> {
-    return request<TableMutationResponse>(
-      `/table/${encodeURIComponent(key)}/entry/${rowIndex}`,
-      {
-        method: "DELETE",
-        extraHeaders: ifMatch ? { "If-Match": `b3:${ifMatch}` } : undefined,
-      },
-    );
-  },
+	deleteControlTableEntry(key: string, rowIndex: number, ifMatch?: string): Promise<TableMutationResponse> {
+		return request<TableMutationResponse>(`/table/${encodeURIComponent(key)}/entry/${rowIndex}`, {
+			method: "DELETE",
+			extraHeaders: ifMatch ? { "If-Match": `b3:${ifMatch}` } : undefined,
+		});
+	},
 
-  // ---------------------------------------------------------------------------
-  // Phase φ-2: Flowgraph Trigger Endpoint
-  //
-  // V2 は単一 instance のため `instance_id` 既定 `default`。将来のマルチプロファイル
-  // 同時実行で profile 名にマップされる想定。
-  // ---------------------------------------------------------------------------
+	// ---------------------------------------------------------------------------
+	// Phase φ-2: Flowgraph Trigger Endpoint
+	//
+	// V2 は単一 instance のため `instance_id` 既定 `default`。将来のマルチプロファイル
+	// 同時実行で profile 名にマップされる想定。
+	// ---------------------------------------------------------------------------
 
-  triggerFlowgraphNode(
-    nodeId: string,
-    body: TriggerNodeRequest = {},
-    instanceId: string = "default",
-  ): Promise<TriggerNodeResponse> {
-    return request<TriggerNodeResponse>(
-      `/flowgraph/${encodeURIComponent(instanceId)}/trigger/${encodeURIComponent(nodeId)}`,
-      { method: "POST", body },
-    );
-  },
+	triggerFlowgraphNode(nodeId: string, body: TriggerNodeRequest = {}, instanceId: string = "default"): Promise<TriggerNodeResponse> {
+		return request<TriggerNodeResponse>(`/flowgraph/${encodeURIComponent(instanceId)}/trigger/${encodeURIComponent(nodeId)}`, {
+			method: "POST",
+			body,
+		});
+	},
 } as const;
 
 /**
@@ -900,11 +1015,11 @@ export const api = {
  * 届かないため、セグメント毎に分割する。
  */
 function encodeFq(fq: string): string {
-  return fq
-    .split("/")
-    .filter((s) => s.length > 0)
-    .map((s) => encodeURIComponent(s))
-    .join("/");
+	return fq
+		.split("/")
+		.filter((s) => s.length > 0)
+		.map((s) => encodeURIComponent(s))
+		.join("/");
 }
 
 export type VacApi = typeof api;

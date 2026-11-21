@@ -6,7 +6,7 @@ use anyhow::{anyhow, Context, Result};
 use tokio::time::Instant as TokioInstant;
 
 use crate::twitch::oauth::{
-	self, launch_browser, poll_device_token, save_stored_tokens, start_device_authorization, OAuthIdent, StoredTokens,
+	self, poll_device_token, save_stored_tokens, start_device_authorization, OAuthIdent, StoredTokens,
 };
 use crate::twitch_oauth_sessions::{OAuthAccount, OAuthSessionInternal, OAuthSessionStatus};
 use crate::web_interface::control::events::ControlEvent;
@@ -78,15 +78,7 @@ pub(super) async fn start_oauth(state: &SharedState, account: OAuthAccount) -> R
 		.await
 		.context("failed to start device_authorization")?;
 
-	// 4) Launch the browser (failure is non-fatal; GUI can open the URI manually).
-	if !launch_browser(&ident, &device.verification_uri) {
-		log::warn!(
-			"[ControlAPI/oauth] {}: failed to open browser. Open {} manually and enter code `{}`",
-			account.as_tag(),
-			device.verification_uri,
-			device.user_code
-		);
-	}
+	// Browser launch is an explicit GUI action, separate from preparing a code.
 
 	// 5) Register session + spawn polling task.
 	let timeout = Duration::from_secs(ident.timeout_secs.max(60));
@@ -98,12 +90,19 @@ pub(super) async fn start_oauth(state: &SharedState, account: OAuthAccount) -> R
 
 	let sessions_for_task = sessions.clone();
 	let tx_for_task = tx.clone();
+	let state_for_task = state.clone();
 	let ident_for_task = ident.clone();
 	let device_code = device.device_code.clone();
 	let user_code = device.user_code.clone();
 	let verification_uri = device.verification_uri.clone();
+	let (start_tx, start_rx) = tokio::sync::oneshot::channel::<()>();
 
 	let handle = tokio::spawn(async move {
+		// セッション表への登録が完了するまで token polling を開始しない。
+		// 即時認可時に finish_session が対象を見つけられない競合を防ぐ。
+		if start_rx.await.is_err() {
+			return;
+		}
 		let result = poll_device_token(
 			&ident_for_task.client_id,
 			&ident_for_task.scopes,
@@ -122,6 +121,7 @@ pub(super) async fn start_oauth(state: &SharedState, account: OAuthAccount) -> R
 				};
 				match save_stored_tokens(&ident_for_task, &stored) {
 					Ok(()) => {
+						oauth::cache_issued_token(&stored.access_token, &ident_for_task.client_id, stored.scope.as_deref());
 						log::info!(
 							"[ControlAPI/oauth] {}: DCF complete, token saved (token value not logged)",
 							ident_for_task.label
@@ -165,6 +165,9 @@ pub(super) async fn start_oauth(state: &SharedState, account: OAuthAccount) -> R
 				view,
 			});
 		}
+		if matches!(new_status, OAuthSessionStatus::Authorized) {
+			crate::bridges::restart_twitch_from_state(&state_for_task).await;
+		}
 	});
 
 	// 6) Register new session (aborting any stale entry).
@@ -185,6 +188,7 @@ pub(super) async fn start_oauth(state: &SharedState, account: OAuthAccount) -> R
 			},
 		)
 		.await;
+	let _ = start_tx.send(());
 
 	log::info!(
 		"[ControlAPI/oauth] {}: DCF started (user_code={} uri={})",

@@ -1,0 +1,163 @@
+# =========================================================================
+#  UNVAC 2.0 streaming AI avatar example
+# =========================================================================
+# Twitch 配信中に同席する AI 共演者へ、発話と身体表現を持たせる実運用寄りの設定例。
+#
+# 目的:
+#   - AI persona は配信者の発話 / Twitch chat / channel point / runtime event を観測する
+#   - 通常応答は channel_utterance へ出す
+#   - Turn Manager の構造化 `avatar_intent` を avatar_intent channel へ出す
+#   - Flowgraph が AvatarIntent を UNMF/Z に変換し、UNAvatar Renderer へ送る
+#
+# 注意:
+#   - UNAvatar / UNMotion 側の必須改修は要求しない
+#   - UNAvatar profile 自体を human / ai に分類しない
+#   - 実送信前に flowgraph 側の dry_run を false にする
+# =========================================================================
+
+workers = 8
+flowgraph_dir = "flowgraph.example/ai-avatar-unmfz"
+
+# -------------------------------------------------------------------------
+# Control API
+# -------------------------------------------------------------------------
+
+[control_api]
+require_token_for_loopback = false
+require_token_for_non_loopback = true
+
+# -------------------------------------------------------------------------
+# UNAvatar link
+# -------------------------------------------------------------------------
+
+[un_avatar.links.kaltsit_ai]
+label = "Kal'tsit AI"
+capabilities = ["reference", "ai_control"]
+profile_hint = "Kaltsit"
+
+[un_avatar.links.kaltsit_ai.unmfz]
+base_key_expr = "un-motion/frame/kaltsit-ai"
+topic_mode = "frame"
+schema_major = 1
+
+# ユーザー本人のアバターは v2.0 では参照リンクに留める。
+[un_avatar.links.dr_usagi_reference]
+label = "Dr.USAGI reference"
+capabilities = ["reference"]
+profile_hint = "Dr.USAGI"
+
+# -------------------------------------------------------------------------
+# AI stream perception (opt-in)
+# -------------------------------------------------------------------------
+# OBS内の明示scene/sourceだけをローカル取得し、同じidの観測は最新1件へ置換する。
+# 取得周期ごとにOpenAI APIは呼ばず、次の通常会話時にだけ最新画像を参照する。
+[[perception.obs_sources]]
+id = "game"
+enabled = false
+url = "ws://127.0.0.1:4455"
+# password_env = "VAC_OBS_WEBSOCKET_PASSWORD"
+# use_local_obs_config_password = true # 同一ユーザーのOBS設定を読む場合だけ明示的に有効化
+scene_name = "Game"
+source_name = "Game Capture"
+image_format = "jpeg"
+width = 960
+height = 540
+interval_secs = 5
+active_modes = ["streaming"]
+channel = "obs:game_frame"
+
+# -------------------------------------------------------------------------
+# AI persona
+# -------------------------------------------------------------------------
+
+[[ai.personas]]
+id = "kaltsit"
+channel_utterance = "ai.kaltsit"
+channel_effect = "effect"
+
+# 実環境に合わせて channel 名は調整する。
+observe.triggers = ["user", "twitch.chat", "twitch.channel_point", "runtime.event"]
+observe.include_additional = ["twitch:stream_state", "obs:game_frame", "game.event", "avatar_intent.result"]
+observe.exclude = ["debug", "trace", "avatar_intent"]
+
+# api_key = "sk-..."  # 通常は OPENAI_API_KEY 環境変数を使う。
+model = "gpt-5.6-luna"
+openai_max_output_tokens = 700
+openai_reasoning_effort = "none"
+openai_stream = true
+openai_store = false
+openai_prompt_cache_key = "unvac-persona:kaltsit"
+openai_tool_choice = "auto"
+openai_parallel_tool_calls = false
+openai_tools_json_path = "conf.example-openai-tools.json"
+
+memory_capacity = 4
+memory_budget_approx_tokens = 1800
+memory_overflow_summary_enabled = false
+assistant_max_chars = 220
+assistant_max_sentences = 3
+min_interval_in_secs = 1
+turn_management = { enabled = true }
+observation_buffer = { settle_ms = 750, max_wait_ms = 5000 }
+# 配信開始60秒後、または会話が180秒途切れた場合だけ自発参加を評価する。
+# 人間発話への通常応答とは別予算。Twitch配信状態がoffline/不明/staleなら候補化しない。
+initiative = { enabled = true, interval_secs = 15, startup_grace_secs = 60, idle_secs = 180, min_interval_secs = 300, max_attempts_per_hour = 4, max_speeches_per_hour = 2 }
+
+custom_instructions = """【人格】Kal'tsit Pseudo（ケルシー・シュードウ）
+- 役割: Dr.USAGI の戦友。Twitch のゲーム配信に同席する共演者、モデレーター、アシスタント。
+- 一人称は常に「私」。常体を基調に、自然な現代日本語の話し言葉で応じる。
+- 冷静で合理的だが、距離の近い共演者として配信者の気分と場の流れも読む。
+- 助詞や接続を不自然に省かない。特定の語尾、体言止め、断定口調を人格の記号として強制しない。
+- ぶっきらぼうさは、余計なことを言わない姿勢や間で表す。「だろうさ」のような作為的な語尾は使わない。
+- Dr.USAGI は名前を呼ぶことが自然な場面だけ「ドクター」と呼び、毎回呼びかけない。
+- 視聴者には攻撃的にならない。荒れそうな入力には短く制止し、必要ならモデレーション tool を使う。
+- 通常発話は配信上で読まれる。Twitch chat へ重ねて送る必要がある時だけ `vac_twitch_chat_say` を使う。
+"""
+
+system_instructions_extra = """【配信中の行動】
+- 応答は原則1〜3文。短くするために文法や自然なつながりを壊さない。
+- 相手の発話を復唱せず、その内容への反応か、役に立つ一つの考えを返す。
+- 承認の定型句から毎回答え始めない。考えたことをすべて口に出さない。
+- 会話が一区切りした時や自分の発言が不要な時は、追加発言せず見守る。
+- 自分の名前を呼ばれた時、直接質問された時、明示的に依頼された時は、見守りを優先せず短く応答する。
+- 見守りが長く続いた後は、配信の流れへ新しい価値を加えられる場合だけ短く参加する。
+- 音声で読み上げる本文だけを書く。会話を続けるためだけの質問を文末へ付けない。
+- 観測や会話に出ていない数値、条件、位置関係、ゲーム状態、理由、利点、危険を作って補わない。「たぶん」「可能性がある」と弱めても、根拠のない内容を作ることに変わりはない。
+- 状況が足りない質問には、どちらかを推測せず、判断材料が足りない範囲だけを短く示す。
+- 強い感情への反応では、その感情を受け止めるだけでもよい。求められていない助言、原因分析、次の行動を付け足さない。
+- 配信者の発話、Twitch chat、チャネポ交換、OBS / runtime event を見て、必要な時だけ反応する。
+- Turn Manager の `avatar_intent` は強い感情への反応や明示的な合意へだけ控えめに使う。observe では必ず null。
+- `target_link_id` は通常 `kaltsit_ai`。
+- 使ってよい身体表現は `expression`、`head_nod`、`head_shake`、`look_at` の小さな反応だけ。
+- expression は `smile`、`happy`、`concerned`、`angry`、`surprised`、`neutral` を優先する。
+- intensity は 0.2〜0.6、duration_ms は 500〜1600 を基本にする。大きな動きや連続実行は避ける。
+- 視聴者コメントに同意する時は `smile` または `head_nod`、危うい判断や警告では `concerned`、制止では `head_shake` を使う。
+- 表情が残る場合に備え、強い表情は短くする。必要なら後続で `neutral` を送る。
+"""
+
+openai_few_shot = [
+ { role = "user", content = "この進め方で大丈夫だと思う？" },
+ { role = "assistant", content = "今の情報なら、そのまま進めてよさそうだ。" },
+ { role = "user", content = "今のはひどくない？" },
+ { role = "assistant", content = "ひどいな。さすがに今のは擁護できない。" },
+ { role = "user", content = "さっきの戦闘、右から回った方がよかったと思う？" },
+ { role = "assistant", content = "今の情報だけでは、右回りがよかったかまでは判断できない。" },
+]
+
+# 日常会話は上の常用モデルで処理し、判断負荷の高い入力だけ上位モデルへ昇格する。
+# trigger_channels / trigger_request_classes は完全一致、trigger_regex_pattern は本文への正規表現一致。
+[ai.personas.openai_model_policy]
+model = "gpt-5.6-terra"
+reasoning_effort = "medium"
+max_output_tokens = 1200
+trigger_channels = ["twitch.moderation", "runtime.operator_request"]
+trigger_request_classes = ["twitch_channel_points_reward"]
+trigger_regex_pattern = "(?i)(事実確認|調査して|モデレーション判断|verify|investigate)"
+
+# strict schema を必須化し、通常入力では低リスクなツールだけを公開する。
+# request_class別指定、channel別指定、default_allowedの順に適用する。
+[ai.personas.openai_tool_policy]
+require_strict = true
+default_allowed = ["vac_ping", "vac_emit_effect", "vac_emit_avatar_intent"]
+by_channel = { "twitch.chat" = ["vac_ping", "vac_emit_effect", "vac_emit_avatar_intent", "vac_twitch_chat_say", "vac_twitch_ban_user", "vac_twitch_unban_user", "vac_twitch_delete_message"] }
+by_request_class = { twitch_channel_points_reward = ["web_search"] }

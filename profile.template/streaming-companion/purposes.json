@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "purposes": [
+    {
+      "id": "assistant-output",
+      "name": "AI共演者の字幕・音声",
+      "roots": [
+        "assistant-output"
+      ]
+    },
+    {
+      "id": "avatar-reaction",
+      "name": "AI共演者のアバター表現",
+      "roots": [
+        "avatar-reaction"
+      ]
+    }
+  ]
+}

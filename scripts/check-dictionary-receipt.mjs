@@ -1,0 +1,18 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import ts from '../gui/node_modules/typescript/lib/typescript.js';
+const file=new URL('../gui/src/lib/control/dictionary/quickAddReceipt.ts',import.meta.url);
+const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
+const {dictionaryRequestOutcome:outcome}=await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const rules=[{node_id:'mine::save',port:'on_success',outcome:'saved'},{node_id:'mine::save',port:'on_conflict',outcome:'conflict'},{node_id:'mine::edit',port:'on_duplicate',outcome:'unchanged'}];
+const response=(phase,outputs)=>({accepted:true,receipt:{phase,generation:1,outputs}});
+assert.equal(outcome({accepted:true},[]),'accepted');
+assert.equal(outcome({accepted:true},rules),'unknown');
+for(const phase of ['pending','running'])assert.equal(outcome(response(phase,[['mine::save','on_success']]),rules),'pending');
+assert.equal(outcome(response('finished',[['other::save','on_success']]),rules),'unknown');
+assert.equal(outcome(response('finished',[['mine::save','on_success']]),rules),'saved');
+assert.equal(outcome(response('finished',[['mine::save','on_success'],['mine::save','on_conflict']]),rules),'conflict');
+assert.equal(outcome(response('failed',[['mine::save','on_success']]),rules),'failed');
+assert.equal(outcome(response('finished',[['mine::edit','on_duplicate']]),rules),'unchanged');
+assert.equal(outcome(response('finished',[['mine::edit','on_duplicate'],['mine::save','on_success']]),rules),'unknown');
+console.log('Dictionary receipt: timeout/missing evidence, wrong target, save, no-op, conflict and contradictory outcomes passed.');

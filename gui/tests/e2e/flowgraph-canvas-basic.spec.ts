@@ -1,10 +1,10 @@
-import { expect, test } from '@playwright/test';
-import { authHeader, tokenQuery } from './fixtures';
+import { expect, test } from "@playwright/test";
+import { authHeader, tokenQuery } from "./fixtures";
 
 /**
  * §3.2 flowgraph-canvas-basic (ν-β-2)
  *
- * Flowgraph タブのエディタで、γ-4a の dirty tracking + Ctrl+S が壊れていないことを
+ * Flowgraph Studio のエディタで、γ-4a の dirty tracking + Ctrl+S が壊れていないことを
  * E2E で検証する。phase doc の初期案は「Palette からノードを 1 つ DnD し既存ノード
  * と接続する」だったが、Svelte Flow (`@xyflow/svelte`) のノード追加はクリック方式、
  * エッジ作成は handle 間の pointer drag で合成される（HTML5 DnD ではない）。
@@ -14,17 +14,17 @@ import { authHeader, tokenQuery } from './fixtures';
  *
  * シナリオ:
  *   1. 現在の sample.flowgraph.toml 内容を API で snapshot（finally で戻す）
- *   2. /gui/?token=... を開き、Flowgraph タブへ移動し、`sample` を選択
- *   3. Save ボタン label が "Save"（= dirty でない）こと
+ *   2. /gui/?token=... を開き、Flowgraph Studio へ移動し、`sample` を選択
+ *   3. 保存状態が「保存済み」であること
  *   4. Palette 検索に `util.log` を入れて Log ノード行にクリック → 新ノード追加
- *   5. Save ボタン label が "Save *"（= dirty）に遷移
+ *   5. 保存状態が「未保存の変更」に遷移
  *   6. Ctrl+S → `PUT /api/v1/control/flowgraph/file/sample` が 200 で飛ぶ
- *   7. Save ボタン label が "Save" に戻る（サーバー側 raw_toml が draft と一致）
+ *   7. 保存状態が「保存済み」に戻る（サーバー側 raw_toml が draft と一致）
  *   8. キャンバスに新ノード (id = `log_2`) が現れている
  *   9. finally: 元の TOML で PUT し直し、repo の fixture を汚さない
  */
 
-const FQ = 'sample';
+const FQ = "sample";
 const FILE_PATH = `/api/v1/control/flowgraph/file/${FQ}`;
 
 type FlowgraphFileResp = {
@@ -32,46 +32,49 @@ type FlowgraphFileResp = {
 	parsed: unknown;
 };
 
-test.describe('§3.2 flowgraph-canvas-basic', () => {
-	test('click-add node marks dirty; Ctrl+S clears dirty via PUT', async ({
-		page,
-		request,
-	}) => {
+test.describe("§3.2 flowgraph-canvas-basic", () => {
+	test.beforeEach(async ({ page }) => {
+		// Canvas geometry and pointer tests need the minimum operational Studio size.
+		// At the default 1280x720 device size the fixed-height Problems pane leaves
+		// too little canvas for Svelte Flow's fitView animation.
+		await page.setViewportSize({ width: 1920, height: 1080 });
+	});
+
+	test("click-add node marks dirty; Ctrl+S clears dirty via PUT", async ({ page, request }) => {
 		// --- 0. preflight: 元の TOML を snapshot しておく ------------------------
 		// finally で戻す。前回 run が中断していても、毎回 API の現在値を基準にする
 		// ことで fixture ドリフトを自己治癒させる（ν-β-1 の cleanup 思想と同じ）。
 		const snapRes = await request.get(FILE_PATH, { headers: authHeader() });
 		expect(snapRes.status(), await snapRes.text()).toBe(200);
 		const originalToml = ((await snapRes.json()) as FlowgraphFileResp).raw_toml;
-		expect(originalToml.length, 'snapshot raw_toml must not be empty').toBeGreaterThan(0);
+		expect(originalToml.length, "snapshot raw_toml must not be empty").toBeGreaterThan(0);
 
 		try {
-			// --- 1. GUI を開いて Flowgraph タブに切り替え -------------------------
+			// --- 1. GUI を開いて Flowgraph Studio に切り替え -----------------------
 			await page.goto(`/gui/${tokenQuery()}`);
 
-			const tabs = page.getByRole('navigation', { name: 'Main tabs' });
-			await tabs.getByRole('button', { name: /flowgraph/i }).click();
+			const tabs = page.getByRole("navigation", { name: "Main tabs" });
+			await tabs.getByRole("button", { name: /flowgraph/i }).click();
 
 			// --- 2. ファイルツリーから `sample` を選択 ----------------------------
 			// FlowgraphTree.svelte はファイル行を
 			//   <button title={fullPath}><span>{name}</span><span>{node_count}</span></button>
 			// で描画するので、accessible name は "sample 4" 等（ノード数を末尾に含む）。
 			// fixture 側のノード数変動に耐えるよう正規表現で頭合わせする。
-			const sampleFile = page.getByRole('button', { name: /^sample\b/ });
+			const sampleFile = page.getByRole("button", { name: /^sample\b/ });
 			await expect(sampleFile).toBeVisible({ timeout: 15_000 });
 			await sampleFile.click();
 
 			// --- 3. キャンバス初期化を待つ（既存ノード "in" / "log" 描画） --------
 			// FlowgraphNodeCard が `#<id>` 表記で id を出すのでそれを見張る。
-			const canvas = page.locator('.svelte-flow');
+			const canvas = page.locator(".svelte-flow");
 			await expect(canvas).toBeVisible({ timeout: 15_000 });
-			await expect(canvas.getByText('#in', { exact: true })).toBeVisible();
-			await expect(canvas.getByText('#log', { exact: true })).toBeVisible();
+			await expect(canvas.getByText("#in", { exact: true })).toBeVisible();
+			await expect(canvas.getByText("#log", { exact: true })).toBeVisible();
 
-			// --- 4. Save ボタンの初期ラベルが "Save"（clean）-----------------------
-			// トップバーの Save ボタンは Ctrl+S タイトルを持つ唯一のボタン。
-			const saveBtn = page.getByRole('button', { name: /^Save( \*)?$/ });
-			await expect(saveBtn).toHaveText('Save');
+			// --- 4. 保存操作と初期状態（clean）を確認 -------------------------------
+			await expect(page.getByRole("button", { name: "保存", exact: true })).toBeVisible();
+			await expect(page.getByText("保存済み", { exact: true })).toBeVisible();
 
 			// --- 5. Palette 検索で Log ノードに絞り、クリックして追加 -------------
 			// 検索文字列 `util.log` は feature 名にのみマッチし、category `util` や
@@ -79,33 +82,28 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 			// filter は feature/title/category/description の includes 判定）。
 			const paletteSearch = page.getByPlaceholder(/検索（feature \/ title）/);
 			await expect(paletteSearch).toBeVisible();
-			await paletteSearch.fill('util.log');
+			await paletteSearch.fill("util.log");
 
 			// 絞り込み後は 1 カテゴリ 1 ノードの表示になる。ボタン title は
 			// `spec.feature + "\n" + description` なので title^=feature で一意化。
-			const logAddBtn = page.locator(
-				'button[title^="flowgraph.util.log"]',
-			);
+			const logAddBtn = page.locator('button[title^="flowgraph.util.log"]');
 			await expect(logAddBtn).toHaveCount(1);
 			await logAddBtn.click();
 
 			// --- 6. dirty 遷移を確認 ---------------------------------------------
-			await expect(saveBtn).toHaveText('Save *', { timeout: 5_000 });
+			await expect(page.getByText("未保存の変更", { exact: true })).toBeVisible({ timeout: 5_000 });
 
 			// 追加ノードは uniqueId("flowgraph.util.log", existing) = "log_2"。
 			// (既存 "log" と衝突するため suffix "_2" が自動付与される)
-			await expect(canvas.getByText('#log_2', { exact: true })).toBeVisible();
+			await expect(canvas.getByText("#log_2", { exact: true })).toBeVisible();
 
 			// --- 7. Ctrl+S → PUT /flowgraph/file/sample 200 -----------------------
 			const putPromise = page.waitForResponse(
-				(res) =>
-					res.url().includes(FILE_PATH) &&
-					res.request().method() === 'PUT' &&
-					res.status() === 200,
-				{ timeout: 15_000 },
+				(res) => res.url().includes(FILE_PATH) && res.request().method() === "PUT" && res.status() === 200,
+				{ timeout: 15_000 }
 			);
 			// window にハンドラが付いているので focus は問わない。
-			await page.keyboard.press('Control+s');
+			await page.keyboard.press("Control+s");
 			const putRes = await putPromise;
 
 			// body に我々の新ノードを含んだ TOML が載ってるはず（serializer 経路を
@@ -117,7 +115,7 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 			// --- 8. dirty フラグが落ちる ------------------------------------------
 			// Save 応答後に store.currentFile が更新されて parsed base も進むため、
 			// isDirty は false に戻る。
-			await expect(saveBtn).toHaveText('Save', { timeout: 10_000 });
+			await expect(page.getByText("保存済み", { exact: true })).toBeVisible({ timeout: 10_000 });
 
 			// --- 9. Dry-run の追加確認: GET し直した raw_toml にも新ノードがある -----
 			const verifyRes = await request.get(FILE_PATH, { headers: authHeader() });
@@ -134,28 +132,28 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 		}
 	});
 
-	test('Phase ξ-5: palette add math.float_add shows Quantity-colored handles', async ({
-		page,
-		request,
-	}) => {
+	test("Phase ξ-5: palette add math.float_add shows Quantity-colored handles", async ({ page, request }) => {
 		const snapRes = await request.get(FILE_PATH, { headers: authHeader() });
 		expect(snapRes.status(), await snapRes.text()).toBe(200);
 		const originalToml = ((await snapRes.json()) as FlowgraphFileResp).raw_toml;
 		try {
 			await page.goto(`/gui/${tokenQuery()}`);
-			await page.evaluate(() => localStorage.removeItem('vac-flowgraph-palette-hidden-categories'));
-			await page.getByRole('navigation', { name: 'Main tabs' }).getByRole('button', { name: /flowgraph/i }).click();
-			await page.getByRole('button', { name: /^sample\b/ }).click();
-			const canvas = page.locator('.svelte-flow');
+			await page.evaluate(() => localStorage.removeItem("vac-flowgraph-palette-hidden-categories"));
+			await page
+				.getByRole("navigation", { name: "Main tabs" })
+				.getByRole("button", { name: /flowgraph/i })
+				.click();
+			await page.getByRole("button", { name: /^sample\b/ }).click();
+			const canvas = page.locator(".svelte-flow");
 			await expect(canvas).toBeVisible({ timeout: 15_000 });
 
 			const paletteSearch = page.getByPlaceholder(/検索（feature \/ title）/);
-			await paletteSearch.fill('math.float_add');
-			const addBtn = page.getByTestId('palette-entry-flowgraph_math_float_add');
+			await paletteSearch.fill("math.float_add");
+			const addBtn = page.getByTestId("palette-entry-flowgraph_math_float_add");
 			await expect(addBtn).toBeVisible();
 			await addBtn.click();
 
-			const qtyHandles = canvas.locator('.flowgraph-handle.data.quantity');
+			const qtyHandles = canvas.locator(".flowgraph-handle.data.quantity");
 			await expect(qtyHandles.first()).toBeVisible({ timeout: 10_000 });
 			await expect(qtyHandles).toHaveCount(3);
 		} finally {
@@ -167,16 +165,19 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 		}
 	});
 
-	test('palette category hide removes util entries; show restores', async ({ page, request }) => {
+	test("palette category hide removes util entries; show restores", async ({ page, request }) => {
 		const snapRes = await request.get(FILE_PATH, { headers: authHeader() });
 		expect(snapRes.status(), await snapRes.text()).toBe(200);
 		const originalToml = ((await snapRes.json()) as FlowgraphFileResp).raw_toml;
 		try {
 			await page.goto(`/gui/${tokenQuery()}`);
-			await page.evaluate(() => localStorage.removeItem('vac-flowgraph-palette-hidden-categories'));
-			await page.getByRole('navigation', { name: 'Main tabs' }).getByRole('button', { name: /flowgraph/i }).click();
-			await page.getByRole('button', { name: /^sample\b/ }).click();
-			const utilEntry = page.getByTestId('palette-entry-flowgraph_util_log');
+			await page.evaluate(() => localStorage.removeItem("vac-flowgraph-palette-hidden-categories"));
+			await page
+				.getByRole("navigation", { name: "Main tabs" })
+				.getByRole("button", { name: /flowgraph/i })
+				.click();
+			await page.getByRole("button", { name: /^sample\b/ }).click();
+			const utilEntry = page.getByTestId("palette-entry-flowgraph_util_log");
 			await expect(utilEntry).toBeVisible({ timeout: 15_000 });
 
 			await page.locator('[data-testid="palette-category-toggle"][data-category="util"]').click();
@@ -193,30 +194,33 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 		}
 	});
 
-	test('palette drag Log onto canvas adds a new node', async ({ page, request }) => {
+	test("palette drag Log onto canvas adds a new node", async ({ page, request }) => {
 		const snapRes = await request.get(FILE_PATH, { headers: authHeader() });
 		expect(snapRes.status(), await snapRes.text()).toBe(200);
 		const originalToml = ((await snapRes.json()) as FlowgraphFileResp).raw_toml;
 		try {
 			await page.goto(`/gui/${tokenQuery()}`);
-			await page.evaluate(() => localStorage.removeItem('vac-flowgraph-palette-hidden-categories'));
-			await page.getByRole('navigation', { name: 'Main tabs' }).getByRole('button', { name: /flowgraph/i }).click();
-			await page.getByRole('button', { name: /^sample\b/ }).click();
-			const canvas = page.locator('.svelte-flow');
+			await page.evaluate(() => localStorage.removeItem("vac-flowgraph-palette-hidden-categories"));
+			await page
+				.getByRole("navigation", { name: "Main tabs" })
+				.getByRole("button", { name: /flowgraph/i })
+				.click();
+			await page.getByRole("button", { name: /^sample\b/ }).click();
+			const canvas = page.locator(".svelte-flow");
 			await expect(canvas).toBeVisible({ timeout: 15_000 });
 
 			const before = await page.locator('[data-testid^="flowgraph-node-log"]').count();
-			const logPalette = page.getByTestId('palette-entry-flowgraph_util_log');
+			const logPalette = page.getByTestId("palette-entry-flowgraph_util_log");
 			await expect(logPalette).toBeVisible();
-			const pane = page.locator('.svelte-flow__pane');
+			const pane = page.locator(".svelte-flow__pane");
 			const paneBox = await pane.boundingBox();
-			expect(paneBox, 'Svelte Flow pane box').not.toBeNull();
+			expect(paneBox, "Svelte Flow pane box").not.toBeNull();
 			await pane.evaluate(
 				(el, pos) => {
 					const data = new DataTransfer();
-					data.setData('application/x-vac-flowgraph-feature', 'flowgraph.util.log');
-					data.setData('text/plain', 'flowgraph.util.log');
-					for (const type of ['dragover', 'drop']) {
+					data.setData("application/x-vac-flowgraph-feature", "flowgraph.util.log");
+					data.setData("text/plain", "flowgraph.util.log");
+					for (const type of ["dragover", "drop"]) {
 						el.dispatchEvent(
 							new DragEvent(type, {
 								bubbles: true,
@@ -224,11 +228,11 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 								clientX: pos.x,
 								clientY: pos.y,
 								dataTransfer: data,
-							}),
+							})
 						);
 					}
 				},
-				{ x: paneBox!.x + 420, y: paneBox!.y + 280 },
+				{ x: paneBox!.x + 420, y: paneBox!.y + 280 }
 			);
 
 			await expect(page.locator('[data-testid^="flowgraph-node-log"]')).toHaveCount(before + 1, {
@@ -243,44 +247,54 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 		}
 	});
 
-	test('handle drag connects a new exec edge', async ({ page, request }) => {
+	test("handle drag connects a new exec edge", async ({ page, request }) => {
 		const snapRes = await request.get(FILE_PATH, { headers: authHeader() });
 		expect(snapRes.status(), await snapRes.text()).toBe(200);
 		const originalToml = ((await snapRes.json()) as FlowgraphFileResp).raw_toml;
 		try {
 			await page.goto(`/gui/${tokenQuery()}`);
-			await page.evaluate(() => localStorage.removeItem('vac-flowgraph-palette-hidden-categories'));
-			await page.getByRole('navigation', { name: 'Main tabs' }).getByRole('button', { name: /flowgraph/i }).click();
-			await page.getByRole('button', { name: /^sample\b/ }).click();
-			const canvas = page.locator('.svelte-flow');
+			await page.evaluate(() => localStorage.removeItem("vac-flowgraph-palette-hidden-categories"));
+			await page
+				.getByRole("navigation", { name: "Main tabs" })
+				.getByRole("button", { name: /flowgraph/i })
+				.click();
+			await page.getByRole("button", { name: /^sample\b/ }).click();
+			const canvas = page.locator(".svelte-flow");
 			await expect(canvas).toBeVisible({ timeout: 15_000 });
 
 			const paletteSearch = page.getByPlaceholder(/検索（feature \/ title）/);
-			await paletteSearch.fill('util.log');
+			await paletteSearch.fill("util.log");
 			const logAddBtn = page.locator('button[title^="flowgraph.util.log"]');
 			await expect(logAddBtn).toHaveCount(1);
 			await logAddBtn.click();
-			await expect(page.getByTestId('flowgraph-node-log_2')).toBeVisible({ timeout: 10_000 });
+			await expect(page.getByTestId("flowgraph-node-log_2")).toBeVisible({ timeout: 10_000 });
 
-			const source = page.getByTestId('flowgraph-handle-in-exec_out-source');
-			const target = page.getByTestId('flowgraph-handle-log_2-exec_in-target');
+			const source = page.getByTestId("flowgraph-handle-in-exec_out-source");
+			const target = page.getByTestId("flowgraph-handle-log_2-exec_in-target");
 			await expect(source).toBeVisible();
 			await expect(target).toBeVisible();
-			const sourceBox = await source.boundingBox();
-			const targetBox = await target.boundingBox();
-			expect(sourceBox, 'source handle box').not.toBeNull();
-			expect(targetBox, 'target handle box').not.toBeNull();
+			const edges = page.locator(".svelte-flow__edge");
+			const edgeCountBefore = await edges.count();
+			for (let attempt = 0; attempt < 3 && (await edges.count()) === edgeCountBefore; attempt += 1) {
+				const sourceBox = await source.boundingBox();
+				const targetBox = await target.boundingBox();
+				expect(sourceBox, "source handle box").not.toBeNull();
+				expect(targetBox, "target handle box").not.toBeNull();
 
-			await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
-			await page.mouse.down();
-			await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 12 });
-			await page.mouse.up();
+				await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+				await page.mouse.down();
+				await page.mouse.move(sourceBox!.x + sourceBox!.width + 16, sourceBox!.y + sourceBox!.height / 2, { steps: 3 });
+				await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 18 });
+				await page.waitForTimeout(50);
+				await page.mouse.up();
+			}
+			await expect(edges).toHaveCount(edgeCountBefore + 1);
 
-			const saveBtn = page.getByRole('button', { name: /^Save( \*)?$/ });
-			await expect(saveBtn).toHaveText('Save *', { timeout: 5_000 });
+			const saveBtn = page.getByRole("button", { name: "保存", exact: true });
+			await expect(page.getByText("未保存の変更", { exact: true })).toBeVisible({ timeout: 5_000 });
 			const putPromise = page.waitForResponse(
-				(res) => res.url().includes(FILE_PATH) && res.request().method() === 'PUT' && res.status() === 200,
-				{ timeout: 15_000 },
+				(res) => res.url().includes(FILE_PATH) && res.request().method() === "PUT" && res.status() === 200,
+				{ timeout: 15_000 }
 			);
 			await saveBtn.click();
 			const putRes = await putPromise;
@@ -297,21 +311,24 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 		}
 	});
 
-	test('Ctrl+D duplicates selected node', async ({ page, request }) => {
+	test("Ctrl+D duplicates selected node", async ({ page, request }) => {
 		const snapRes = await request.get(FILE_PATH, { headers: authHeader() });
 		expect(snapRes.status(), await snapRes.text()).toBe(200);
 		const originalToml = ((await snapRes.json()) as FlowgraphFileResp).raw_toml;
 		try {
 			await page.goto(`/gui/${tokenQuery()}`);
-			await page.evaluate(() => localStorage.removeItem('vac-flowgraph-palette-hidden-categories'));
-			await page.getByRole('navigation', { name: 'Main tabs' }).getByRole('button', { name: /flowgraph/i }).click();
-			await page.getByRole('button', { name: /^sample\b/ }).click();
-			const canvas = page.locator('.svelte-flow');
+			await page.evaluate(() => localStorage.removeItem("vac-flowgraph-palette-hidden-categories"));
+			await page
+				.getByRole("navigation", { name: "Main tabs" })
+				.getByRole("button", { name: /flowgraph/i })
+				.click();
+			await page.getByRole("button", { name: /^sample\b/ }).click();
+			const canvas = page.locator(".svelte-flow");
 			await expect(canvas).toBeVisible({ timeout: 15_000 });
 
 			const before = await page.locator('[data-testid^="flowgraph-node-"]').count();
-			await page.getByTestId('flowgraph-node-log').click({ timeout: 15_000 });
-			await page.keyboard.press('Control+d');
+			await page.getByTestId("flowgraph-node-log").click({ timeout: 15_000 });
+			await page.keyboard.press("Control+d");
 			await expect(page.locator('[data-testid^="flowgraph-node-"]')).toHaveCount(before + 1, {
 				timeout: 10_000,
 			});
@@ -324,51 +341,54 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 		}
 	});
 
-	test('multi-select same feature edits shared property', async ({ page, request }) => {
+	test("multi-select same feature edits shared property", async ({ page, request }) => {
 		const snapRes = await request.get(FILE_PATH, { headers: authHeader() });
 		expect(snapRes.status(), await snapRes.text()).toBe(200);
 		const originalToml = ((await snapRes.json()) as FlowgraphFileResp).raw_toml;
 		try {
 			await page.goto(`/gui/${tokenQuery()}`);
-			await page.evaluate(() => localStorage.removeItem('vac-flowgraph-palette-hidden-categories'));
-			await page.getByRole('navigation', { name: 'Main tabs' }).getByRole('button', { name: /flowgraph/i }).click();
-			await page.getByRole('button', { name: /^sample\b/ }).click();
-			const canvas = page.locator('.svelte-flow');
+			await page.evaluate(() => localStorage.removeItem("vac-flowgraph-palette-hidden-categories"));
+			await page
+				.getByRole("navigation", { name: "Main tabs" })
+				.getByRole("button", { name: /flowgraph/i })
+				.click();
+			await page.getByRole("button", { name: /^sample\b/ }).click();
+			const canvas = page.locator(".svelte-flow");
 			await expect(canvas).toBeVisible({ timeout: 15_000 });
 
 			const paletteSearch = page.getByPlaceholder(/検索（feature \/ title）/);
-			await paletteSearch.fill('literal.string');
-			const stringAddBtn = page.getByTestId('palette-entry-flowgraph_literal_string');
+			await paletteSearch.fill("literal.string");
+			const stringAddBtn = page.getByTestId("palette-entry-flowgraph_literal_string");
 			await expect(stringAddBtn).toBeVisible();
 			await stringAddBtn.click();
 			await stringAddBtn.click();
 
-			const stringNode = page.getByTestId('flowgraph-node-string');
-			const stringNode2 = page.getByTestId('flowgraph-node-string_2');
+			const stringNode = page.getByTestId("flowgraph-node-string");
+			const stringNode2 = page.getByTestId("flowgraph-node-string_2");
 			await expect(stringNode).toBeVisible({ timeout: 10_000 });
 			await expect(stringNode2).toBeVisible({ timeout: 10_000 });
 
 			await stringNode.click();
-			await stringNode2.click({ modifiers: ['Control'] });
-			const multiSelectionLabel = page.getByText('2 nodes selected');
+			await stringNode2.click({ modifiers: ["Control"] });
+			const multiSelectionLabel = page.getByText("2 nodes selected");
 			if (!(await multiSelectionLabel.isVisible({ timeout: 1000 }).catch(() => false))) {
 				await stringNode.click();
-				await stringNode2.click({ modifiers: ['Shift'] });
+				await stringNode2.click({ modifiers: ["Shift"] });
 			}
 
-			const inspector = page.getByText('Inspector', { exact: true }).locator('..').locator('..');
-			await expect(inspector.getByText('2 nodes selected')).toBeVisible({ timeout: 10_000 });
-			await inspector.getByRole('button', { name: 'Set' }).click();
+			const inspector = page.getByText("設定", { exact: true }).locator("..").locator("..");
+			await expect(inspector.getByText("2 nodes selected")).toBeVisible({ timeout: 10_000 });
+			await inspector.getByRole("button", { name: "Set" }).click();
 
-			const valueInput = inspector.locator('input#multi-prop-value');
+			const valueInput = inspector.locator("input#multi-prop-value");
 			await expect(valueInput).toBeVisible();
-			await valueInput.fill('batch-edited');
-			const saveBtn = page.getByRole('button', { name: /^Save( \*)?$/ });
-			await expect(saveBtn).toHaveText('Save *', { timeout: 5_000 });
+			await valueInput.fill("batch-edited");
+			const saveBtn = page.getByRole("button", { name: "保存", exact: true });
+			await expect(page.getByText("未保存の変更", { exact: true })).toBeVisible({ timeout: 5_000 });
 
 			const putPromise = page.waitForResponse(
-				(res) => res.url().includes(FILE_PATH) && res.request().method() === 'PUT' && res.status() === 200,
-				{ timeout: 15_000 },
+				(res) => res.url().includes(FILE_PATH) && res.request().method() === "PUT" && res.status() === 200,
+				{ timeout: 15_000 }
 			);
 			await saveBtn.click();
 			const putRes = await putPromise;
@@ -385,59 +405,94 @@ test.describe('§3.2 flowgraph-canvas-basic', () => {
 		}
 	});
 
-	test('Create group persists [[groups]] and shows a canvas frame', async ({ page, request }) => {
+	test("Create group persists [[groups]] and shows a canvas frame", async ({ page, request }) => {
 		const snapRes = await request.get(FILE_PATH, { headers: authHeader() });
 		expect(snapRes.status(), await snapRes.text()).toBe(200);
 		const originalToml = ((await snapRes.json()) as FlowgraphFileResp).raw_toml;
 		try {
 			await page.goto(`/gui/${tokenQuery()}`);
-			await page.getByRole('navigation', { name: 'Main tabs' }).getByRole('button', { name: /flowgraph/i }).click();
-			await page.getByRole('button', { name: /^sample\b/ }).click();
+			await page
+				.getByRole("navigation", { name: "Main tabs" })
+				.getByRole("button", { name: /flowgraph/i })
+				.click();
+			await page.getByRole("button", { name: /^sample\b/ }).click();
 
-			const canvas = page.locator('.svelte-flow');
+			const canvas = page.locator(".svelte-flow");
 			await expect(canvas).toBeVisible({ timeout: 15_000 });
-			const inNode = page.getByTestId('flowgraph-node-in');
-			const logNode = page.getByTestId('flowgraph-node-log');
+			const inNode = page.getByTestId("flowgraph-node-in");
+			const logNode = page.getByTestId("flowgraph-node-log");
 			await expect(inNode).toBeVisible({ timeout: 15_000 });
 			await expect(logNode).toBeVisible({ timeout: 15_000 });
 
 			await inNode.click();
-			await logNode.click({ modifiers: ['Control'] });
-			const multiSelectionLabel = page.getByText('2 nodes selected');
+			await logNode.click({ modifiers: ["Control"] });
+			const multiSelectionLabel = page.getByText("2 nodes selected");
 			if (!(await multiSelectionLabel.isVisible({ timeout: 1000 }).catch(() => false))) {
 				await inNode.click();
-				await logNode.click({ modifiers: ['Shift'] });
+				await logNode.click({ modifiers: ["Shift"] });
 			}
 			await expect(multiSelectionLabel).toBeVisible({ timeout: 10_000 });
 
-			await page.getByRole('button', { name: 'Commands' }).click();
-			await page.getByRole('button', { name: /Create group/ }).click();
+			await page.getByRole("button", { name: "コマンド" }).click();
+			await page.getByRole("button", { name: /グループを作成/ }).click();
 
-			const groupFrame = page.getByTestId('flowgraph-group-group_1');
+			const groupFrame = page.getByTestId("flowgraph-group-group_1");
 			await expect(groupFrame).toBeVisible({ timeout: 10_000 });
-			await expect(groupFrame.getByText('Group 1')).toBeVisible();
-			await expect(page.getByText('Groups')).toBeVisible();
+			await expect(groupFrame.getByText("Group 1")).toBeVisible();
+			await expect(page.getByText("Groups")).toBeVisible();
 			await inNode.click();
-			await groupFrame.getByText('Group 1').click();
+			await groupFrame.getByText("Group 1").click();
 			await expect(groupFrame).toHaveClass(/selected/);
-			await expect(page.locator('input#group-label-group_1')).toBeVisible();
-			await page.getByRole('button', { name: 'Commands' }).click();
-			await page.getByRole('button', { name: /Select group members/ }).click();
-			await expect(page.getByText('2 nodes selected')).toBeVisible({ timeout: 10_000 });
-			await page.getByTestId('flowgraph-node-learn').click();
-			await page.getByRole('button', { name: /Add selected \(1\)/ }).click();
-			await expect(groupFrame.getByText('3 nodes')).toBeVisible();
+			await expect(page.locator("input#group-label-group_1")).toBeVisible();
+			await page.getByRole("button", { name: "コマンド" }).click();
+			await page.getByRole("button", { name: /グループ内をすべて選択/ }).click();
+			await expect(page.getByText("2 nodes selected")).toBeVisible({ timeout: 10_000 });
+			const copyPromise = page.waitForResponse(
+				(res) =>
+					res.url().includes("/api/v1/control/flowgraph/fragment/copy") &&
+					res.request().method() === "POST" &&
+					res.status() === 200,
+				{ timeout: 15_000 }
+			);
+			await page.getByTestId("flowgraph-file-operations").locator("summary").click();
+			await page.getByRole("button", { name: /^コピー/ }).click();
+			const copyRes = await copyPromise;
+			const copyReqBody = copyRes.request().postDataJSON() as {
+				scope: string;
+				targets: Array<{ kind: string; fq_file?: string; node_id?: string }>;
+			};
+			expect(copyReqBody.scope).toBe("nodes");
+			expect(copyReqBody.targets).toEqual([
+				{ kind: "node", fq_file: FQ, node_id: "in" },
+				{ kind: "node", fq_file: FQ, node_id: "log" },
+			]);
+			await page.getByTestId("flowgraph-node-learn").click();
+			await page.getByRole("button", { name: /Add selected \(1\)/ }).click();
+			await expect(groupFrame.getByText("3 nodes")).toBeVisible();
+			const frameBox = await groupFrame.boundingBox();
+			expect(frameBox).not.toBeNull();
+			for (const member of [inNode, logNode, page.getByTestId("flowgraph-node-learn")]) {
+				const memberBox = await member.boundingBox();
+				expect(memberBox).not.toBeNull();
+				expect(memberBox!.x).toBeGreaterThanOrEqual(frameBox!.x);
+				expect(memberBox!.y).toBeGreaterThanOrEqual(frameBox!.y);
+				expect(memberBox!.x + memberBox!.width).toBeLessThanOrEqual(frameBox!.x + frameBox!.width);
+				expect(memberBox!.y + memberBox!.height).toBeLessThanOrEqual(frameBox!.y + frameBox!.height);
+			}
+			const labelBox = await groupFrame.getByText("Group 1").boundingBox();
+			expect(labelBox).not.toBeNull();
+			expect(labelBox!.y).toBeGreaterThanOrEqual(frameBox!.y);
 
-			const saveBtn = page.getByRole('button', { name: /^Save( \*)?$/ });
-			await expect(saveBtn).toHaveText('Save *', { timeout: 5_000 });
+			const saveBtn = page.getByRole("button", { name: "保存", exact: true });
+			await expect(page.getByText("未保存の変更", { exact: true })).toBeVisible({ timeout: 5_000 });
 			const putPromise = page.waitForResponse(
-				(res) => res.url().includes(FILE_PATH) && res.request().method() === 'PUT' && res.status() === 200,
-				{ timeout: 15_000 },
+				(res) => res.url().includes(FILE_PATH) && res.request().method() === "PUT" && res.status() === 200,
+				{ timeout: 15_000 }
 			);
 			await saveBtn.click();
 			const putRes = await putPromise;
 			const putReqBody = putRes.request().postDataJSON() as { content: string };
-			expect(putReqBody.content).toContain('[[groups]]');
+			expect(putReqBody.content).toContain("[[groups]]");
 			expect(putReqBody.content).toContain('id = "group_1"');
 			expect(putReqBody.content).toContain('label = "Group 1"');
 			expect(putReqBody.content).toContain('node_ids = ["in", "log", "learn"]');

@@ -4,11 +4,12 @@
 //! 明示的にこれらのノードを挟む。
 
 use crate::flowgraph::node::{
-	get_required_bool, get_required_float, get_required_int, get_required_string, ExecFireSet, InputMap, NodeDescriptor, NodeExecError,
-	NodeOutput, NodeSpec, PortSpec, PureNode,
+	get_required_bool, get_required_bytes, get_required_float, get_required_int, get_required_json, get_required_string, ExecFireSet,
+	InputMap, NodeDescriptor, NodeExecError, NodeOutput, NodeSpec, PortSpec, PureNode,
 };
 use crate::flowgraph::socket::{SocketType, SocketValue};
 use async_trait::async_trait;
+use serde_json::Value as JsonValue;
 
 // ----- int → string --------------------------------------------------------
 
@@ -228,6 +229,204 @@ impl PureNode for FloatToIntNode {
 	}
 }
 
+// ----- JSON / TOML / RON --------------------------------------------------
+
+pub struct JsonToTomlNode;
+impl NodeDescriptor for JsonToTomlNode {
+	fn describe(&self) -> NodeSpec {
+		NodeSpec {
+			feature: "flowgraph.convert.json_to_toml".into(),
+			title: "JSON → TOML".into(),
+			category: "convert".into(),
+			description: Some("JSON 値を TOML 文字列へ変換する。".into()),
+			inputs: vec![PortSpec::input("json", "JSON", SocketType::Json)],
+			outputs: vec![PortSpec::output("toml", "TOML", SocketType::String)],
+			properties: vec![],
+		}
+	}
+}
+
+#[async_trait]
+impl PureNode for JsonToTomlNode {
+	async fn compute(
+		&self,
+		_host: &crate::flowgraph::node::PureEvalHost,
+		_p: &InputMap,
+		inputs: &InputMap,
+		_fired: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		let json = get_required_json(inputs, "json")?;
+		let toml = toml::to_string_pretty(json).map_err(|e| NodeExecError::Generic(anyhow::anyhow!("TOML serialize error: {e}")))?;
+		Ok(NodeOutput::new().set_data("toml", SocketValue::String(toml)))
+	}
+}
+
+pub struct TomlToJsonNode;
+impl NodeDescriptor for TomlToJsonNode {
+	fn describe(&self) -> NodeSpec {
+		NodeSpec {
+			feature: "flowgraph.convert.toml_to_json".into(),
+			title: "TOML → JSON".into(),
+			category: "convert".into(),
+			description: Some("TOML 文字列を JSON 値へ変換する。".into()),
+			inputs: vec![PortSpec::input("toml", "TOML", SocketType::String)],
+			outputs: vec![PortSpec::output("json", "JSON", SocketType::Json)],
+			properties: vec![],
+		}
+	}
+}
+
+#[async_trait]
+impl PureNode for TomlToJsonNode {
+	async fn compute(
+		&self,
+		_host: &crate::flowgraph::node::PureEvalHost,
+		_p: &InputMap,
+		inputs: &InputMap,
+		_fired: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		let toml_text = get_required_string(inputs, "toml")?;
+		let value =
+			toml::from_str::<toml::Value>(&toml_text).map_err(|e| NodeExecError::Generic(anyhow::anyhow!("TOML parse error: {e}")))?;
+		let json = serde_json::to_value(value).map_err(|e| NodeExecError::Generic(anyhow::anyhow!("TOML to JSON error: {e}")))?;
+		Ok(NodeOutput::new().set_data("json", SocketValue::Json(json)))
+	}
+}
+
+pub struct TomlToRonNode;
+impl NodeDescriptor for TomlToRonNode {
+	fn describe(&self) -> NodeSpec {
+		NodeSpec {
+			feature: "flowgraph.convert.toml_to_ron".into(),
+			title: "TOML → RON".into(),
+			category: "convert".into(),
+			description: Some("TOML 文字列を JSON 値経由で RON 文字列へ変換する。".into()),
+			inputs: vec![PortSpec::input("toml", "TOML", SocketType::String)],
+			outputs: vec![PortSpec::output("ron", "RON", SocketType::String)],
+			properties: vec![],
+		}
+	}
+}
+
+#[async_trait]
+impl PureNode for TomlToRonNode {
+	async fn compute(
+		&self,
+		_host: &crate::flowgraph::node::PureEvalHost,
+		_p: &InputMap,
+		inputs: &InputMap,
+		_fired: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		let toml_text = get_required_string(inputs, "toml")?;
+		let value =
+			toml::from_str::<toml::Value>(&toml_text).map_err(|e| NodeExecError::Generic(anyhow::anyhow!("TOML parse error: {e}")))?;
+		let json = serde_json::to_value(value).map_err(|e| NodeExecError::Generic(anyhow::anyhow!("TOML to JSON error: {e}")))?;
+		let ron = ron::ser::to_string_pretty(&json, ron::ser::PrettyConfig::default())
+			.map_err(|e| NodeExecError::Generic(anyhow::anyhow!("RON serialize error: {e}")))?;
+		Ok(NodeOutput::new().set_data("ron", SocketValue::String(ron)))
+	}
+}
+
+pub struct RonToTomlNode;
+impl NodeDescriptor for RonToTomlNode {
+	fn describe(&self) -> NodeSpec {
+		NodeSpec {
+			feature: "flowgraph.convert.ron_to_toml".into(),
+			title: "RON → TOML".into(),
+			category: "convert".into(),
+			description: Some("RON 文字列を JSON 値経由で TOML 文字列へ変換する。".into()),
+			inputs: vec![PortSpec::input("ron", "RON", SocketType::String)],
+			outputs: vec![PortSpec::output("toml", "TOML", SocketType::String)],
+			properties: vec![],
+		}
+	}
+}
+
+#[async_trait]
+impl PureNode for RonToTomlNode {
+	async fn compute(
+		&self,
+		_host: &crate::flowgraph::node::PureEvalHost,
+		_p: &InputMap,
+		inputs: &InputMap,
+		_fired: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		let ron_text = get_required_string(inputs, "ron")?;
+		let json = ron::from_str::<JsonValue>(&ron_text).map_err(|e| NodeExecError::Generic(anyhow::anyhow!("RON parse error: {e}")))?;
+		let toml = toml::to_string_pretty(&json).map_err(|e| NodeExecError::Generic(anyhow::anyhow!("TOML serialize error: {e}")))?;
+		Ok(NodeOutput::new().set_data("toml", SocketValue::String(toml)))
+	}
+}
+
+// ----- JSON / MessagePack -------------------------------------------------
+
+pub struct JsonToMsgpackNode;
+impl NodeDescriptor for JsonToMsgpackNode {
+	fn describe(&self) -> NodeSpec {
+		NodeSpec {
+			feature: "flowgraph.convert.json_to_msgpack".into(),
+			title: "JSON → MessagePack".into(),
+			category: "convert".into(),
+			description: Some("JSON 値を MessagePack bytes へ変換する。".into()),
+			inputs: vec![PortSpec::input("json", "JSON", SocketType::Json)],
+			outputs: vec![
+				PortSpec::output("bytes", "Bytes", SocketType::Bytes),
+				PortSpec::output("byte_count", "Byte Count", SocketType::Int),
+			],
+			properties: vec![],
+		}
+	}
+}
+
+#[async_trait]
+impl PureNode for JsonToMsgpackNode {
+	async fn compute(
+		&self,
+		_host: &crate::flowgraph::node::PureEvalHost,
+		_p: &InputMap,
+		inputs: &InputMap,
+		_fired: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		let json = get_required_json(inputs, "json")?;
+		let bytes = rmp_serde::to_vec(json).map_err(|e| NodeExecError::Generic(anyhow::anyhow!("MessagePack serialize error: {e}")))?;
+		let byte_count = bytes.len() as i64;
+		Ok(NodeOutput::new()
+			.set_data("bytes", SocketValue::Bytes(bytes))
+			.set_data("byte_count", SocketValue::Int(byte_count)))
+	}
+}
+
+pub struct MsgpackToJsonNode;
+impl NodeDescriptor for MsgpackToJsonNode {
+	fn describe(&self) -> NodeSpec {
+		NodeSpec {
+			feature: "flowgraph.convert.msgpack_to_json".into(),
+			title: "MessagePack → JSON".into(),
+			category: "convert".into(),
+			description: Some("MessagePack bytes を JSON 値へ変換する。".into()),
+			inputs: vec![PortSpec::input("bytes", "Bytes", SocketType::Bytes)],
+			outputs: vec![PortSpec::output("json", "JSON", SocketType::Json)],
+			properties: vec![],
+		}
+	}
+}
+
+#[async_trait]
+impl PureNode for MsgpackToJsonNode {
+	async fn compute(
+		&self,
+		_host: &crate::flowgraph::node::PureEvalHost,
+		_p: &InputMap,
+		inputs: &InputMap,
+		_fired: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		let bytes = get_required_bytes(inputs, "bytes")?;
+		let json = rmp_serde::from_slice::<JsonValue>(bytes)
+			.map_err(|e| NodeExecError::Generic(anyhow::anyhow!("MessagePack parse error: {e}")))?;
+		Ok(NodeOutput::new().set_data("json", SocketValue::Json(json)))
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -341,5 +540,123 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(out.data.get("result"), Some(&SocketValue::Float(1.5)));
+	}
+
+	#[tokio::test]
+	async fn json_toml_roundtrip_preserves_structure() {
+		let json = serde_json::json!({
+			"title": "UNVAC",
+			"profile": {
+				"name": "default",
+				"enabled": true,
+				"count": 2
+			}
+		});
+		let inputs: InputMap = [("json".into(), SocketValue::Json(json.clone()))].into_iter().collect();
+		let toml_out = JsonToTomlNode
+			.compute(
+				&crate::flowgraph::node::PureEvalHost::default(),
+				&InputMap::new(),
+				&inputs,
+				&ExecFireSet::new(),
+			)
+			.await
+			.unwrap();
+		let toml_text = toml_out.data.get("toml").unwrap().as_str().unwrap().to_string();
+		assert!(toml_text.contains("[profile]"));
+
+		let inputs: InputMap = [("toml".into(), SocketValue::String(toml_text))].into_iter().collect();
+		let json_out = TomlToJsonNode
+			.compute(
+				&crate::flowgraph::node::PureEvalHost::default(),
+				&InputMap::new(),
+				&inputs,
+				&ExecFireSet::new(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(json_out.data.get("json"), Some(&SocketValue::Json(json)));
+	}
+
+	#[tokio::test]
+	async fn toml_ron_toml_keeps_key_values() {
+		let toml_text = "title = \"UNVAC\"\n[profile]\nname = \"default\"\ncount = 2\n".to_string();
+		let inputs: InputMap = [("toml".into(), SocketValue::String(toml_text))].into_iter().collect();
+		let ron_out = TomlToRonNode
+			.compute(
+				&crate::flowgraph::node::PureEvalHost::default(),
+				&InputMap::new(),
+				&inputs,
+				&ExecFireSet::new(),
+			)
+			.await
+			.unwrap();
+		let ron_text = ron_out.data.get("ron").unwrap().as_str().unwrap().to_string();
+		assert!(ron_text.contains("UNVAC"));
+
+		let inputs: InputMap = [("ron".into(), SocketValue::String(ron_text))].into_iter().collect();
+		let toml_out = RonToTomlNode
+			.compute(
+				&crate::flowgraph::node::PureEvalHost::default(),
+				&InputMap::new(),
+				&inputs,
+				&ExecFireSet::new(),
+			)
+			.await
+			.unwrap();
+		let toml_text = toml_out.data.get("toml").unwrap().as_str().unwrap();
+		assert!(toml_text.contains("title = \"UNVAC\""));
+		assert!(toml_text.contains("[profile]"));
+		assert!(toml_text.contains("count = 2"));
+	}
+
+	#[tokio::test]
+	async fn json_msgpack_roundtrip_preserves_structure() {
+		let json = serde_json::json!({
+			"title": "UNVAC",
+			"count": 2,
+			"enabled": true,
+			"items": ["a", "b"]
+		});
+		let inputs: InputMap = [("json".into(), SocketValue::Json(json.clone()))].into_iter().collect();
+		let packed = JsonToMsgpackNode
+			.compute(
+				&crate::flowgraph::node::PureEvalHost::default(),
+				&InputMap::new(),
+				&inputs,
+				&ExecFireSet::new(),
+			)
+			.await
+			.unwrap();
+		let bytes = packed.data.get("bytes").unwrap().as_bytes().unwrap().to_vec();
+		assert!(!bytes.is_empty());
+		assert_eq!(packed.data.get("byte_count"), Some(&SocketValue::Int(bytes.len() as i64)));
+
+		let inputs: InputMap = [("bytes".into(), SocketValue::Bytes(bytes))].into_iter().collect();
+		let unpacked = MsgpackToJsonNode
+			.compute(
+				&crate::flowgraph::node::PureEvalHost::default(),
+				&InputMap::new(),
+				&inputs,
+				&ExecFireSet::new(),
+			)
+			.await
+			.unwrap();
+		assert_eq!(unpacked.data.get("json"), Some(&SocketValue::Json(json)));
+	}
+
+	#[tokio::test]
+	async fn msgpack_to_json_fails_on_invalid_bytes() {
+		let inputs: InputMap = [("bytes".into(), SocketValue::Bytes(vec![0xc1]))].into_iter().collect();
+		let err = MsgpackToJsonNode
+			.compute(
+				&crate::flowgraph::node::PureEvalHost::default(),
+				&InputMap::new(),
+				&inputs,
+				&ExecFireSet::new(),
+			)
+			.await
+			.unwrap_err();
+		assert!(matches!(err, NodeExecError::Generic(_)));
 	}
 }

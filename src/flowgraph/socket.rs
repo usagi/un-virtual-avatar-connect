@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 use thiserror::Error;
+use vac_motion::unmf::UnMotionFrame;
 
 /// VAC Flowgraph のソケット型（入出力ポート・プロパティに共通）。
 ///
@@ -56,6 +57,8 @@ pub enum SocketType {
 	/// VMC / OSC ワイヤを解釈したフレーム（Phase M4）。`json` とは
 	/// [`MotionFrame`] の JSON オブジェクト形状で双方向に coerce 可能。
 	MotionFrame,
+	/// UNMotionFrame（Phase M7）。`json` とは UNMF v1.x の JSON オブジェクト形状で双方向に coerce 可能。
+	Unmf,
 }
 
 impl SocketType {
@@ -86,6 +89,7 @@ impl SocketType {
 				byte_len: 0,
 				osc_messages: Vec::new(),
 			})),
+			SocketType::Unmf => Some(SocketValue::Unmf(UnMotionFrame::new(0))),
 		}
 	}
 
@@ -117,9 +121,10 @@ impl SocketType {
 	///   Quantity → Float は実行時にエラーを出し、明示 strip を促す）
 	/// - `Quantity → String`: [`Quantity`] の Display 実装（`"{value} {unit}"` ないし
 	///   dimensionless なら `"{value}"`）で自動文字列化。ξ-4 で `flowgraph.util.log`
-	///   や `flowgraph.channel.emit` に Quantity を直接流せるようにするために導入。
+	///   や`flowgraph.bos.output`にQuantityを直接流せるようにするために導入。
 	///   逆方向 (`String → Quantity`) は任意文字列を確実に parse できないため非許容。
 	/// - `Json ↔ MotionFrame`: M4 フレームの JSON オブジェクト形状での往復（[`coerce_to_type`]）。
+	/// - `Json ↔ Unmf`: UNMotionFrame JSON オブジェクト形状での往復（[`coerce_to_type`]）。
 	/// - それ以外は `==` と同じ
 	///
 	/// `List` / `Map` の inner は再帰的に `compatible_with` で判定する。
@@ -132,7 +137,7 @@ impl SocketType {
 			// parse 失敗はランタイムに [`coerce_to_type`] が [`CoerceError::DateTimeParseError`]
 			// として伝搬する（接続時点では型互換とみなす）。
 			(String, DateTime) | (DateTime, String) => true,
-			(Json, MotionFrame) | (MotionFrame, Json) => true,
+			(Json, MotionFrame) | (MotionFrame, Json) | (Json, Unmf) | (Unmf, Json) => true,
 			(Json, Record(_)) | (Record(_), Json) => true,
 			(Record(a), Record(b)) => a == b,
 			(List(a), List(b)) => a.compatible_with(b),
@@ -275,6 +280,10 @@ pub fn coerce_to_type(value: SocketValue, target: &SocketType) -> Result<SocketV
 			.map(SocketValue::MotionFrame)
 			.map_err(|e| CoerceError::MotionFrameFromJsonError { reason: e.to_string() }),
 		(SocketValue::MotionFrame(m), SocketType::Json) => Ok(SocketValue::Json(m.to_json_value())),
+		(SocketValue::Json(j), SocketType::Unmf) => vac_motion::unmf::unmf_from_json_value(&j)
+			.map(SocketValue::Unmf)
+			.map_err(|e| CoerceError::UnmfFromJsonError { reason: e.to_string() }),
+		(SocketValue::Unmf(frame), SocketType::Json) => Ok(SocketValue::Json(vac_motion::unmf::unmf_to_json_value(&frame))),
 		(SocketValue::Json(j), SocketType::Record(_)) if j.is_object() => Ok(SocketValue::Json(j)),
 		// 既に一致しているならそのまま
 		(v, t) if v.matches(t) => Ok(v),
@@ -296,6 +305,8 @@ pub enum CoerceError {
 	DateTimeParseError { input: String, reason: String },
 	#[error("JSON → motion_frame 変換失敗: {reason}")]
 	MotionFrameFromJsonError { reason: String },
+	#[error("JSON → unmf 変換失敗: {reason}")]
+	UnmfFromJsonError { reason: String },
 	#[error("result<T> value 変換失敗: {0}")]
 	ResultValueError(Box<CoerceError>),
 }
@@ -319,6 +330,7 @@ impl fmt::Display for SocketType {
 			SocketType::Quantity => f.write_str("quantity"),
 			SocketType::DateTime => f.write_str("datetime"),
 			SocketType::MotionFrame => f.write_str("motion_frame"),
+			SocketType::Unmf => f.write_str("unmf"),
 		}
 	}
 }
@@ -389,6 +401,7 @@ fn parse_type(s: &str) -> Result<SocketType, TypeParseError> {
 		"quantity" => return Ok(SocketType::Quantity),
 		"datetime" => return Ok(SocketType::DateTime),
 		"motion_frame" => return Ok(SocketType::MotionFrame),
+		"unmf" => return Ok(SocketType::Unmf),
 		_ => {}
 	}
 	// 複合型: record<schema_id> / list<T> / collection<T> / map<T> / map<string, T> / dictionary<string, T> / option<T> / result<T>
@@ -591,6 +604,8 @@ pub enum SocketValue {
 	DateTime(DateTime),
 	/// M4 OSC フレーム（[`MotionFrame`]）。`json` との coerce でワイヤ JSON と往復。
 	MotionFrame(MotionFrame),
+	/// UNMotionFrame。`json` との coerce で UNMF JSON と往復。
+	Unmf(UnMotionFrame),
 	// Exec は値を持たないので variant なし。
 }
 
@@ -619,6 +634,7 @@ impl SocketValue {
 			SocketValue::Quantity(_) => SocketType::Quantity,
 			SocketValue::DateTime(_) => SocketType::DateTime,
 			SocketValue::MotionFrame(_) => SocketType::MotionFrame,
+			SocketValue::Unmf(_) => SocketType::Unmf,
 		}
 	}
 
@@ -750,6 +766,16 @@ impl SocketValue {
 		}
 	}
 
+	pub fn as_unmf(&self) -> Result<&UnMotionFrame, ValueCastError> {
+		match self {
+			SocketValue::Unmf(frame) => Ok(frame),
+			_ => Err(ValueCastError::Mismatch {
+				expected: "unmf",
+				actual: self.type_of(),
+			}),
+		}
+	}
+
 	/// 値の型が指定の `SocketType` に適合するかの軽量チェック。
 	/// `List`/`Map` の内部型は空の場合はパスとみなす。
 	pub fn matches(&self, expected: &SocketType) -> bool {
@@ -763,7 +789,8 @@ impl SocketValue {
 			| (SocketValue::Table(_), SocketType::Table)
 			| (SocketValue::Quantity(_), SocketType::Quantity)
 			| (SocketValue::DateTime(_), SocketType::DateTime)
-			| (SocketValue::MotionFrame(_), SocketType::MotionFrame) => true,
+			| (SocketValue::MotionFrame(_), SocketType::MotionFrame)
+			| (SocketValue::Unmf(_), SocketType::Unmf) => true,
 			(SocketValue::Json(value), SocketType::Record(_)) => value.is_object(),
 			(SocketValue::List(xs), SocketType::List(inner)) => xs.iter().all(|v| v.matches(inner)),
 			(SocketValue::Map(m), SocketType::Map(inner)) => m.values().all(|v| v.matches(inner)),
@@ -802,6 +829,15 @@ pub fn from_toml_value(expected: &SocketType, v: &toml::Value) -> Result<SocketV
 				.map(SocketValue::MotionFrame)
 				.map_err(|e| FromTomlError::Mismatch {
 					expected: "motion_frame (byte_len + osc_messages JSON shape)".into(),
+					actual: format!("deserialize: {e}"),
+				})
+		}
+		(SocketType::Unmf, any) => {
+			let j = toml_to_json(any)?;
+			vac_motion::unmf::unmf_from_json_value(&j)
+				.map(SocketValue::Unmf)
+				.map_err(|e| FromTomlError::Mismatch {
+					expected: "unmf (UNMotionFrame JSON shape)".into(),
 					actual: format!("deserialize: {e}"),
 				})
 		}
@@ -1044,6 +1080,9 @@ mod tests {
 		let mf = SocketType::MotionFrame;
 		assert_eq!(mf.to_string(), "motion_frame");
 		assert_eq!(SocketType::parse("motion_frame").unwrap(), mf);
+		let unmf = SocketType::Unmf;
+		assert_eq!(unmf.to_string(), "unmf");
+		assert_eq!(SocketType::parse("unmf").unwrap(), unmf);
 	}
 
 	#[test]
@@ -1416,6 +1455,14 @@ code = "unit.test"
 		assert!(!SocketType::MotionFrame.compatible_with(&SocketType::String));
 	}
 
+	#[test]
+	fn unmf_compat_json_bidirectional() {
+		assert!(SocketType::Json.compatible_with(&SocketType::Unmf));
+		assert!(SocketType::Unmf.compatible_with(&SocketType::Json));
+		assert!(SocketType::Unmf.compatible_with(&SocketType::Unmf));
+		assert!(!SocketType::Unmf.compatible_with(&SocketType::String));
+	}
+
 	// --- coerce_to_type ---
 
 	#[test]
@@ -1509,6 +1556,37 @@ code = "unit.test"
 		assert_eq!(v.type_of(), SocketType::MotionFrame);
 		assert!(v.matches(&SocketType::MotionFrame));
 		assert_eq!(v.as_motion_frame().unwrap(), &m);
+	}
+
+	#[test]
+	fn coerce_json_to_unmf_roundtrip() {
+		let frame = vac_motion::unmf::UnMotionFrame::new(42);
+		let j = vac_motion::unmf::unmf_to_json_value(&frame);
+		let value = coerce_to_type(SocketValue::Json(j.clone()), &SocketType::Unmf).unwrap();
+		let SocketValue::Unmf(decoded) = value else {
+			panic!("expected Unmf");
+		};
+		assert_eq!(decoded, frame);
+		let back = coerce_to_type(SocketValue::Unmf(decoded), &SocketType::Json).unwrap();
+		let SocketValue::Json(out) = back else {
+			panic!("expected Json");
+		};
+		assert_eq!(out, j);
+	}
+
+	#[test]
+	fn coerce_json_to_unmf_invalid_errors() {
+		let err = coerce_to_type(SocketValue::Json(serde_json::json!(null)), &SocketType::Unmf).unwrap_err();
+		assert!(matches!(err, CoerceError::UnmfFromJsonError { .. }));
+	}
+
+	#[test]
+	fn unmf_value_type_of_and_as() {
+		let frame = vac_motion::unmf::UnMotionFrame::new(7);
+		let v = SocketValue::Unmf(frame.clone());
+		assert_eq!(v.type_of(), SocketType::Unmf);
+		assert!(v.matches(&SocketType::Unmf));
+		assert_eq!(v.as_unmf().unwrap(), &frame);
 	}
 
 	// --- TOML from_toml_value ---

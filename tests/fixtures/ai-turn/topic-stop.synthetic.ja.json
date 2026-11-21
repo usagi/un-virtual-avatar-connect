@@ -1,0 +1,17 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "topic-stop-and-game-referents-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": { "max_chars": 120, "max_sentences": 2, "forbid_question_ending": true },
+  "cases": [
+    { "id": "start-shared-impression", "content": "ゲームキャラのスキル台詞が毎回すごく堂々としていて、少し気恥ずかしい。ケルシー先生はどう思う？", "allowed_actions": ["respond"], "speech": "required" },
+    { "id": "stop-without-new-question", "content": "その話はもう触れなくていい。今の話はここで終わり。", "allowed_actions": ["observe", "close"], "speech": "forbidden" },
+    { "id": "return-to-play", "content": "ゲームに戻ろう。次の敵が来るから、ここに重装を置く。", "allowed_actions": ["observe"], "speech": "forbidden" },
+    { "id": "new-question-after-stop", "content": "ケルシー先生、さっきの話とは別件。敵の攻撃でゲームキャラのHPが減っている。この画面だけで回復が間に合うか分かる？", "allowed_actions": ["respond"], "speech": "required" },
+    { "id": "named-stop", "content": "ケルシー先生、その話ももう説明しなくていい。返事も不要だからゲームを見ていて。", "allowed_actions": ["observe", "close"], "speech": "forbidden" },
+    { "id": "joy-remains-responsive", "content": "やったー！ ぎりぎりで守り切った！ めちゃくちゃ嬉しい！", "allowed_actions": ["react"], "speech": "required" },
+    { "id": "stop-with-new-question", "content": "前の話にはもう触れなくていい。ケルシー先生、別の話で、このキャラの台詞って格好いいと思う？", "allowed_actions": ["respond"], "speech": "required" },
+    { "id": "final-stop", "content": "もうその話を引きずらなくていい。ここで終わりにする。", "allowed_actions": ["observe", "close"], "speech": "forbidden" }
+  ]
+}

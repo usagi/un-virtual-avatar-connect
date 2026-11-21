@@ -1,0 +1,52 @@
+[[triggers]]
+node = "main::trigger"
+
+[[triggers.overrides]]
+port = "__content__"
+ty = "string"
+value = "fixture"
+
+[[tests]]
+name = "un app status command event dry-run"
+
+[tests.expect]
+node_count = 14
+trigger_count = 1
+trace_count = 5
+trace_contains = [
+  "log: UN Avatar Renderer",
+  "un.app.command dry-run: open_gui -> un/app/un-avatar/main/command",
+  "log: un/app/un-avatar/main/command",
+  "un.app.event dry-run: response=un/app/un-avatar/main/response/",
+  "log: un/app/un-avatar/main/response/",
+]
+
+[[tests.expect.exec_count]]
+node = "main::send_command"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::wait_event"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::log_status"
+count = 1
+
+[[tests.expect.stored_values]]
+node = "main::status"
+port = "ready"
+ty = "bool"
+value = true
+
+[[tests.expect.stored_values]]
+node = "main::status"
+port = "endpoint_count"
+ty = "int"
+value = 1
+
+[[tests.expect.stored_values]]
+node = "main::send_command"
+port = "accepted"
+ty = "bool"
+value = true

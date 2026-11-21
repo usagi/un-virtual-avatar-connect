@@ -176,6 +176,12 @@ mode 未設定時、または旧環境での後方互換のために使う既定
 
 Runtime 上では物理 path ではなく、loader が決定する stable file id を使って activation state を持つ。初期実装では canonical relative path を id としてよいが、将来 package / library 化するときは `[meta].id` を導入できる余地を残す。
 
+### 5.4 module instance の継承
+
+moduleをinstance化しても、module自身の`mode_groups`と`default_enabled`を親fileの値で置換しない。loaderはentryからnested moduleまでのactivation metadataを順序付き制約列として保持し、各層を5.1〜5.2の規則で個別評価する。instance配下のexecは全層がactiveの場合だけ許可する。
+
+診断表示用のfile activation summaryは、関係するgroupを重複なく列挙し、`default_enabled`は全層の論理積とする。ただしsummaryは表示用であり、runtime判定はgroupを平坦化せず制約列を使う。これにより、親の許可だけで無効moduleが動くことも、moduleの許可だけで無効な親を迂回することも防ぐ。
+
 ---
 
 ## 6. Transition Semantics

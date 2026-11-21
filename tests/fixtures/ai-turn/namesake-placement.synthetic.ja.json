@@ -1,0 +1,48 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "namesake-placement-synthetic-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": { "max_chars": 160, "max_sentences": 3, "forbid_question_ending": true },
+  "cases": [
+    {
+      "id": "placement-commentary",
+      "content": "いまアークナイツの配置操作中。そこに誰を置こうとしたか、ケルシーですね。",
+      "allowed_actions": ["observe"],
+      "speech": "forbidden"
+    },
+    {
+      "id": "direct-address",
+      "content": "ケルシー先生、私の声は聞こえている？",
+      "allowed_actions": ["respond"],
+      "speech": "required"
+    },
+    {
+      "id": "both-referents",
+      "content": "ケルシー先生、いま配置したゲーム内のケルシーはキミ自身なのか、それとも別の人物か？",
+      "allowed_actions": ["respond"],
+      "speech": "required",
+      "speech_forbids": ["私自身だ", "私を配置", "私が配置された", "同一人物だ"]
+    },
+    {
+      "id": "game-person-question",
+      "content": "先生、さっき私が置こうとしたのは誰だった？",
+      "allowed_actions": ["respond"],
+      "speech": "required",
+      "speech_forbids": ["私を", "私だ", "私自身", "この私"]
+    },
+    {
+      "id": "shared-excitement",
+      "content": "よし、ゲームのケルシーの配置が間に合った！やったー！",
+      "allowed_actions": ["react", "respond"],
+      "speech": "required",
+      "speech_forbids": ["私を配置", "私の配置", "私が間に合", "判断できない", "断言できない"]
+    },
+    {
+      "id": "explicit-silence",
+      "content": "ここから集中する。返事はいらない。静かに見守っていて。",
+      "allowed_actions": ["observe", "close"],
+      "speech": "forbidden"
+    }
+  ]
+}

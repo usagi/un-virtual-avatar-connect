@@ -5,12 +5,12 @@
 #
 # 流れ:
 #   1. web_input が発火したタイミングで flowgraph.table.load_tsv が
-#      flowgraph.example/dictionary/commands.tsv を Table として読み込む
+#      このグラフと同じフォルダーの sample.dict.tsv を Table として読み込む
 #   2. ingress.web_input の content を flowgraph.glossary.replace に流す
 #   3. 置換結果を util.log に出す
 #
 # 実運用の発展形:
-#   - commands.tsv の代わりに辞書本体（dictionary.arknights.dict.tsv など）を指定
+#   - sample.dict.tsv の代わりに、使いたい辞書の場所を明示的に指定
 #   - Table は flowgraph.glossary.learn / .forget で更新し、flowgraph.table.write_tsv で永続化
 #   - state.latch へ格納したければ flowgraph.table.to_json を経由して List<Json> に変換
 # =========================================================================
@@ -26,7 +26,7 @@ tags = ["example", "glossary", "table", "tsv", "eta"]
 id = "dict_path"
 feature = "flowgraph.literal.string"
 position = [80, 100]
-properties.value = "flowgraph.example/dictionary/sample.dict.tsv"
+properties.value = "graph-file:sample.dict.tsv"
 
 [[nodes]]
 id = "dict_mode"

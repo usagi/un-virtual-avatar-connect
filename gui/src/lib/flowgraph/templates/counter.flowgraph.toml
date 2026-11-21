@@ -1,0 +1,40 @@
+[meta]
+title = "入力回数カウンター"
+description = "Web入力ごとに1を加え、現在の回数を実行トレースへ出力します。再読込すると0に戻ります。"
+tags = ["counter", "starter"]
+
+[[nodes]]
+id = "in"
+feature = "flowgraph.ingress.web_input"
+position = [80, 80]
+
+[[nodes]]
+id = "counter"
+feature = "flowgraph.state.int_counter"
+position = [500, 80]
+
+[[nodes]]
+id = "text"
+feature = "flowgraph.convert.int_to_string"
+position = [920, 80]
+
+[[nodes]]
+id = "count_log"
+feature = "flowgraph.util.log"
+position = [1340, 80]
+
+[[edges]]
+from = "in:exec_out"
+to = "counter:increment"
+
+[[edges]]
+from = "counter:value"
+to = "text:value"
+
+[[edges]]
+from = "counter:changed"
+to = "count_log:exec_in"
+
+[[edges]]
+from = "text:result"
+to = "count_log:value"

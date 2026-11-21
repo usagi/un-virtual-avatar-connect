@@ -46,13 +46,10 @@ fn planned_ops(directive: &ManagedAppsModeDirective) -> Vec<(Phase, String, bool
 
 async fn resolve_spec_status(state: &SharedState, id: &str) -> Option<(ManagedAppSpec, crate::managed_app::ManagedAppStatus)> {
 	let registry = state.read().await.managed_apps.clone();
-	let r = registry.read().await;
-	let spec = r.find_spec(id).cloned()?;
-	let st = r
-		.statuses
-		.get(id)
-		.cloned()
-		.unwrap_or_else(|| crate::managed_app::ManagedAppStatus::unknown(id));
+	let spec = registry.read().await.find_spec(id).cloned()?;
+	// The monitor can lag behind our own preceding stop. Resolve each action
+	// from live processes rather than treating the UI cache as authoritative.
+	let st = managed_app::probe_all(std::slice::from_ref(&spec)).remove(id)?;
 	Some((spec, st))
 }
 
@@ -127,11 +124,14 @@ async fn one_op(state: &SharedState, phase: Phase, id: &str, skip_leave: bool) -
 			let rw = crate::conf::RunWith::CommandIfProcessIsNotRunning {
 				command: spec.command.clone(),
 				if_not_running: spec.process_marker.clone(),
+				start_on_launch: Some(spec.start_on_launch),
 				run_as_admin: Some(spec.run_as_admin),
 				working_dir: spec.working_dir.clone(),
 				minimized: Some(spec.minimized),
 				id: Some(spec.id.clone()),
 				label: Some(spec.label.clone()),
+				unaa_z_app_id: spec.unaa_z_app_id.clone(),
+				unaa_z_instance_id: spec.unaa_z_instance_id.clone(),
 				shutdown: None,
 			};
 			match managed_app::start_entry(&rw) {

@@ -1,13 +1,46 @@
-# VMC 生 UDP パススルー（Phase M0）の最小例。
+# Motion interop の最小例。
+#
+# v2 の姿勢・表情制御の内部 core は UNMF、Zenoh data plane は UNMF/Z。
+# VMC は互換 adapter として扱う:
+#   VMC 受信 -> UNMF 変換 / 内部処理 -> UNMF/Z publish または VMC 再変換送信
+#
+# このファイルは VMC 生 UDP パススルー（Phase M0）の互換設定例。
+# UNMF/Z Flowgraph 例は以下を参照:
+#   - flowgraph.example/unmf-vmc-adapter/
+#   - flowgraph.example/unmfz-ingress/
+#
 # コピー後は bind / forward_to を環境に合わせて変更すること。
 #
-# 詳細: docs/roadmap/phase-mu-vmc-motion-m0.md
+# 詳細:
+#   - docs/roadmap/phase-mu-vmc-motion-m0.md
+#   - docs/roadmap/v2-vmc-and-restructure.md
 
 web_ui_address = "127.0.0.1:57000"
 log_level = "Info"
 
 # Flowgraph を使う場合のみ指定（未指定でも VAC は起動する）。
+# UNMF / UNMF/Z adapter graph を使うなら flowgraph.example をコピーしてここに指定する。
 # flowgraph_dir = "flowgraph"
+
+# UNMF/Z 1.1 LAN transport。未指定なら従来どおりZenoh自動探索のみ。
+# UNVACからUNAvatarへpublishする場合はlistenを有効にし、UNAvatar側から
+# このPCのIP:47447へ接続する。listen IPは特定NICのIPにも変更できる。
+[unmfz.listen]
+enabled = false
+ip = "0.0.0.0"
+port = 47447
+
+# UNMotion / UNVET等の固定listen endpointへ接続する受信側設定。
+# 複数publisherは同じZenoh networkへfan-inし、keyで論理入力を識別する。
+# [[unmfz.connect]]
+# enabled = true
+# ip = "192.168.1.20"
+# port = 47447
+#
+# [[unmfz.connect]]
+# enabled = true
+# ip = "192.168.1.21"
+# port = 47448
 
 [motion]
 # 受信 39539 → 127.0.0.1:39540 と 127.0.0.1:39541 へ同一ペイロードを転送（パースなし）。

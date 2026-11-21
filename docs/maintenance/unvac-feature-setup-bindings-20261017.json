@@ -1,0 +1,489 @@
+{
+  "status": "adopted_guidance_bindings_not_full_runtime_acceptance",
+  "rules": [
+    "Settings edit the same installed graph, never replace it with the template.",
+    "Resolve by node id AND feature; an unknown or rewired graph needs Studio review before a guided edit.",
+    "Keep all other nodes, edges, groups, instances and metadata unchanged.",
+    "Use source revision conflict checks and retain drafts on failure.",
+    "Saved configuration is not proof of active execution.",
+    "This covers the four bundled examples, not arbitrary user programs."
+  ],
+  "packs": [
+    {
+      "id": "twitch-notices",
+      "title": "配信イベントを知らせる",
+      "source": "flowgraph.example/twitch-event-notices/main.flowgraph.toml",
+      "controls": [
+        {
+          "label": "受信に使うTwitchアカウント",
+          "node_id": "eventsub",
+          "feature": "flowgraph.ingress.twitch_eventsub",
+          "property": "token_key",
+          "example_value": "broadcaster",
+          "value_type": "str"
+        },
+        {
+          "label": "通知するイベント",
+          "node_id": "eventsub",
+          "feature": "flowgraph.ingress.twitch_eventsub",
+          "property": "event_types",
+          "example_value": [
+            "channel.channel_points_custom_reward_redemption.add",
+            "channel.follow",
+            "channel.subscribe",
+            "channel.subscription.message",
+            "channel.subscription.gift",
+            "channel.raid"
+          ],
+          "value_type": "list"
+        },
+        {
+          "label": "画面の出力先",
+          "node_id": "notice_destination",
+          "feature": "flowgraph.literal.string",
+          "property": "value",
+          "example_value": "stream-alerts",
+          "value_type": "str"
+        },
+        {
+          "label": "チャット投稿用アカウント",
+          "node_id": "notice_token_key",
+          "feature": "flowgraph.literal.string",
+          "property": "value",
+          "example_value": "moderator",
+          "value_type": "str"
+        }
+      ],
+      "required_topology": [
+        {
+          "from": "eventsub:exec_out",
+          "to": "notice:exec_in"
+        },
+        {
+          "from": "eventsub:event_type",
+          "to": "notice:event_type"
+        },
+        {
+          "from": "eventsub:payload",
+          "to": "notice:payload"
+        },
+        {
+          "from": "eventsub:meta",
+          "to": "notice:meta"
+        },
+        {
+          "from": "notice:on_notice",
+          "to": "notice_overlay:exec_in"
+        },
+        {
+          "from": "notice:content",
+          "to": "notice_overlay:content"
+        },
+        {
+          "from": "notice:meta",
+          "to": "notice_overlay:meta"
+        },
+        {
+          "from": "notice:flags",
+          "to": "notice_overlay:flags"
+        },
+        {
+          "from": "notice_destination:value",
+          "to": "notice_overlay:destination"
+        },
+        {
+          "from": "notice:on_notice",
+          "to": "notice_token:exec_in"
+        },
+        {
+          "from": "notice_token_key:value",
+          "to": "notice_token:token_key"
+        },
+        {
+          "from": "notice_token:on_success",
+          "to": "notice_identity:exec_in"
+        },
+        {
+          "from": "notice_token:access_token",
+          "to": "notice_identity:access_token"
+        },
+        {
+          "from": "notice_identity:on_success",
+          "to": "notice_chat:exec_in"
+        },
+        {
+          "from": "notice_identity:user_id",
+          "to": "notice_chat:sender_user_id"
+        },
+        {
+          "from": "notice_token:access_token",
+          "to": "notice_chat:access_token"
+        },
+        {
+          "from": "notice_token:client_id",
+          "to": "notice_chat:client_id"
+        },
+        {
+          "from": "notice:broadcaster_id",
+          "to": "notice_chat:broadcaster_id"
+        },
+        {
+          "from": "notice:content",
+          "to": "notice_chat:text"
+        },
+        {
+          "from": "notice_token:on_failure",
+          "to": "notice_token_error:exec_in"
+        },
+        {
+          "from": "notice_token:error",
+          "to": "notice_token_error:value"
+        },
+        {
+          "from": "notice_identity:on_error",
+          "to": "notice_identity_error:exec_in"
+        },
+        {
+          "from": "notice_identity:error",
+          "to": "notice_identity_error:value"
+        },
+        {
+          "from": "notice_chat:on_error",
+          "to": "notice_chat_error:exec_in"
+        },
+        {
+          "from": "notice_chat:error",
+          "to": "notice_chat_error:value"
+        }
+      ],
+      "all_node_ids": [
+        "eventsub",
+        "notice",
+        "notice_destination",
+        "notice_overlay",
+        "notice_token_key",
+        "notice_token",
+        "notice_identity",
+        "notice_chat",
+        "notice_token_error",
+        "notice_identity_error",
+        "notice_chat_error"
+      ],
+      "empty_controls_mean": null
+    },
+    {
+      "id": "random-clip",
+      "title": "クリップで紹介する",
+      "source": "flowgraph.example/twitch-random-clip/main.flowgraph.toml",
+      "controls": [
+        {
+          "label": "コマンドを受信するアカウント",
+          "node_id": "chat_in",
+          "feature": "flowgraph.ingress.twitch",
+          "property": "token_key",
+          "example_value": "broadcaster",
+          "value_type": "str"
+        },
+        {
+          "label": "紹介の投稿用アカウント",
+          "node_id": "clip_token_key",
+          "feature": "flowgraph.literal.string",
+          "property": "value",
+          "example_value": "moderator",
+          "value_type": "str"
+        },
+        {
+          "label": "クリップの画面出力先",
+          "node_id": "clip_destination",
+          "feature": "flowgraph.literal.string",
+          "property": "value",
+          "example_value": "stream-alerts",
+          "value_type": "str"
+        },
+        {
+          "label": "検索するクリップの範囲",
+          "node_id": "clip_pick",
+          "feature": "flowgraph.twitch.random_clip",
+          "property": "max_pages",
+          "example_value": 1,
+          "value_type": "int"
+        }
+      ],
+      "required_topology": [
+        {
+          "from": "chat_in:exec_out",
+          "to": "clip_command:exec_in"
+        },
+        {
+          "from": "chat_in:meta",
+          "to": "clip_command:meta"
+        },
+        {
+          "from": "clip_command:on_command",
+          "to": "clip_token:exec_in"
+        },
+        {
+          "from": "clip_token_key:value",
+          "to": "clip_token:token_key"
+        },
+        {
+          "from": "clip_token:on_success",
+          "to": "clip_identity:exec_in"
+        },
+        {
+          "from": "clip_token:access_token",
+          "to": "clip_identity:access_token"
+        },
+        {
+          "from": "clip_identity:on_success",
+          "to": "clip_pick:exec_in"
+        },
+        {
+          "from": "clip_command:login",
+          "to": "clip_pick:login"
+        },
+        {
+          "from": "clip_token:access_token",
+          "to": "clip_pick:access_token"
+        },
+        {
+          "from": "clip_token:client_id",
+          "to": "clip_pick:client_id"
+        },
+        {
+          "from": "clip_pick:on_success",
+          "to": "clip_overlay:exec_in"
+        },
+        {
+          "from": "clip_pick:content",
+          "to": "clip_overlay:content"
+        },
+        {
+          "from": "clip_pick:meta",
+          "to": "clip_overlay:meta"
+        },
+        {
+          "from": "clip_pick:flags",
+          "to": "clip_overlay:flags"
+        },
+        {
+          "from": "clip_destination:value",
+          "to": "clip_overlay:destination"
+        },
+        {
+          "from": "clip_pick:on_success",
+          "to": "clip_chat:exec_in"
+        },
+        {
+          "from": "clip_pick:on_error",
+          "to": "clip_chat:exec_in"
+        },
+        {
+          "from": "clip_pick:chat_text",
+          "to": "clip_chat:text"
+        },
+        {
+          "from": "clip_command:broadcaster_id",
+          "to": "clip_chat:broadcaster_id"
+        },
+        {
+          "from": "clip_identity:user_id",
+          "to": "clip_chat:sender_user_id"
+        },
+        {
+          "from": "clip_token:access_token",
+          "to": "clip_chat:access_token"
+        },
+        {
+          "from": "clip_token:client_id",
+          "to": "clip_chat:client_id"
+        },
+        {
+          "from": "clip_token:on_failure",
+          "to": "clip_token_error:exec_in"
+        },
+        {
+          "from": "clip_token:error",
+          "to": "clip_token_error:value"
+        },
+        {
+          "from": "clip_identity:on_error",
+          "to": "clip_identity_error:exec_in"
+        },
+        {
+          "from": "clip_identity:error",
+          "to": "clip_identity_error:value"
+        },
+        {
+          "from": "clip_pick:on_error",
+          "to": "clip_pick_error:exec_in"
+        },
+        {
+          "from": "clip_pick:error",
+          "to": "clip_pick_error:value"
+        },
+        {
+          "from": "clip_chat:on_error",
+          "to": "clip_chat_error:exec_in"
+        },
+        {
+          "from": "clip_chat:error",
+          "to": "clip_chat_error:value"
+        }
+      ],
+      "all_node_ids": [
+        "chat_in",
+        "clip_command",
+        "clip_token_key",
+        "clip_token",
+        "clip_identity",
+        "clip_pick",
+        "clip_destination",
+        "clip_overlay",
+        "clip_chat",
+        "clip_token_error",
+        "clip_identity_error",
+        "clip_pick_error",
+        "clip_chat_error"
+      ],
+      "empty_controls_mean": null
+    },
+    {
+      "id": "voicevox",
+      "title": "入力した文章を読み上げる",
+      "source": "flowgraph.example/tts-voicevox/main.flowgraph.toml",
+      "controls": [
+        {
+          "label": "音声合成エンジン",
+          "node_id": "engine",
+          "feature": "flowgraph.literal.string",
+          "property": "value",
+          "example_value": "voicevox",
+          "value_type": "str"
+        },
+        {
+          "label": "エンジンの接続先",
+          "node_id": "endpoint",
+          "feature": "flowgraph.literal.string",
+          "property": "value",
+          "example_value": "",
+          "value_type": "str"
+        },
+        {
+          "label": "話者・スタイル",
+          "node_id": "voice",
+          "feature": "flowgraph.literal.string",
+          "property": "value",
+          "example_value": "2",
+          "value_type": "str"
+        },
+        {
+          "label": "話す速さ",
+          "node_id": "speed",
+          "feature": "flowgraph.literal.float",
+          "property": "value",
+          "example_value": 1.15,
+          "value_type": "float"
+        },
+        {
+          "label": "声の高さ",
+          "node_id": "pitch",
+          "feature": "flowgraph.literal.float",
+          "property": "value",
+          "example_value": 0.0,
+          "value_type": "float"
+        }
+      ],
+      "required_topology": [
+        {
+          "from": "in:exec_out",
+          "to": "speak:exec_in"
+        },
+        {
+          "from": "in:content",
+          "to": "speak:text"
+        },
+        {
+          "from": "engine:value",
+          "to": "speak:engine"
+        },
+        {
+          "from": "voice:value",
+          "to": "speak:voice"
+        },
+        {
+          "from": "speed:value",
+          "to": "speak:speed"
+        },
+        {
+          "from": "pitch:value",
+          "to": "speak:pitch"
+        },
+        {
+          "from": "endpoint:value",
+          "to": "speak:endpoint"
+        },
+        {
+          "from": "speak:on_success",
+          "to": "log_ok:exec_in"
+        },
+        {
+          "from": "speak:audio_path",
+          "to": "log_ok:value"
+        },
+        {
+          "from": "speak:on_error",
+          "to": "log_err:exec_in"
+        },
+        {
+          "from": "speak:error",
+          "to": "log_err:value"
+        }
+      ],
+      "all_node_ids": [
+        "in",
+        "engine",
+        "voice",
+        "speed",
+        "pitch",
+        "endpoint",
+        "speak",
+        "log_ok",
+        "log_err"
+      ],
+      "empty_controls_mean": null
+    },
+    {
+      "id": "counter",
+      "title": "カウンターから自動化を始める",
+      "source": "gui/src/lib/flowgraph/templates/counter.flowgraph.toml",
+      "controls": [],
+      "required_topology": [
+        {
+          "from": "in:exec_out",
+          "to": "counter:increment"
+        },
+        {
+          "from": "counter:value",
+          "to": "text:value"
+        },
+        {
+          "from": "counter:changed",
+          "to": "count_log:exec_in"
+        },
+        {
+          "from": "text:result",
+          "to": "count_log:value"
+        }
+      ],
+      "all_node_ids": [
+        "in",
+        "counter",
+        "text",
+        "count_log"
+      ],
+      "empty_controls_mean": "Requires choosing trigger/output behavior; do not invent a standalone counter panel."
+    }
+  ],
+  "adoption_scope": "FeatureSetupGuide is rendered in the normal Studio settings pane. It locates existing node properties and offers guarded direct-node input for matching counter/voicevox templates. It does not replace Studio or prove external HTTP readiness."
+}

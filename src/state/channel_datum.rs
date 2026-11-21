@@ -38,6 +38,16 @@ static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 impl ChannelDatum {
 	pub const FLAG_IS_FINAL: &'static str = "is_final";
+	/// 同じchannel内で最新値だけを保持する状態観測の識別子。
+	pub const META_STATE_KEY: &'static str = "state_key";
+	/// 配信前セルフテストが会話AIへ観測されないための予約済み actor prefix。
+	pub const PREFLIGHT_ACTOR_PREFIX: &'static str = "control.preflight:";
+	/// AIの構造化streamから確定したTTS向け発話片。
+	pub const FLAG_SPEECH_SEGMENT: &'static str = "speech_segment";
+	/// AI service が生成した確定応答。Flowgraph AI Response ingress の境界識別に使う。
+	pub const SOURCE_AI_RESPONSE: &'static str = "ai.response";
+	/// AI service が確定応答から生成した発話片。Flowgraph AI Speech ingress の境界識別に使う。
+	pub const SOURCE_AI_SPEECH: &'static str = "ai.speech";
 	pub const DATA_URLS: &'static str = "data_urls";
 
 	pub fn reset_id_counter(id: u64) {
@@ -106,6 +116,15 @@ impl ChannelDatum {
 
 	pub fn has_flag(&self, flag: &str) -> bool {
 		self.flags.contains(flag)
+	}
+
+	pub fn is_preflight_probe(&self) -> bool {
+		self.source.as_ref().is_some_and(|source| source.kind == "control.preflight")
+			|| self
+				.meta
+				.get("source_actor")
+				.and_then(serde_json::Value::as_str)
+				.is_some_and(|actor| actor.starts_with(Self::PREFLIGHT_ACTOR_PREFIX))
 	}
 
 	/// 由来情報を設定する。
@@ -187,6 +206,25 @@ mod datetime_wire_format_tests {
 		};
 		cd.flags.insert("is_final".to_string());
 		cd
+	}
+
+	#[test]
+	fn preflight_actor_is_reserved_from_ai_observation() {
+		let probe = ChannelDatum::new("chat-synth".into(), "test".into())
+			.with_meta("source_actor", format!("{}123", ChannelDatum::PREFLIGHT_ACTOR_PREFIX));
+		let regular = ChannelDatum::new("chat-synth".into(), "test".into()).with_meta("source_actor", "viewer");
+		assert!(probe.is_preflight_probe());
+		assert!(!regular.is_preflight_probe());
+	}
+
+	#[test]
+	fn preflight_data_source_is_reserved_from_output() {
+		let probe = ChannelDatum::new("ai-synth".into(), "UNVAC 字幕出力テスト".into())
+			.with_source(DataSource::new("control.preflight").with_actor("gui"));
+		let regular =
+			ChannelDatum::new("ai-synth".into(), "通常字幕".into()).with_source(DataSource::new("flowgraph.bos").with_actor("kaltsit"));
+		assert!(probe.is_preflight_probe());
+		assert!(!regular.is_preflight_probe());
 	}
 
 	#[test]

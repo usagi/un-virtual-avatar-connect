@@ -44,9 +44,42 @@ struct ChannelDatum {
 	channel: Option<String>,
 	/// 内容
 	content: Option<String>,
+	/// 表示用の発話者。Twitch chat のユーザー名や AI persona 名に使う。
+	source_actor: Option<String>,
+	/// 配信前セルフテスト由来。Browser Sourceは通常字幕から除外する。
+	is_preflight_probe: bool,
+	/// Quick Effectsの表示名。通常のChannelDatumでは省略する。
+	#[serde(skip_serializing_if = "Option::is_none")]
+	quick_effect_label: Option<String>,
+	/// Quick Effectsの表示時間。通常のChannelDatumでは省略する。
+	#[serde(skip_serializing_if = "Option::is_none")]
+	quick_effect_duration_ms: Option<u64>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	clip_id: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	clip_duration_ms: Option<u64>,
 	/// フラグ
 	#[serde(default)]
 	flags: HashSet<String>,
+}
+
+fn project_channel_datum(cd: &crate::ChannelDatum) -> ChannelDatum {
+	ChannelDatum {
+		id: Some(cd.get_id()),
+		datetime: Some(cd.get_datetime().to_string()),
+		channel: Some(cd.channel.clone()),
+		content: Some(cd.content.clone()),
+		source_actor: cd.meta_get("source_actor").and_then(serde_json::Value::as_str).map(str::to_string),
+		is_preflight_probe: cd.is_preflight_probe(),
+		quick_effect_label: cd
+			.meta_get("quick_effect_label")
+			.and_then(serde_json::Value::as_str)
+			.map(str::to_string),
+		quick_effect_duration_ms: cd.meta_get("quick_effect_duration_ms").and_then(serde_json::Value::as_u64),
+		clip_id: cd.meta_get("clip_id").and_then(serde_json::Value::as_str).filter(|s| !s.is_empty() && s.len() <= 200 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')).map(str::to_string),
+		clip_duration_ms: cd.meta_get("clip_duration_ms").and_then(serde_json::Value::as_u64).filter(|n| (1000..=180000).contains(n)),
+		flags: cd.flags.clone(),
+	}
 }
 
 #[post("/output")]
@@ -96,13 +129,7 @@ async fn post(state: web::Data<SharedState>, request_paylaod: web::Json<OutputRe
 
 		// channel_data_for_request を channel_data_for_response にコピーする
 		for cd in channel_data_for_request {
-			channel_data_for_response.push(ChannelDatum {
-				id: Some(cd.get_id()),
-				datetime: Some(cd.get_datetime().to_string()),
-				channel: Some(cd.channel.clone()),
-				content: Some(cd.content.clone()),
-				flags: cd.flags.clone(),
-			});
+			channel_data_for_response.push(project_channel_datum(cd));
 		}
 
 		// 出力の構造に channel_data_for_response を追加する
@@ -129,5 +156,58 @@ pub async fn get_subfile(paths: web::Data<OutputPaths>, subindex: web::Path<Stri
 	match tokio::fs::read_to_string(&path).await {
 		Ok(content) => Ok(HttpResponse::Ok().content_type("text/html").body(content)),
 		_ => Ok(HttpResponse::NotFound().finish()),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{project_channel_datum, ChannelDatum};
+	use crate::state::DataSource;
+	use std::collections::HashSet;
+
+	#[test]
+	fn output_only_exposes_explicit_quick_effect_fields() {
+		let regular = ChannelDatum {
+			id: Some(1),
+			datetime: None,
+			channel: Some("user".into()),
+			content: Some("hello".into()),
+			source_actor: None,
+			is_preflight_probe: false,
+			quick_effect_label: None,
+			quick_effect_duration_ms: None,
+			clip_id: None,
+			clip_duration_ms: None,
+			flags: HashSet::new(),
+		};
+		let regular_json = serde_json::to_value(regular).expect("serialize regular output");
+		assert!(regular_json.get("quick_effect_label").is_none());
+		assert!(regular_json.get("quick_effect_duration_ms").is_none());
+
+		let effect = ChannelDatum {
+			id: Some(2),
+			datetime: None,
+			channel: Some("effect".into()),
+			content: Some("flash".into()),
+			source_actor: None,
+			is_preflight_probe: false,
+			quick_effect_label: Some("画面効果".into()),
+			quick_effect_duration_ms: Some(2500),
+			clip_id: None,
+			clip_duration_ms: None,
+			flags: HashSet::from(["obs.effect.flash".into()]),
+		};
+		let effect_json = serde_json::to_value(effect).expect("serialize effect output");
+		assert_eq!(effect_json["quick_effect_label"], "画面効果");
+		assert_eq!(effect_json["quick_effect_duration_ms"], 2500);
+	}
+
+	#[test]
+	fn output_projection_marks_preflight_source_without_exposing_it_as_actor() {
+		let source = crate::ChannelDatum::new("ai-synth".into(), "UNVAC 字幕出力テスト".into())
+			.with_source(DataSource::new("control.preflight").with_actor("gui"));
+		let output = serde_json::to_value(project_channel_datum(&source)).expect("serialize projected output");
+		assert_eq!(output["is_preflight_probe"], true);
+		assert!(output["source_actor"].is_null());
 	}
 }

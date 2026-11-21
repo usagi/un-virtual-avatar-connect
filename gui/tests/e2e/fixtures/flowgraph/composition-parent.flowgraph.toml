@@ -1,0 +1,28 @@
+[meta]
+title = "Composition parent"
+
+[[nodes]]
+id = "in"
+feature = "flowgraph.ingress.web_input"
+position = [80.0, 220.0]
+
+[[instances]]
+id = "child"
+graph = "composition-module"
+position = [420.0, 120.0]
+
+[[edges]]
+from = "in:exec_out"
+to = "child:exec_in"
+
+[[edges]]
+from = "in:content"
+to = "child:text"
+
+[[edges]]
+from = "in:exec_out"
+to = "composition-target::sink:exec_in"
+
+[[edges]]
+from = "in:content"
+to = "composition-target::sink:value"

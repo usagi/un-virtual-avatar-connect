@@ -8,7 +8,7 @@ use crate::state::DataSource;
 use crate::{ChannelDatum, SharedState};
 use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
@@ -17,6 +17,36 @@ pub(crate) const EVENTSUB_WS: &str = "wss://eventsub.wss.twitch.tv/ws";
 pub(crate) const HELIX: &str = "https://api.twitch.tv/helix";
 
 const ENV_USER_TOKEN: &str = "VAC_TWITCH_USER_ACCESS_TOKEN";
+
+/// Get Channel Information と Get Streams を同じ観測時点の Helix snapshot として取得する。
+pub(crate) async fn helix_channel_snapshot(
+	client_id: &str,
+	bearer: &str,
+	broadcaster_id: &str,
+) -> Result<crate::stream_state::HelixChannelSnapshot> {
+	let client = reqwest::Client::new();
+	let channel = client
+		.get(format!("{HELIX}/channels"))
+		.query(&[("broadcaster_id", broadcaster_id)])
+		.header("Client-ID", client_id)
+		.header("Authorization", format!("Bearer {bearer}"))
+		.send()
+		.await?
+		.error_for_status()?
+		.json::<Value>()
+		.await?;
+	let streams = client
+		.get(format!("{HELIX}/streams"))
+		.query(&[("user_id", broadcaster_id)])
+		.header("Client-ID", client_id)
+		.header("Authorization", format!("Bearer {bearer}"))
+		.send()
+		.await?
+		.error_for_status()?
+		.json::<Value>()
+		.await?;
+	crate::stream_state::parse_helix_snapshot(&channel, &streams)
+}
 
 #[derive(Clone)]
 pub(crate) struct ResolvedEventSub {
@@ -92,10 +122,18 @@ async fn resolve_inner(es: &TwitchEventSubConfig, broadcaster_login: &str, chann
     );
 				return None;
 			}
-			// 2) 保存トークン ↁErefresh ↁEDevice Code Flow の頁E��解決、E
-			match super::oauth::ensure_user_access_token(es).await {
-				Ok(t) => t,
-				Err(e) => return Some(Err(e)),
+			// 起動中に対話的な Device Code Flow を始めると、HTTP / desktop GUI の開始まで
+			// 最大数分塞いでしまう。保存済みtokenの検証・refreshだけを試し、再認可は
+			// 起動後にGUIのResourcesから明示的に行う。
+			let ident = super::oauth::OAuthIdent::for_broadcaster(es);
+			match super::oauth::try_load_valid_token_for(&ident).await {
+				Some(t) => t,
+				None => {
+					log::warn!(
+						"《Twitch》 EventSub: 有効な保存済みtokenがないため起動をスキップします。GUIのResourcesからTwitchを再認可してください。"
+					);
+					return None;
+				}
 			}
 		}
 	};
@@ -129,9 +167,11 @@ pub(crate) fn spawn_eventsub_loop(state: SharedState, mut resolved: ResolvedEven
 }
 
 async fn run_eventsub_session(state: &SharedState, resolved: &mut ResolvedEventSub) -> Result<()> {
-	resolved.broadcaster_id = helix_user_id(&resolved.client_id, &resolved.access_token, &resolved.broadcaster_login)
+	let broadcaster = helix_broadcaster(&resolved.client_id, &resolved.access_token, &resolved.broadcaster_login)
 		.await
 		.with_context(|| format!("配信老EID を取得できません: {}", resolved.broadcaster_login))?;
+	let channel_points_available = broadcaster.has_channel_points()?;
+	resolved.broadcaster_id = broadcaster.id;
 	log::info!(
 		"《Twitch》 EventSub: broadcaster_id={} ↁEVAC channel_to={}",
 		resolved.broadcaster_id,
@@ -187,7 +227,7 @@ async fn run_eventsub_session(state: &SharedState, resolved: &mut ResolvedEventS
 	});
 
 	// 購読作�Eは HTTP�E�Eelix�E�。並行に走らせて WS の auto-pong を止めなぁE��E
-	let sub_res = create_subscriptions(&resolved.client_id, &resolved.access_token, &session_id, resolved).await;
+	let sub_res = create_subscriptions(&resolved.client_id, &resolved.access_token, &session_id, resolved, channel_points_available).await;
 	if let Err(e) = sub_res {
 		read_task.abort();
 		return Err(e);
@@ -213,7 +253,22 @@ pub(crate) fn parse_session_welcome(json: &str) -> Result<String> {
 		.ok_or_else(|| anyhow!("EventSub: session.id がありません"))
 }
 
-pub(crate) async fn helix_user_id(client_id: &str, bearer: &str, login: &str) -> Result<String> {
+#[derive(Debug, Deserialize)]
+pub(crate) struct HelixBroadcaster {
+ pub id: String,
+ // Required: a missing field must not be mistaken for a normal broadcaster.
+ pub broadcaster_type: String,
+}
+impl HelixBroadcaster {
+ pub fn has_channel_points(&self) -> Result<bool> {
+  match self.broadcaster_type.as_str() {
+   "affiliate" | "partner" => Ok(true),
+   "" => Ok(false),
+   _ => Err(anyhow!("Twitchの配信者種別を確認できません。時間をおいて再取得してください。")),
+  }
+ }
+}
+pub(crate) async fn helix_broadcaster(client_id: &str, bearer: &str, login: &str) -> Result<HelixBroadcaster> {
 	let client = reqwest::Client::new();
 	let url = format!("{}/users?login={}", HELIX, urlencoding::encode(login));
 	let res = client
@@ -223,79 +278,107 @@ pub(crate) async fn helix_user_id(client_id: &str, bearer: &str, login: &str) ->
 		.send()
 		.await?;
 	if !res.status().is_success() {
+		let status = res.status();
 		let t = res.text().await.unwrap_or_default();
-		return Err(anyhow!("GET /users: {}", t));
+		return Err(HelixHttpError {
+			endpoint: "GET /users",
+			status,
+			body: t,
+		}
+		.into());
 	}
 	#[derive(Deserialize)]
 	struct UsersResp {
-		data: Vec<User>,
-	}
-	#[derive(Deserialize)]
-	struct User {
-		id: String,
+		data: Vec<HelixBroadcaster>,
 	}
 	let u: UsersResp = res.json().await?;
 	u.data
 		.into_iter()
 		.next()
-		.map(|u| u.id)
 		.ok_or_else(|| anyhow!("ユーザーが見つかりません: {}", login))
 }
 
-/// Helix: チャンネルのカスタム報酬 ID をすべて取得（�Eージング対応）、E
-pub(crate) async fn helix_list_custom_reward_ids(client_id: &str, bearer: &str, broadcaster_id: &str) -> Result<Vec<String>> {
-	#[derive(Deserialize)]
-	struct CustomRewardsPage {
-		data: Vec<CustomRewardRow>,
-		#[serde(default)]
-		pagination: PageCursor,
-	}
-	#[derive(Deserialize)]
-	struct CustomRewardRow {
-		id: String,
-	}
-	#[derive(Deserialize, Default)]
-	struct PageCursor {
-		cursor: Option<String>,
-	}
-
-	let client = reqwest::Client::new();
-	let mut all = Vec::new();
-	let mut cursor: Option<String> = None;
-	loop {
-		let mut url = format!(
-			"{}/channel_points/custom_rewards?broadcaster_id={}&first=50",
-			HELIX,
-			urlencoding::encode(broadcaster_id)
-		);
-		if let Some(ref c) = cursor {
-			url.push_str("&after=");
-			url.push_str(&urlencoding::encode(c));
-		}
-		let res = client
-			.get(&url)
-			.header("Client-ID", client_id)
-			.header("Authorization", format!("Bearer {}", bearer))
-			.send()
-			.await?;
-		if !res.status().is_success() {
-			let t = res.text().await.unwrap_or_default();
-			return Err(anyhow!("GET /channel_points/custom_rewards: {}", t));
-		}
-		let page: CustomRewardsPage = res.json().await?;
-		let n = page.data.len();
-		for row in page.data {
-			all.push(row.id);
-		}
-		cursor = page.pagination.cursor.filter(|s| !s.is_empty());
-		if cursor.is_none() || n == 0 {
-			break;
-		}
-	}
-	Ok(all)
+#[derive(Debug)]
+struct HelixHttpError {
+	endpoint: &'static str,
+	status: reqwest::StatusCode,
+	body: String,
 }
 
-async fn create_subscriptions(client_id: &str, bearer: &str, session_id: &str, r: &ResolvedEventSub) -> Result<()> {
+impl std::fmt::Display for HelixHttpError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}: {} {}", self.endpoint, self.status, self.body)
+	}
+}
+
+impl std::error::Error for HelixHttpError {}
+
+pub(crate) fn is_helix_unauthorized(error: &anyhow::Error) -> bool {
+	error
+		.chain()
+		.filter_map(|source| source.downcast_ref::<HelixHttpError>())
+		.any(|source| source.status == reqwest::StatusCode::UNAUTHORIZED)
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) struct CustomRewardSummary {
+	pub id: String,
+	pub title: String,
+	#[serde(default)]
+	pub prompt: String,
+	pub cost: u64,
+	#[serde(default)]
+	pub is_enabled: bool,
+	#[serde(default)]
+	pub is_paused: bool,
+	#[serde(default)]
+	pub is_in_stock: bool,
+	#[serde(default)]
+	pub is_user_input_required: bool,
+	#[serde(default)]
+	pub background_color: String,
+}
+
+#[derive(Deserialize)]
+struct CustomRewardsResponse {
+	data: Vec<CustomRewardSummary>,
+}
+
+fn custom_rewards_url(broadcaster_id: &str) -> String {
+	format!(
+		"{}/channel_points/custom_rewards?broadcaster_id={}",
+		HELIX,
+		urlencoding::encode(broadcaster_id)
+	)
+}
+
+/// Helix: チャンネルのカスタム報酬を取得する。
+///
+/// Get Custom Reward は最大 50 件を単一レスポンスで返し、ページング引数を持たない。
+pub(crate) async fn helix_list_custom_rewards(client_id: &str, bearer: &str, broadcaster_id: &str) -> Result<Vec<CustomRewardSummary>> {
+	let client = reqwest::Client::new();
+	let res = client
+		.get(custom_rewards_url(broadcaster_id))
+		.header("Client-ID", client_id)
+		.header("Authorization", format!("Bearer {}", bearer))
+		.send()
+		.await?;
+	if !res.status().is_success() {
+		let t = res.text().await.unwrap_or_default();
+		return Err(anyhow!("GET /channel_points/custom_rewards: {}", t));
+	}
+	Ok(res.json::<CustomRewardsResponse>().await?.data)
+}
+
+pub(crate) async fn helix_list_custom_reward_ids(client_id: &str, bearer: &str, broadcaster_id: &str) -> Result<Vec<String>> {
+	Ok(helix_list_custom_rewards(client_id, bearer, broadcaster_id)
+		.await?
+		.into_iter()
+		.map(|reward| reward.id)
+		.collect())
+}
+
+async fn create_subscriptions(client_id: &str, bearer: &str, session_id: &str, r: &ResolvedEventSub, channel_points_available: bool) -> Result<()> {
 	let bid = &r.broadcaster_id;
 	let bc = serde_json::json!({ "broadcaster_user_id": bid });
 
@@ -339,7 +422,7 @@ async fn create_subscriptions(client_id: &str, bearer: &str, session_id: &str, r
 	if r.cfg.hype_train_end {
 		queue.push(("channel.hype_train.end", "2", bc.clone()));
 	}
-	if r.cfg.channel_points {
+	if r.cfg.channel_points && channel_points_available {
 		let reward_ids: Vec<String> = match &r.cfg.channel_points_reward_id {
 			Some(rid) if !rid.trim().is_empty() => vec![rid.trim().to_string()],
 			_ => helix_list_custom_reward_ids(client_id, bearer, bid).await?,
@@ -365,7 +448,10 @@ async fn create_subscriptions(client_id: &str, bearer: &str, session_id: &str, r
 	}
 
 	for (sub_type, version, condition) in queue.into_iter() {
-		post_subscription(client_id, bearer, session_id, sub_type, version, &condition).await?;
+		if let Err(error) = post_subscription(client_id, bearer, session_id, sub_type, version, &condition).await {
+			// Legacy delivery also keeps successfully established subscriptions alive.
+			log::error!("《Twitch》 EventSub 購読を確立できません type={}: {}", sub_type, error);
+		}
 	}
 
 	Ok(())
@@ -373,9 +459,8 @@ async fn create_subscriptions(client_id: &str, bearer: &str, session_id: &str, r
 
 /// 1 つの EventSub サブスクリプションを Helix に POST する。
 ///
-/// 失敗ログは内部で出すが、ネットワーク / JSON パース例外は `Err` で返す（呼び出し側は
-/// reconnect するか落とすか判断する）。Helix が 4xx/5xx を返した場合は `Ok(())` を返して
-/// 他の購読作成を続行させる（1 つ失敗したら全部諦めるのは強すぎる）。
+/// HTTP拒否も `Err` で返す。呼び出し側の接続状態を成功扱いにせず、
+/// 再接続と問題表示へ伝える。401は他のHelix APIと同じ型で保持する。
 pub(crate) async fn post_subscription(
 	client_id: &str,
 	bearer: &str,
@@ -406,6 +491,7 @@ pub(crate) async fn post_subscription(
 	if !status.is_success() {
 		let t = res.text().await.unwrap_or_default();
 		log::error!("《Twitch》 EventSub 購読失敗 type={} {} {}", sub_type, status, t);
+		return Err(subscription_http_error(status, t));
 	} else if sub_type == "channel.channel_points_custom_reward_redemption.add" {
 		let rid = condition.get("reward_id").and_then(|v| v.as_str()).unwrap_or("?");
 		log::info!("《Twitch》 EventSub 購読 OK: {} (reward_id={})", sub_type, rid);
@@ -413,6 +499,29 @@ pub(crate) async fn post_subscription(
 		log::info!("《Twitch》 EventSub 購読 OK: {}", sub_type);
 	}
 	Ok(())
+}
+
+fn subscription_http_error(status: reqwest::StatusCode, body: String) -> anyhow::Error {
+	HelixHttpError { endpoint: "eventsub/subscriptions", status, body }.into()
+}
+
+#[cfg(test)]
+mod subscription_failure_tests {
+	use super::*;
+
+	#[test]
+	fn rejected_subscription_preserves_unauthorized_for_token_recovery() {
+		let error = subscription_http_error(reqwest::StatusCode::UNAUTHORIZED, "expired token".into());
+		assert!(is_helix_unauthorized(&error));
+		assert!(error.to_string().contains("eventsub/subscriptions"));
+	}
+
+	#[test]
+	fn missing_permission_is_failure_but_not_expired_token() {
+		let error = subscription_http_error(reqwest::StatusCode::FORBIDDEN, "missing scope".into());
+		assert!(!is_helix_unauthorized(&error));
+		assert!(error.to_string().contains("403"));
+	}
 }
 
 /// `[twitch.eventsub]` の bool トグルから購読キューを組み立てる（V1 と共通ロジック）。
@@ -479,10 +588,11 @@ pub(crate) fn explicit_subscription_queue(event_types: &[String], broadcaster_id
 		let entry = match t {
 			"stream.online"
 			| "stream.offline"
+			| "channel.update"
 			| "channel.subscribe"
 			| "channel.subscription.message"
 			| "channel.subscription.gift"
-			| "channel.cheer" => Some((t.to_string(), "1", bc.clone())),
+			| "channel.cheer" => Some((t.to_string(), if t == "channel.update" { "2" } else { "1" }, bc.clone())),
 			"channel.follow" => Some((
 				t.to_string(),
 				"2",
@@ -836,4 +946,69 @@ fn format_notification(sub_type: &str, event: &Value) -> String {
 		}
 		_ => format!("[Twitch] EventSub {}: {}", sub_type, event),
 	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn custom_rewards_request_has_only_supported_query() {
+		assert_eq!(
+			custom_rewards_url("123 45"),
+			"https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=123%2045"
+		);
+	}
+
+	#[test]
+	fn custom_rewards_response_parses_summary() {
+		let response: CustomRewardsResponse = serde_json::from_value(serde_json::json!({
+			"data": [{
+				"id": "reward-1",
+				"title": "水を飲む",
+				"prompt": "",
+				"cost": 500,
+				"is_enabled": true,
+				"is_paused": false,
+				"is_in_stock": true,
+				"is_user_input_required": false,
+				"background_color": "#00AAFF"
+			}]
+		}))
+		.unwrap();
+		assert_eq!(response.data[0].id, "reward-1");
+		assert_eq!(response.data[0].title, "水を飲む");
+		assert_eq!(response.data[0].cost, 500);
+	}
+
+	#[test]
+	fn helix_unauthorized_is_structured_for_refresh_retry() {
+		let unauthorized: anyhow::Error = HelixHttpError {
+			endpoint: "GET /users",
+			status: reqwest::StatusCode::UNAUTHORIZED,
+			body: "invalid token".into(),
+		}
+		.into();
+		let forbidden: anyhow::Error = HelixHttpError {
+			endpoint: "GET /users",
+			status: reqwest::StatusCode::FORBIDDEN,
+			body: "missing scope".into(),
+		}
+		.into();
+		assert!(is_helix_unauthorized(&unauthorized));
+		assert!(!is_helix_unauthorized(&forbidden));
+	}
+}
+
+#[cfg(test)]
+mod capability_tests {
+ use super::*;
+ #[test]
+ fn broadcaster_eligibility_is_explicit_not_inferred_from_failure() {
+  for (kind,expected) in [("",false),("affiliate",true),("partner",true)] {
+   let user:HelixBroadcaster=serde_json::from_value(json!({"id":"1","broadcaster_type":kind})).unwrap();assert_eq!(user.has_channel_points().unwrap(),expected);
+  }
+  assert!(serde_json::from_value::<HelixBroadcaster>(json!({"id":"1"})).is_err());
+  assert!(HelixBroadcaster{id:"1".into(),broadcaster_type:"future".into()}.has_channel_points().is_err());
+ }
 }

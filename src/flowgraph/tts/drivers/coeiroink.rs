@@ -17,8 +17,7 @@
 //! - `extra.intonation_scale` / `extra.pre_phoneme_length` / `extra.post_phoneme_length` / `extra.output_sampling_rate`
 
 use super::super::driver::{
-	extra_f64, extra_i64, maybe_save_wav, AudioContext, TtsDriver, TtsError, TtsOutcome, TtsParamEntry, TtsParamSchema, TtsParamType,
-	TtsRequest,
+	extra_f64, extra_i64, TtsDriver, TtsError, TtsParamEntry, TtsParamSchema, TtsParamType, TtsRequest, TtsSynthesis,
 };
 use async_trait::async_trait;
 use serde::Serialize;
@@ -86,7 +85,7 @@ impl TtsDriver for CoeiroinkDriver {
 		}
 	}
 
-	async fn speak(&self, req: TtsRequest, audio: &AudioContext<'_>) -> Result<TtsOutcome, TtsError> {
+	async fn synthesize(&self, req: &TtsRequest) -> Result<TtsSynthesis, TtsError> {
 		let base = if req.endpoint.is_empty() {
 			DEFAULT_ENDPOINT
 		} else {
@@ -126,15 +125,14 @@ impl TtsDriver for CoeiroinkDriver {
 		}
 		let wav = resp.bytes().await.map_err(|e| TtsError::Network(format!("body: {e}")))?.to_vec();
 
-		let played = audio.play_wav(wav.clone()).await?;
-		let path = maybe_save_wav(&wav, &req.save_path).await?;
-		Ok(TtsOutcome { played, audio_path: path })
+		Ok(TtsSynthesis::Wav(wav))
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::flowgraph::tts::driver::AudioContext;
 
 	#[test]
 	fn parse_voice_ok() {

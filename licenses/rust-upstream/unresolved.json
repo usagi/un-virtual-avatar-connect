@@ -1,0 +1,162 @@
+{
+  "scope": "Missing or empty notice text; not all release obligations",
+  "packages": [
+    {
+      "name": "tts",
+      "version": "0.23.0",
+      "source": "git+https://github.com/Bear-03/tts-rs?branch=synthesize#4f4ab5325255f73c54306328da82be51455fc6c8",
+      "reason": "Exact selected fork commit has MIT metadata but no tracked license/notice text; direct portable Windows dependency, not removable from notices by excluding dev dependencies.",
+      "evidence": "target/tts-notice-audit-20261020.json",
+      "next": "Obtain authoritative license and attribution text covering this fork revision. Do not repeat root filename searches or substitute another fork/current branch license without provenance. Do not remove the synthesis feature to bypass this gap."
+    },
+    {
+      "name": "convert_case",
+      "version": "0.4.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/rutrum/convert-case",
+        "commit": "300d9eef9e8c970e15f324afbc3df8b6a4ebbf71",
+        "tree_sha256": "d12efc7bc704c89e8850a065b5a4b76b8baa9192b21f27067b980b5e2184ceff",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/rutrum--convert-case.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "eventsource-stream",
+      "version": "0.2.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/jpopesculian/eventsource-stream",
+        "commit": "3d46f1c758f9ee4681e9da0427556d24c53f9c01",
+        "tree_sha256": "bad7a2e439c7742599ee7597318d025f04c747cee65ba89e56ddc50456be83b9",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/jpopesculian--eventsource-stream.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "fax",
+      "version": "0.2.6",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/pdf-rs/fax",
+        "commit": "40b226eb97b391355e971fd95a8dd532a4c127a0",
+        "tree_sha256": "266e42cfbc665d83831a2bde70f80fdbbe305d2c68a925b849c930f02250f63d",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/pdf-rs--fax.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "fax_derive",
+      "version": "0.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/pdf-rs/fax",
+        "commit": "40b226eb97b391355e971fd95a8dd532a4c127a0",
+        "tree_sha256": "266e42cfbc665d83831a2bde70f80fdbbe305d2c68a925b849c930f02250f63d",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/pdf-rs--fax.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "fxhash",
+      "version": "0.2.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "name": "keyed-set",
+      "version": "1.1.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/p-avital/keyed-set-rs",
+        "commit": "c772b810d475679607014d2cf16d3236975f5221",
+        "tree_sha256": "7d045c6f2db8c625998cc486b82ee5f9b1cb27fc4c8c9ed2c3431b98f6dfb9fd",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/p-avital--keyed-set-rs.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "mac",
+      "version": "0.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index"
+    },
+    {
+      "name": "simd_helpers",
+      "version": "0.1.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/lu-zero/simd_helpers",
+        "commit": "ca1a2f84aa386d758e98f8a609d990263932fb85",
+        "tree_sha256": "fe5b840ac06a764a770fe88eacebeaaa7584e6db2a27a893df70bed55d03d26a",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/lu-zero--simd_helpers.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "token-cell",
+      "version": "2.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/p-avital/token-cell-rs",
+        "commit": "01b68e80e1d01c8a9613995dcf0381caae08a095",
+        "tree_sha256": "4fbbc6abf9eb89cd36d92f8b0113ab266a688f19be530fff9133148cf0d048ef",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/p-avital--token-cell-rs.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "validated_struct",
+      "version": "2.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/p-avital/validated-struct-rs",
+        "commit": "9cd5eda2d2a90e84cf47f3e0cdfb21e1df9d6729",
+        "tree_sha256": "5877c8896afcad587c398d465c833da8c11547f5370a135338121e5b6c2ad3c9",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/p-avital--validated-struct-rs.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "validated_struct_macros",
+      "version": "2.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/p-avital/validated-struct-macros-rs",
+        "commit": "3eebb3c2e9147ac6c7c8cde987d89b22c9ab098a",
+        "tree_sha256": "91e9dd793a94cbbf1c3bcc125749fdf693691b02e6f9e6957f84c8fd1be16004",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/p-avital--validated-struct-macros-rs.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "winrt-notification",
+      "version": "0.5.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "recursive_tree_audit": {
+        "repository": "https://github.com/allenbenz/winrt-notification",
+        "commit": "f7879fd06615cb62692469966edf28326639d7dc",
+        "tree_sha256": "a69b9a125a975bf4ada21110a8e9f696db61b1064d6027d0ee38ca71742080a2",
+        "candidate_paths": [],
+        "evidence": "target/rust-recursive-notice-audit-20261020/allenbenz--winrt-notification.json"
+      },
+      "next": "Do not repeat same-revision filename search; review declaration and authoritative standard terms, or obtain missing attribution/provenance before release."
+    },
+    {
+      "name": "sha2-const-stable",
+      "version": "0.1.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "reason": "All four packaged Rust source files match this fork at the crate VCS commit; LICENSE.md is also empty there. Declared original repository did not contain that revision. Do not synthesize notice text.",
+      "verified_repository": "https://github.com/cavemanloverboy/sha2-const-stable",
+      "commit": "ca853c8124b8bf648f0c4fca121416402434951b",
+      "evidence": "target/notice-provenance-20261020/sha2-source-match.json"
+    }
+  ]
+}

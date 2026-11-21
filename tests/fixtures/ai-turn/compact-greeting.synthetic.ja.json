@@ -1,0 +1,51 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "compact-greeting-selection",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "explicit-greeting",
+      "content": "先生、片手を上げて、配信に来たみんなへひとこと挨拶して。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required",
+      "avatar_pose": "required"
+    },
+    {
+      "id": "ordinary-explanation",
+      "content": "先生、初めて来た人に、今日は寿司のレースを遊んでいるとひとこと説明して。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required",
+      "avatar_pose": "forbidden"
+    },
+    {
+      "id": "natural-farewell",
+      "content": "先生、そろそろ配信を終える。みんなにおやすみを言おう。",
+      "allowed_actions": [
+        "respond",
+        "react"
+      ],
+      "speech": "required",
+      "avatar_pose": "any"
+    },
+    {
+      "id": "quiet-watching",
+      "content": "少し考えるから、今は黙って見ていて。",
+      "allowed_actions": [
+        "observe"
+      ],
+      "speech": "forbidden",
+      "avatar_intent": "forbidden",
+      "avatar_pose": "forbidden"
+    }
+  ]
+}

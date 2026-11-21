@@ -222,6 +222,13 @@ pub(crate) fn make_responses_request_template(
 	openai_store: Option<bool>,
 ) -> Result<CreateResponseRequest> {
 	let mut request = CreateResponseRequest::default();
+	if let Some(temperature) = conf.temperature {
+		request.temperature = Some(temperature);
+	}
+	if let Some(top_p) = conf.top_p {
+		request.top_p = Some(top_p);
+	}
+
 
 	// model とモデル依存オプション（reasoning / text.format）は model が指定された時だけ触る。
 	if let Some(model) = conf.model.as_ref() {
@@ -242,15 +249,16 @@ pub(crate) fn make_responses_request_template(
 		}
 	}
 
-	if let Some(temperature) = conf.temperature {
-		request.temperature = Some(temperature);
-	}
-	if let Some(top_p) = conf.top_p {
-		request.top_p = Some(top_p);
-	}
 	if let Some(store) = openai_store {
 		request.store = Some(store);
 	}
+	request.prompt_cache_key = conf
+		.openai_prompt_cache_key
+		.as_deref()
+		.map(str::trim)
+		.filter(|value| !value.is_empty())
+		.map(str::to_string)
+		.or_else(|| conf.id.as_deref().map(|id| format!("unvac-persona:{id}")));
 
 	Ok(request)
 }
@@ -263,14 +271,20 @@ mod responses_template_tests {
 	fn persona_minimal() -> AiPersonaConf {
 		AiPersonaConf {
 			id: Some("test".to_string()),
+			display_name: None,
 			is_enabled: true,
 			channel_utterance: Some("to".to_string()),
 			channel_effect: None,
 			observe: Default::default(),
 			decision: None,
 			heartbeat: None,
+			initiative: None,
+			turn_management: None,
+			observation_buffer: None,
 			api_key: None,
+			api_key_file: None,
 			model: Some("gpt-5-mini".to_string()),
+			openai_model_policy: None,
 			custom_instructions: None,
 			system_instructions_extra: None,
 			openai_max_output_tokens: None,
@@ -278,6 +292,7 @@ mod responses_template_tests {
 			openai_reasoning_effort: None,
 			openai_store: None,
 			openai_reasoning_encrypted_passthrough: None,
+			openai_prompt_cache_key: None,
 			temperature: Some(0.5),
 			top_p: Some(0.9),
 			n: None,
@@ -304,14 +319,28 @@ mod responses_template_tests {
 			min_interval_in_secs: None,
 			remove_chars: None,
 			assistant_max_chars: None,
+			assistant_max_sentences: None,
 			assistant_strip_substrings: Vec::new(),
 			openai_stream: None,
 			openai_tools_json_path: None,
 			openai_tool_choice: None,
 			openai_parallel_tool_calls: None,
+			openai_tool_policy: None,
 			openai_max_in_flight: None,
 			fine_tuning: None,
 			respect_speech_floor: None,
+		}
+	}
+
+	#[test]
+	fn terra_template_sampling_is_normalized_after_persona_settings() {
+		let mut persona = persona_minimal();
+		persona.model = Some("gpt-6.1-terra".into());
+		for effort in [Some(ReasoningEffort::None), Some(ReasoningEffort::Low), None] {
+			let req = make_responses_request_template(&persona, Some(1600), effort, Some(false)).unwrap();
+			assert_eq!(req.reasoning.as_ref().and_then(|r| r.effort), effort);
+			assert_eq!(req.temperature, (effort == Some(ReasoningEffort::None)).then_some(0.5));
+			assert_eq!(req.top_p, (effort == Some(ReasoningEffort::None)).then_some(0.9));
 		}
 	}
 

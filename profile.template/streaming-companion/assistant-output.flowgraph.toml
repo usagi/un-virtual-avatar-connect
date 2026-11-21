@@ -1,0 +1,127 @@
+# AI共演者の発話確定片を字幕へ先行表示し、確定全文で収束させつつTTSへ流す標準出力。
+# AI設定GUIがturn_managementとstreamを有効化し、ai.speechを生成する前提。
+
+[meta]
+title = "AI companion output"
+description = "AI発話をai-synthへ先行表示して確定全文へ収束させ、自然な区切りの発話片をOS TTSで再生する。"
+tags = ["starter", "ai", "subtitle", "tts"]
+
+[[nodes]]
+id = "subtitle_in"
+feature = "flowgraph.ingress.ai_response"
+position = [80, 120]
+
+[[nodes]]
+id = "speech_in"
+feature = "flowgraph.ingress.ai_speech"
+position = [80, 360]
+
+[[nodes]]
+id = "subtitle_channel"
+feature = "flowgraph.literal.string"
+position = [320, 40]
+properties.value = "ai-synth"
+
+[[nodes]]
+id = "subtitle_emit"
+feature = "flowgraph.bos.output"
+position = [560, 120]
+
+[[nodes]]
+id = "live_subtitle_emit"
+feature = "flowgraph.bos.output"
+position = [560, 240]
+
+[[nodes]]
+id = "tts_engine"
+feature = "flowgraph.literal.string"
+position = [320, 300]
+properties.value = "os"
+
+[[nodes]]
+id = "tts_voice"
+feature = "flowgraph.literal.string"
+position = [320, 380]
+properties.value = ""
+
+[[nodes]]
+id = "tts_lane"
+feature = "flowgraph.literal.string"
+position = [320, 460]
+properties.value = "assistant"
+
+[[nodes]]
+id = "tts_non_blocking"
+feature = "flowgraph.literal.bool"
+position = [320, 540]
+properties.value = true
+
+[[nodes]]
+id = "speak"
+feature = "flowgraph.tts.speak"
+position = [560, 360]
+
+[[nodes]]
+id = "log_error"
+feature = "flowgraph.util.log"
+position = [840, 440]
+
+[[edges]]
+from = "subtitle_in:exec_out"
+to = "subtitle_emit:exec_in"
+
+[[edges]]
+from = "subtitle_in:content"
+to = "subtitle_emit:content"
+
+[[edges]]
+from = "subtitle_channel:value"
+to = "subtitle_emit:destination"
+
+[[edges]]
+from = "speech_in:exec_out"
+to = "live_subtitle_emit:exec_in"
+
+[[edges]]
+from = "speech_in:utterance_content"
+to = "live_subtitle_emit:content"
+
+[[edges]]
+from = "speech_in:meta"
+to = "live_subtitle_emit:meta"
+
+[[edges]]
+from = "subtitle_channel:value"
+to = "live_subtitle_emit:destination"
+
+[[edges]]
+from = "speech_in:exec_out"
+to = "speak:exec_in"
+
+[[edges]]
+from = "speech_in:content"
+to = "speak:text"
+
+[[edges]]
+from = "tts_engine:value"
+to = "speak:engine"
+
+[[edges]]
+from = "tts_voice:value"
+to = "speak:voice"
+
+[[edges]]
+from = "tts_lane:value"
+to = "speak:lane"
+
+[[edges]]
+from = "tts_non_blocking:value"
+to = "speak:non_blocking"
+
+[[edges]]
+from = "speak:on_error"
+to = "log_error:exec_in"
+
+[[edges]]
+from = "speak:error"
+to = "log_error:value"

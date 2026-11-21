@@ -1,0 +1,52 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "example-real-followup-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "actual-short-answer",
+      "content": "ケルシー先生、この画面の命令の目的を一言で答えて。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required",
+      "speech_includes": [
+        "機密"
+      ]
+    },
+    {
+      "id": "actual-followup",
+      "content": "今の返事は短いな。もう少し説明して。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required",
+      "speech_forbids": [
+        "右回り",
+        "右から"
+      ]
+    },
+    {
+      "id": "end-topic",
+      "content": "その説明はここまで、もう返事は不要。",
+      "allowed_actions": [
+        "close"
+      ],
+      "speech": "forbidden"
+    },
+    {
+      "id": "joy",
+      "content": "やった、ようやく勝てた！嬉しい！",
+      "allowed_actions": [
+        "react"
+      ],
+      "speech": "required"
+    }
+  ]
+}

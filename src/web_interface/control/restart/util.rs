@@ -5,10 +5,15 @@ use std::path::{Path, PathBuf};
 /// 新 conf path の安全性を検証したうえで絶対パスに解決する。
 ///
 /// 受け入れるパターン:
-///   - 絶対パス: そのまま（存在確認する）
+///   - 絶対パス: 現設定フォルダー内、または管理領域内の正規プロファイルのconf.toml
 ///   - 相対: 現 conf の親ディレクトリからの相対（パス区切りを含むなら親ディレクトリ制約のみ）
 ///     - `..` で親を辿って現ディレクトリ外に脱出する指定は弾く
 pub(crate) fn resolve_new_conf_path(current_conf: &Path, requested: &str) -> Result<PathBuf, String> {
+	let root = crate::profile_store::user_config_root().ok();
+	resolve_new_conf_path_at(current_conf, requested, root.as_deref())
+}
+
+fn resolve_new_conf_path_at(current_conf: &Path, requested: &str, managed_root: Option<&Path>) -> Result<PathBuf, String> {
 	let p = Path::new(requested);
 	let resolved = if p.is_absolute() {
 		p.to_path_buf()
@@ -21,10 +26,14 @@ pub(crate) fn resolve_new_conf_path(current_conf: &Path, requested: &str) -> Res
 
 	// 正規化して脱出チェック。canonicalize は存在チェック付き。
 	let canon = std::fs::canonicalize(&resolved).map_err(|e| format!("cannot resolve conf path {}: {e}", resolved.display()))?;
+	if crate::profile_store::is_managed_metadata_path(&canon) {
+		return Err("管理情報ファイルは起動用の設定として使えません。".to_string());
+	}
 
 	let parent_canon = current_conf.parent().and_then(|p| std::fs::canonicalize(p).ok());
 	if let Some(parent_canon) = parent_canon {
-		if !canon.starts_with(&parent_canon) {
+		let managed_target = p.is_absolute() && managed_root.is_some_and(|root| crate::profile_store::lifecycle::managed_conf_at(root, &canon).is_some());
+		if !canon.starts_with(&parent_canon) && !managed_target {
 			return Err(format!(
 				"conf path {} is outside the current conf directory ({})",
 				canon.display(),
@@ -72,6 +81,33 @@ pub(crate) fn paths_equivalent(a: &Path, b: &Path) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn managed_profile_switch_preserves_path_boundaries() {
+		let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+		let fixture = std::env::temp_dir().join(format!("vac-restart-path-{}-{nonce}", std::process::id()));
+		let root = fixture.join("store");
+		let current = root.join("profiles/first/conf.toml");
+		let next = root.join("profiles/second/conf.toml");
+		let outside = fixture.join("outside/conf.toml");
+		let nested = root.join("profiles/second/nested/conf.toml");
+		let metadata = root.join("profiles/second/profile.toml");
+		for file in [&current, &next, &outside, &nested, &metadata] {
+			std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+			std::fs::write(file, "workers = 1\n").unwrap();
+		}
+		assert_eq!(resolve_new_conf_path_at(&current, &next.to_string_lossy(), Some(&root)).unwrap(), std::fs::canonicalize(&next).unwrap());
+		assert_eq!(resolve_new_conf_path_at(&current, "conf.toml", Some(&root)).unwrap(), std::fs::canonicalize(&current).unwrap());
+		for file in [&next, &outside, &nested, &metadata] {
+			assert!(resolve_new_conf_path_at(&current, &file.to_string_lossy(), None).is_err());
+		}
+		for file in [&outside, &nested, &metadata] {
+			assert!(resolve_new_conf_path_at(&current, &file.to_string_lossy(), Some(&root)).is_err());
+		}
+		assert!(resolve_new_conf_path_at(&current, "../second/conf.toml", Some(&root)).is_err());
+		assert!(resolve_new_conf_path_at(&current, &next.to_string_lossy(), Some(&fixture.join("another-store"))).is_err());
+		std::fs::remove_dir_all(fixture).unwrap();
+	}
 
 	#[test]
 	fn label_from_filename_basic() {

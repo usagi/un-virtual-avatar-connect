@@ -37,6 +37,22 @@ pub struct OAuthStartResponse {
 	pub session: Option<OAuthSessionView>,
 }
 
+#[derive(Debug, Serialize)]
+struct TwitchRewardsResponse {
+ available: bool,
+ reason: Option<String>,
+	broadcaster_login: String,
+	broadcaster_id: String,
+	rewards: Vec<crate::twitch::eventsub::CustomRewardSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct TwitchAuthorizationResponse {
+	account: &'static str,
+	configured: bool,
+	authorized: bool,
+}
+
 mod start_flow;
 
 use start_flow::start_oauth;
@@ -63,6 +79,32 @@ pub async fn post_oauth_start(state: Data<SharedState>, path: web::Path<String>)
 	}
 }
 
+/// Explicit user action. Keeps the configured account-specific browser command.
+#[post("/oauth/twitch/{account}/open")]
+async fn post_oauth_open(state: Data<SharedState>, path: web::Path<String>) -> impl Responder {
+	let Some(account) = OAuthAccount::from_path(&path.into_inner()) else { return bad_request("unknown account"); };
+	let (ident, sessions) = {
+		let s = state.read().await;
+		let Some(twitch) = s.twitch.as_ref() else { return bad_request("Twitch設定がありません。"); };
+		let Some(es) = twitch.eventsub.as_ref() else { return bad_request("Twitch設定がありません。"); };
+		let ident = match account {
+			OAuthAccount::Broadcaster => OAuthIdent::for_broadcaster(es),
+			OAuthAccount::Moderator => {
+				let Some(mc) = twitch.moderator.as_ref() else { return bad_request("投稿用アカウントの設定がありません。"); };
+				OAuthIdent::for_moderator(es, mc)
+			}
+		};
+		(ident, s.twitch_oauth.clone())
+	};
+	let Some(session) = sessions.active_pending_snapshot(account, tokio::time::Instant::now()).await else {
+		return bad_request("有効な認証コードがありません。認証を開始してください。");
+	};
+	if !oauth::launch_browser(&ident, &session.verification_uri) {
+		return bad_request("ブラウザーを開けませんでした。認証URLをコピーして開いてください。");
+	}
+	HttpResponse::Ok().json(serde_json::json!({"opened":true}))
+}
+
 #[get("/oauth/twitch/{account}/status")]
 pub async fn get_oauth_status(state: Data<SharedState>, path: web::Path<String>) -> impl Responder {
 	let Some(account) = OAuthAccount::from_path(&path.into_inner()) else {
@@ -79,6 +121,133 @@ pub async fn get_oauth_status(state: Data<SharedState>, path: web::Path<String>)
 		 "error": "no_session",
 		 "account": account.as_tag(),
 		})),
+	}
+}
+
+/// 保存済みトークンを明示的に検証する。通常のruntime snapshotは外部通信を行わない。
+#[get("/oauth/twitch/{account}/authorization")]
+pub async fn get_oauth_authorization(state: Data<SharedState>, path: web::Path<String>) -> impl Responder {
+	let Some(account) = OAuthAccount::from_path(&path.into_inner()) else {
+		return bad_request("account must be `broadcaster` or `moderator`");
+	};
+	let ident = {
+		let s = state.read().await;
+		let Some(twitch) = s.twitch.as_ref() else {
+			return HttpResponse::Ok().json(TwitchAuthorizationResponse {
+				account: account.as_tag(),
+				configured: false,
+				authorized: false,
+			});
+		};
+		let Some(eventsub) = twitch.eventsub.as_ref() else {
+			return HttpResponse::Ok().json(TwitchAuthorizationResponse {
+				account: account.as_tag(),
+				configured: false,
+				authorized: false,
+			});
+		};
+		match account {
+			OAuthAccount::Broadcaster => OAuthIdent::for_broadcaster(eventsub),
+			OAuthAccount::Moderator => {
+				let Some(moderator) = twitch.moderator.as_ref() else {
+					return HttpResponse::Ok().json(TwitchAuthorizationResponse {
+						account: account.as_tag(),
+						configured: false,
+						authorized: false,
+					});
+				};
+				OAuthIdent::for_moderator(eventsub, moderator)
+			}
+		}
+	};
+	let authorized = !ident.client_id.trim().is_empty() && oauth::try_load_valid_token_for(&ident).await.is_some();
+	HttpResponse::Ok().json(TwitchAuthorizationResponse {
+		account: account.as_tag(),
+		configured: true,
+		authorized,
+	})
+}
+
+#[get("/oauth/twitch/broadcaster/rewards")]
+pub async fn get_broadcaster_rewards(state: Data<SharedState>) -> impl Responder {
+	let twitch = {
+		let s = state.read().await;
+		let Some(twitch) = s.twitch.as_ref().cloned() else {
+			return bad_request("[twitch] section is not configured");
+		};
+		twitch
+	};
+	let Some(es) = twitch.eventsub.as_ref() else {
+		return bad_request("[twitch.eventsub] section is not configured");
+	};
+
+	let client_id = oauth::resolve_twitch_client_id(es);
+	if client_id.trim().is_empty() {
+		return bad_request("Twitch Client ID is not configured");
+	}
+	let ident = OAuthIdent::for_broadcaster(es);
+	let explicit_token = std::env::var("VAC_TWITCH_USER_ACCESS_TOKEN")
+		.ok()
+		.filter(|value| !value.trim().is_empty())
+		.or_else(|| es.user_access_token.clone().filter(|value| !value.trim().is_empty()));
+	let access_token = match explicit_token {
+		Some(token) if oauth::validate_user_access_token(&token).await.is_ok() => token,
+		_ => match oauth::try_load_valid_token_for(&ident).await {
+			Some(token) => token,
+			None => {
+				return HttpResponse::Unauthorized().json(serde_json::json!({
+					"error": "twitch_not_authorized",
+					"reason": "Twitch broadcaster authorization is required",
+				}));
+			}
+		},
+	};
+	let broadcaster_login = es
+		.broadcaster_login
+		.as_deref()
+		.map(str::trim)
+		.filter(|value| !value.is_empty())
+		.unwrap_or(twitch.username.trim())
+		.trim_start_matches('#')
+		.to_lowercase();
+	if broadcaster_login.is_empty() {
+		return bad_request("Twitch broadcaster login is not configured");
+	}
+
+	let broadcaster = match crate::twitch::eventsub::helix_broadcaster(&client_id, &access_token, &broadcaster_login).await {
+		Ok(id) => id,
+		Err(error) => {
+			log::warn!("[ControlAPI/oauth] failed to resolve Twitch broadcaster: {error:#}");
+			return HttpResponse::BadGateway().json(serde_json::json!({
+				"error": "twitch_user_lookup_failed",
+				"reason": error.to_string(),
+			}));
+		}
+	};
+ let available = match broadcaster.has_channel_points() {
+  Ok(value) => value,
+  Err(error) => return HttpResponse::BadGateway().json(serde_json::json!({"error":"twitch_capability_unknown","reason":error.to_string()})),
+ };
+ let broadcaster_id = broadcaster.id;
+ if !available {
+  return HttpResponse::Ok().json(TwitchRewardsResponse { broadcaster_login, broadcaster_id, rewards: Vec::new(), available: false,
+   reason: Some("このチャンネルではチャンネルポイントを利用しません。Twitchのアフィリエイトまたはパートナー資格が必要な機能です。フォロー・Raidなどは引き続き利用できます。".into()) });
+ }
+	match crate::twitch::eventsub::helix_list_custom_rewards(&client_id, &access_token, &broadcaster_id).await {
+		Ok(rewards) => HttpResponse::Ok().json(TwitchRewardsResponse {
+ available: true,
+ reason: None,
+			broadcaster_login,
+			broadcaster_id,
+			rewards,
+		}),
+		Err(error) => {
+			log::warn!("[ControlAPI/oauth] failed to list Twitch custom rewards: {error:#}");
+			HttpResponse::BadGateway().json(serde_json::json!({
+				"error": "twitch_rewards_failed",
+				"reason": error.to_string(),
+			}))
+		}
 	}
 }
 
@@ -123,8 +292,7 @@ pub async fn post_oauth_cancel(state: Data<SharedState>, path: web::Path<String>
 ///   - Removes the token file (no-op if absent).
 ///   - Removes any in-flight / completed OAuth session from the map
 ///     (aborts the polling task if it is still Pending).
-///   - A subsequent `GET /snapshot` will report `twitch.{account}_authorized`
-///     as `false`.
+///   - A subsequent `GET /authorization` will report `authorized=false`.
 ///
 /// Note: currently running EventSub WebSocket connections keep their
 /// in-memory access tokens; restart VAC for a clean reset.
@@ -199,8 +367,11 @@ pub async fn delete_oauth_tokens(state: Data<SharedState>, path: web::Path<Strin
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-	cfg.service(post_oauth_start);
+	cfg.service(post_oauth_start)
+		.service(post_oauth_open);
 	cfg.service(get_oauth_status);
+	cfg.service(get_oauth_authorization);
+	cfg.service(get_broadcaster_rewards);
 	cfg.service(post_oauth_cancel);
 	cfg.service(delete_oauth_tokens);
 }

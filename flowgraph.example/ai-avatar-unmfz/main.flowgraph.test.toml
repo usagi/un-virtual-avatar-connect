@@ -1,0 +1,59 @@
+[[triggers]]
+node = "main::avatar_intent_in"
+
+[[triggers.overrides]]
+port = "__content__"
+ty = "string"
+value = "{\"target_link_id\":\"kaltsit_ai\",\"intents\":[{\"kind\":\"expression\",\"name\":\"concerned\",\"intensity\":0.45,\"duration_ms\":1200,\"curve\":\"hold\"},{\"kind\":\"head_nod\",\"count\":1,\"intensity\":0.35,\"duration_ms\":700,\"curve\":\"ease_out\"}]}"
+
+[[triggers.overrides]]
+port = "__channel__"
+ty = "string"
+value = "avatar_intent"
+
+[[triggers.overrides]]
+port = "__source_actor__"
+ty = "string"
+value = "Kaltsit"
+
+[[triggers.overrides]]
+port = "__is_final__"
+ty = "bool"
+value = true
+
+[[tests]]
+name = "ai avatar intent publishes unmfz dry-run"
+
+[tests.expect]
+node_count = 11
+trigger_count = 1
+trace_count = 3
+trace_contains = [
+  "avatar intent playback: un-motion/frame/kaltsit-ai/v1 samples=46 duration_ms=1200 release_ms=200 dry_run=true",
+  "log: un-motion/frame/kaltsit-ai/v1",
+  "log: 46",
+]
+
+[[tests.expect.exec_count]]
+node = "main::play_intent"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::log_key"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::log_frames_sent"
+count = 1
+
+[[tests.expect.stored_values]]
+node = "main::play_intent"
+port = "frames_sent"
+ty = "int"
+value = 46
+
+[[tests.expect.stored_values]]
+node = "main::play_intent"
+port = "key_expr"
+ty = "string"
+value = "un-motion/frame/kaltsit-ai/v1"

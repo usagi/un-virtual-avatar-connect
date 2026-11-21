@@ -7,8 +7,8 @@
 use serde_json::json;
 
 use crate::ai::openai_responses::types::{
-	CreateResponseRequest, ErrorObject, InputContent, InputItem, MessageContent, OutputItem, Reasoning, ReasoningEffort, Response,
-	ResponseStatus, TextConfig, TextFormat, Tool, ToolChoice, ToolChoiceMode, Usage,
+	CreateResponseRequest, ErrorObject, InputContent, InputItem, MessageContent, OutputItem, PromptCacheMode, PromptCacheOptions,
+	PromptCacheTtl, Reasoning, ReasoningEffort, Response, ResponseStatus, TextConfig, TextFormat, Tool, ToolChoice, ToolChoiceMode, Usage,
 };
 
 #[test]
@@ -27,6 +27,30 @@ fn serialize_minimal_request() {
 	assert!(v.get("max_output_tokens").is_none(), "None fields must be skipped");
 	assert!(v.get("reasoning").is_none());
 	assert!(v.get("tools").is_none());
+}
+
+#[test]
+fn serialize_explicit_prompt_cache_request() {
+	let req = CreateResponseRequest {
+		model: "gpt-5.6-luna".to_string(),
+		input: vec![
+			InputItem::message_with_explicit_cache_breakpoint("developer", "static prompt"),
+			InputItem::message("user", "dynamic input"),
+		],
+		prompt_cache_key: Some("unvac-persona:kaltsit".to_string()),
+		prompt_cache_options: Some(PromptCacheOptions {
+			mode: PromptCacheMode::Explicit,
+			ttl: Some(PromptCacheTtl::ThirtyMinutes),
+		}),
+		..Default::default()
+	};
+	let v = serde_json::to_value(&req).unwrap();
+	assert_eq!(v["prompt_cache_options"]["mode"], "explicit");
+	assert_eq!(v["prompt_cache_options"]["ttl"], "30m");
+	assert_eq!(v["input"][0]["content"][0]["type"], "input_text");
+	assert_eq!(v["input"][0]["content"][0]["text"], "static prompt");
+	assert_eq!(v["input"][0]["content"][0]["prompt_cache_breakpoint"]["mode"], "explicit");
+	assert!(v["input"][1]["content"].is_string(), "動的入力へbreakpointを付けない");
 }
 
 #[test]
@@ -291,6 +315,14 @@ fn tool_choice_named_function_serializes_with_type_tag() {
 	let v = serde_json::to_value(&choice).unwrap();
 	assert_eq!(v["type"], "function");
 	assert_eq!(v["name"], "vac_ping");
+}
+
+#[test]
+fn reasoning_effort_new_levels_serialize() {
+	use crate::ai::openai_responses::types::ReasoningEffort;
+	assert_eq!(serde_json::to_value(ReasoningEffort::None).unwrap(), json!("none"));
+	assert_eq!(serde_json::to_value(ReasoningEffort::Xhigh).unwrap(), json!("xhigh"));
+	assert_eq!(serde_json::to_value(ReasoningEffort::Max).unwrap(), json!("max"));
 }
 
 #[test]

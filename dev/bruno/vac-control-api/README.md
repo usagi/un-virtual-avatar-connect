@@ -63,6 +63,12 @@
   - **AI persona config (read)** — `GET /ai_personas/:index/config`（`[[ai.personas]]` entry を JSON で返す）
   - **Processor config (update)** — `PUT /processors/:index/config`（entry 差し替え + 自動バックアップ + 妥当性検証）
   - **AI persona config (update)** — `PUT /ai_personas/:index/config`（同上、`doc["ai"]["personas"]` 経路）
+- `QuickEffects/`
+  - **Queue list** — `GET /quick_effects?limit=12`（active / scheduled / cancelled / expired の quick effect queue）
+  - **Enqueue** — `POST /quick_effects`（`ChannelDatum` 投入。`fire_at_ms` 指定時は scheduled fire）
+  - **Cancel** — `POST /quick_effects/:id/cancel`
+  - **Move** — `POST /quick_effects/:id/move`（`up` / `down` / `top` / `bottom` / `index`）
+  - **Presets read/update** — `GET/PUT /quick_effects/presets`（`[[control_api.quick_effect_presets]]` を読み書き。PUT は自動バックアップ + 妥当性検証）
 - `Events/`
   - **Connect (wscat)** — `GET /api/v1/control/events` の **ドキュメント用ダミー**。実体は WebSocket なので、
     Bruno からの HTTP GET では接続できない。`docs` セクションに `wscat` / ブラウザ (`new WebSocket(...)`) の

@@ -39,14 +39,14 @@ fn preset_to_filename(preset: &str) -> Option<&'static str> {
 	None
 }
 
-/// `voice_whisper_model_path` の文字列を解決する。
+/// Whisper ingressの`model_path`を解決する。
 ///
 /// - 既存のファイルパス（相対・絶対）ならそのまま使う。
 /// - それ以外はプリセット名（`tiny`, `base`, …）として解釈し、キャッシュに無ければダウンロードする。
 pub(crate) fn resolve_whisper_model(spec: &str) -> Result<PathBuf, String> {
 	let s = spec.trim();
 	if s.is_empty() {
-		return Err("voice_whisper_model_path が空です".into());
+		return Err("Whisper model_pathが空です".into());
 	}
 
 	let path = Path::new(s);

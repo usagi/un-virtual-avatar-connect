@@ -1,0 +1,124 @@
+{
+  "scope": "Standard terms for explicitly declared Apache-2.0 alternatives. This is not upstream notice provenance or completion of attribution obligations.",
+  "terms": {
+    "file": "Apache-2.0.standard.txt",
+    "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "packages": [
+    {
+      "name": "eventsource-stream",
+      "version": "0.2.3",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "declared_license": "MIT OR Apache-2.0",
+      "selected_terms": "Apache-2.0",
+      "manifest_sha256": "b3a669f64604f19acae611ec2e7b1abb70560d920d23dab003e5090d023a8d83",
+      "authors_as_declared": [
+        "Julian Popescu <jpopesculian@gmail.com>"
+      ],
+      "attribution_review": "pending; do not infer copyright ownership from authors",
+      "source_header_audit": "target/rust-recursive-notice-audit-20261020/source-headers.json"
+    },
+    {
+      "name": "fxhash",
+      "version": "0.2.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "declared_license": "Apache-2.0/MIT",
+      "selected_terms": "Apache-2.0",
+      "manifest_sha256": "83bb4c3e7fbfb7380c175923ba7dfe150e4e09bd4ebfb45e65e5f8a494d36ab9",
+      "authors_as_declared": [
+        "cbreeden <github@u.breeden.cc>"
+      ],
+      "attribution_review": "pending; do not infer copyright ownership from authors",
+      "source_header_audit": "target/rust-recursive-notice-audit-20261020/source-headers.json",
+      "source_notices": [
+        {
+          "file": "lib.rs",
+          "sha256": "885b72a1c977dc1c3ff4e0652719e62b6d8c3e713403e571afd581283f72df7b",
+          "start_line": 1,
+          "end_line": 9,
+          "text": "// Copyright 2015 The Rust Project Developers. See the COPYRIGHT\n// file at the top-level directory of this distribution and at\n// http://rust-lang.org/COPYRIGHT.\n//\n// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or\n// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license\n// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your\n// option. This file may not be copied, modified, or distributed\n// except according to those terms.\n"
+        }
+      ]
+    },
+    {
+      "name": "keyed-set",
+      "version": "1.1.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "declared_license": "EPL-2.0 OR Apache-2.0",
+      "selected_terms": "Apache-2.0",
+      "manifest_sha256": "1c6c20a730f5cc737cf94e29fc48bd7c20b8582a395914269b06cb1654b18e3a",
+      "authors_as_declared": [
+        "Pierre Avital <pierre.avital@me.com>"
+      ],
+      "attribution_review": "pending; do not infer copyright ownership from authors",
+      "source_header_audit": "target/rust-recursive-notice-audit-20261020/source-headers.json"
+    },
+    {
+      "name": "mac",
+      "version": "0.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "declared_license": "MIT/Apache-2.0",
+      "selected_terms": "Apache-2.0",
+      "manifest_sha256": "6d465c5e5a4b3e197049e9fb7393b2f996c1c654e6ded700afce046fac2f7969",
+      "authors_as_declared": [
+        "Jonathan Reem <jonathan.reem@gmail.com>"
+      ],
+      "attribution_review": "pending; do not infer copyright ownership from authors",
+      "source_header_audit": "target/rust-recursive-notice-audit-20261020/source-headers.json"
+    },
+    {
+      "name": "sha2-const-stable",
+      "version": "0.1.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "declared_license": "MIT OR Apache-2.0",
+      "selected_terms": "Apache-2.0",
+      "manifest_sha256": "c7e36d83d130a44e0f6c22341fa54821dc6deb17037bd5ea60a12fea6029dbe6",
+      "authors_as_declared": [
+        "Cavey Cool <caveycool@gmail.com>",
+        "Magnetar Fields <0xMAGNETAR@proton.me>"
+      ],
+      "attribution_review": "pending; do not infer copyright ownership from authors",
+      "source_header_audit": "target/rust-recursive-notice-audit-20261020/source-headers.json"
+    },
+    {
+      "name": "token-cell",
+      "version": "2.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "declared_license": "EPL-2.0 OR Apache-2.0",
+      "selected_terms": "Apache-2.0",
+      "manifest_sha256": "2150a348c5c27a013b16fee1b818e81c280fe4685fc13a8484428ef7a270bda9",
+      "authors_as_declared": [
+        "Pierre Avital <pierre.avital@me.com>"
+      ],
+      "attribution_review": "pending; do not infer copyright ownership from authors",
+      "source_header_audit": "target/rust-recursive-notice-audit-20261020/source-headers.json"
+    },
+    {
+      "name": "validated_struct",
+      "version": "2.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "declared_license": "EPL-2.0 OR Apache-2.0",
+      "selected_terms": "Apache-2.0",
+      "manifest_sha256": "4506f00f100d0a994a949004608eeb1ed798e0af394212c62c85713af53a1122",
+      "authors_as_declared": [
+        "Pierre Avital <pierre.avital@me.com>"
+      ],
+      "attribution_review": "pending; do not infer copyright ownership from authors",
+      "source_header_audit": "target/rust-recursive-notice-audit-20261020/source-headers.json"
+    },
+    {
+      "name": "validated_struct_macros",
+      "version": "2.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "declared_license": "EPL-2.0 OR Apache-2.0",
+      "selected_terms": "Apache-2.0",
+      "manifest_sha256": "25a649cd3928eb0921cb0c1aac0fd458e01081ed08784710c9b051ded5f3ae1c",
+      "authors_as_declared": [
+        "Pierre Avital <pierre.avital@me.com>"
+      ],
+      "attribution_review": "pending; do not infer copyright ownership from authors",
+      "source_header_audit": "target/rust-recursive-notice-audit-20261020/source-headers.json"
+    }
+  ]
+}

@@ -9,7 +9,7 @@ use crate::flowgraph::socket::{SocketType, SocketValue};
 use async_trait::async_trait;
 
 macro_rules! literal_node {
-	($name:ident, $feature:literal, $title:literal, $ty:expr, $default:expr) => {
+	($name:ident, $feature:literal, $title:literal, $ty:expr_2021, $default:expr_2021) => {
 		pub struct $name;
 
 		impl NodeDescriptor for $name {
@@ -76,6 +76,14 @@ literal_node!(
 	"JSON Literal",
 	SocketType::Json,
 	SocketValue::Json(serde_json::Value::Null)
+);
+
+literal_node!(
+	StringListLiteralNode,
+	"flowgraph.literal.strings",
+	"String List Literal",
+	SocketType::List(Box::new(SocketType::String)),
+	SocketValue::List(vec![])
 );
 
 #[cfg(test)]

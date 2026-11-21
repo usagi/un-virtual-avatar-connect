@@ -1,0 +1,61 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "ambiguous-asr-open-episode-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "setup-consult",
+      "content": "ケルシー先生、操縦の設定をどうするか相談したい。ピッチとロールが動かしにくいんだ。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "game-comment-without-explicit-close",
+      "content": "4機編成の2個小隊か。",
+      "allowed_actions": [
+        "observe"
+      ],
+      "speech": "forbidden"
+    },
+    {
+      "id": "fragment-question-mark",
+      "content": "うちわとせい?",
+      "allowed_actions": [
+        "observe"
+      ],
+      "speech": "forbidden"
+    },
+    {
+      "id": "named-unclear-request",
+      "content": "ケルシー先生、うちわとせいについて説明して。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "clear-game-question",
+      "content": "ケルシー先生、今のミッションの目的は何と書いてある？",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "shared-excitement",
+      "content": "やったー！ ついに突破した、今のは嬉しい！",
+      "allowed_actions": [
+        "react"
+      ],
+      "speech": "required"
+    }
+  ]
+}

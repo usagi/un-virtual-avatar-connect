@@ -1,0 +1,13 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "explicit-game-referents-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": { "max_chars": 160, "max_sentences": 3, "forbid_question_ending": true },
+  "cases": [
+    { "id": "separate-referents", "content": "別のゲームの話。ゲームキャラのアキは大げさな必殺技の台詞を言っていて、私は気恥ずかしく感じている。一方、視聴者のミドリさんは誤字を謝っている。ケルシー先生、この二人の話は区別できる？", "allowed_actions": ["respond"], "speech": "required", "episode_memory_includes": ["アキ", "ミドリ"] },
+    { "id": "who-apologized", "content": "ケルシー先生、今謝っているのは誰だった？", "allowed_actions": ["respond"], "speech": "required" },
+    { "id": "damage-is-explicit", "content": "いま敵の攻撃でゲームキャラのアキのHPが減った。私が痛いと言ったのはこの被ダメージのこと。ケルシー先生、何が痛いのか伝わった？", "allowed_actions": ["respond"], "speech": "required", "speech_forbids": ["気まず", "不快"] },
+    { "id": "end", "content": "確認できた。この話はここまでで、返事はいらない。", "allowed_actions": ["observe", "close"], "speech": "forbidden" }
+  ]
+}

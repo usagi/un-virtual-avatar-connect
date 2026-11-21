@@ -16,21 +16,34 @@
 pub mod actions;
 pub mod auth;
 pub mod bos;
+pub mod desktop_profiles;
+pub mod dictionary_setup;
+pub mod dictionary_connection;
 pub mod dto;
 pub mod events;
 pub mod flowgraph;
 pub mod ingress;
+pub mod local_instances;
 pub mod managed_app;
 pub mod modes;
+pub mod node_config;
+pub mod oauth_google;
 pub mod oauth_twitch;
+pub mod obs_observation;
 pub mod ping;
+pub mod preflight;
 pub mod profiles;
+pub mod quick_effects;
 pub mod reload;
 pub mod restart;
 pub mod run_with;
 pub mod shutdown;
+pub mod stream_state;
 pub mod table;
+pub mod twitch_setup;
+pub mod un_app_api;
 pub mod vmc;
+pub mod voice_input;
 pub mod ws;
 
 pub use auth::{ControlApiRuntime, TokenSource};
@@ -50,18 +63,31 @@ pub fn register(cfg: &mut web::ServiceConfig) {
 			.service(ws::events_ws)
 			.service(events::history)
 			.configure(actions::configure)
+			.configure(desktop_profiles::configure)
+			.configure(dictionary_setup::configure)
+			.configure(dictionary_connection::configure)
+			.service(local_instances::get_instances)
 			.configure(reload::configure)
 			.configure(restart::configure)
 			.configure(shutdown::configure)
 			.configure(profiles::configure)
+			.configure(preflight::configure)
+			.configure(quick_effects::configure)
 			.configure(run_with::configure)
 			.configure(bos::configure)
 			.configure(managed_app::configure)
+			.configure(oauth_google::configure)
 			.configure(oauth_twitch::configure)
+			.configure(twitch_setup::configure)
+			.configure(obs_observation::configure)
 			.configure(ingress::configure)
 			.configure(modes::configure)
+			.configure(node_config::configure)
 			.configure(flowgraph::configure)
 			.configure(table::configure)
-			.configure(vmc::configure),
+			.configure(un_app_api::configure)
+			.configure(vmc::configure)
+			.configure(voice_input::configure)
+			.configure(stream_state::configure),
 	);
 }

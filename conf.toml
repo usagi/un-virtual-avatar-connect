@@ -17,7 +17,7 @@
 # ---- 使い始めの 3 ステップ --------------------------------------------
 #  1. GUI をビルド:  cd gui && npm install && npm run build
 #  2. VAC を起動:    ./virtual-avatar-connect (or cargo run)
-#  3. ブラウザで     http://127.0.0.1:57000/gui/ を開いて Flowgraph タブへ
+#  3. ブラウザで     web_ui_address の /gui/ を開いて Flowgraph タブへ
 #
 # サンプル Flowgraph は `flowgraph.example/` 配下にあります。
 # 空から始める場合、GUI の Flowgraph タブで「New」するだけで `flowgraph/`

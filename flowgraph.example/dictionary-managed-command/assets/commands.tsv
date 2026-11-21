@@ -1,0 +1,6 @@
+reading	surface	part_of_speech	comment	priority	is_locked	enabled	by	created_at	expires_at	tags
+learn	^\\s*(?:学習|learn)\\s*[(（]\\s*(\\S(?:[^)）]*?\\S)?)\\s*:=\\s*(\\S(?:[^)）]*?\\S)?)\\s*[)）]\\s*$	正規表現		200	true	true	system			command
+learn	^\\s*(?:学習|learn)\\s*[(（]\\s*(\\S(?:[^)）]*?\\S)?)\\s*=\\s*(\\S(?:[^)）]*?\\S)?)\\s*[)）]\\s*$	正規表現		100	true	true	system			command
+exact	^\\s*(?:忘却|forget)\\s*[(（]\\s*(\\S(?:[^)）]*?\\S)?)\\s*:=\\s*(\\S(?:[^)）]*?\\S)?)\\s*[)）]\\s*$	正規表現		200	true	true	system			command
+exact	^\\s*(?:忘却|forget)\\s*[(（]\\s*(\\S(?:[^)）]*?\\S)?)\\s*=\\s*(\\S(?:[^)）]*?\\S)?)\\s*[)）]\\s*$	正規表現		100	true	true	system			command
+undo	^\\s*(?:忘却|forget)\\s*[(（]\\s*([^\\s)）=:]+)\\s*[)）]\\s*$	正規表現		50	true	true	system			command

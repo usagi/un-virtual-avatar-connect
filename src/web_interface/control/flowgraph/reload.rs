@@ -10,10 +10,10 @@ use crate::SharedState;
 /// 書き込み・削除後に `FlowgraphRuntime` を再構築して保存し、`ControlEvent::FlowgraphReloaded` を
 /// ブロードキャストする。戻り値は (ok, diagnostics) のサマリ。
 ///
-/// ζ-3: 旧ランタイムの worker と bridges をまず停止し、新 runtime 上で bridges を再 spawn する。
+/// 新構成を検証してから旧 worker と bridges を停止し、検証済みの構成へ切り替える。
 /// `flowgraph.ingress.web_input` は actix-web の route が起動時固定なので hot-swap 不可。
 /// 差分があれば `ControlEvent::RestartRecommended` で GUI にトースト。
-pub(crate) async fn reload_runtime(state: &SharedState, root: &Path) -> (bool, Vec<Diagnostic>) {
+pub(crate) async fn reload_runtime_with_restart_status(state: &SharedState, root: &Path) -> (bool, Vec<Diagnostic>, bool) {
 	reload_runtime_inner(state, root, None).await
 }
 
@@ -23,11 +23,24 @@ pub(crate) async fn reload_runtime_with_state_snapshot_file(
 	state: &SharedState,
 	root: &Path,
 	snapshot_path: &Path,
-) -> (bool, Vec<Diagnostic>) {
+) -> (bool, Vec<Diagnostic>, bool) {
 	reload_runtime_inner(state, root, Some(snapshot_path)).await
 }
 
-async fn reload_runtime_inner(state: &SharedState, root: &Path, snapshot_path: Option<&Path>) -> (bool, Vec<Diagnostic>) {
+async fn reload_runtime_inner(state: &SharedState, root: &Path, snapshot_path: Option<&Path>) -> (bool, Vec<Diagnostic>, bool) {
+	// Reload and restore both preserve the running graph on validation failure:
+	// the exact replacement before stopping anything, then spawn that same program.
+	// Do not read the snapshot a second time after shutting down the old worker.
+	let (runtime, program) = if let Some(path) = snapshot_path {
+		let (runtime, program, _) = FlowgraphRuntime::load_program_with_state_snapshot_file(root, path);
+		(runtime, program)
+	} else {
+		FlowgraphRuntime::load_program(root)
+	};
+	if !runtime.ok || program.is_none() {
+		return (false, runtime.diagnostics, false);
+	}
+
 	// ζ-3: 新 runtime は worker 付きで spawn する。state_weak / audio_sink は初回と同じ経路。
 	let (state_weak, audio_sink, fg, tx, channel_datum_tx, bridge_handles_arc) = {
 		let s = state.read().await;
@@ -74,26 +87,15 @@ async fn reload_runtime_inner(state: &SharedState, root: &Path, snapshot_path: O
 			s.conf_source_path.clone(),
 		)
 	};
-	let mut rt = if let Some(snapshot_path) = snapshot_path {
-		FlowgraphRuntime::load_and_spawn_with_state_snapshot_file(
-			root,
-			snapshot_path,
+	let mut rt = FlowgraphRuntime::finish_spawn(
+			runtime,
+			program,
 			state_weak,
 			audio_sink,
 			conf_opt.as_ref(),
 			mode_for_gate.as_deref(),
 			Some(mode_arc),
-		)
-	} else {
-		FlowgraphRuntime::load_and_spawn(
-			root,
-			state_weak,
-			audio_sink,
-			conf_opt.as_ref(),
-			mode_for_gate.as_deref(),
-			Some(mode_arc),
-		)
-	};
+		);
 	if let Some(profile_path) = profile_path.as_ref() {
 		rt.set_profile_local_state_snapshot_path(&runtime_root, profile_path);
 	}
@@ -105,15 +107,19 @@ async fn reload_runtime_inner(state: &SharedState, root: &Path, snapshot_path: O
 	*fg.write().await = Some(rt);
 
 	// 4. 新 runtime 上で bridges を再 spawn し、State に差し戻す。
-	let new_handles = crate::bridges::spawn_all_from_state(state, &channel_datum_tx).await;
+	let mut new_handles = crate::bridges::spawn_all_from_state(state, &channel_datum_tx).await;
 	let new_web_input_snapshot = new_handles.web_input_snapshot.clone();
+	let restart_required = crate::bridges::web_input_changed(&old_web_input_snapshot, &new_web_input_snapshot);
+	// HTTP routes are still those registered at startup. Keep that baseline
+	// through successive reloads instead of forgetting a pending restart.
+	new_handles.web_input_snapshot = old_web_input_snapshot.clone();
 	{
 		let mut slot = bridge_handles_arc.lock().await;
 		*slot = new_handles;
 	}
 
 	// 5. web_input の差分を検出したら、actix route は hot-swap できない旨を通知する。
-	if crate::bridges::web_input_changed(&old_web_input_snapshot, &new_web_input_snapshot) {
+	if restart_required {
 		log::warn!(
 			"《Flowgraph/Bridges》 web_input endpoints が変化しました（旧={}, 新={}）。actix route は起動時固定のため、反映には本プロセスの再起動が必要です。",
 			old_web_input_snapshot.len(),
@@ -137,5 +143,5 @@ async fn reload_runtime_inner(state: &SharedState, root: &Path, snapshot_path: O
 		node_count,
 	});
 
-	(ok, diags)
+	(ok, diags, restart_required)
 }

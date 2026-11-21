@@ -1,0 +1,181 @@
+{
+  "header": {
+    "magic": [
+      85,
+      78,
+      77,
+      70
+    ],
+    "version_major": 1,
+    "version_minor": 1,
+    "sequence": 386,
+    "timestamp_basis": "SourceLocal",
+    "capture_timestamp_ns": 1785693411283064200,
+    "frame_timestamp_ns": 1785693411283064200,
+    "processed_timestamp_ns": 1785693411314871900,
+    "coordinate_space": "UNMotion",
+    "handedness": "Unknown",
+    "length_unit": "Normalized",
+    "stream_id": "unvac-still-poc",
+    "expected_dt_ns": 201101900
+  },
+  "sources": [
+    {
+      "source_id": "file-image:mediapipe-main",
+      "source_kind": "WebcamPose",
+      "display_name": "MediaPipe Native File Image",
+      "confidence": 0.98370403,
+      "latency_ns": 31807700,
+      "state": "Valid"
+    }
+  ],
+  "body": {
+    "tracking_state": "Valid",
+    "confidence": 1.0,
+    "humanoid": {
+      "root": null,
+      "bones": [
+        {
+          "bone": "Head",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0,
+              "w": 1.0
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "LeftUpperArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.70710677,
+              "w": 0.70710677
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "LeftLowerArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0,
+              "w": 1.0
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "LeftHand",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0,
+              "w": 1.0
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "RightUpperArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": -0.70710677,
+              "w": 0.70710677
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "RightLowerArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0,
+              "w": 1.0
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "RightHand",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0,
+              "y": 0.0,
+              "z": 0.0,
+              "w": 1.0
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        }
+      ]
+    }
+  },
+  "face": null,
+  "eyes": null,
+  "left_hand": null,
+  "right_hand": null,
+  "signals": [],
+  "metadata": {
+    "schema_name": "UNMotionFrame",
+    "schema_version": "1.1.0",
+    "producer": "un-motion-core",
+    "notes": [
+      "UNVAC compositor deterministic I-pose baseline; capture metadata retained only as provenance"
+    ],
+    "extensions": []
+  }
+}

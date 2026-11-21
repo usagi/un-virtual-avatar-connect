@@ -1,0 +1,48 @@
+[[triggers]]
+node = "main::trigger"
+
+[[triggers.overrides]]
+port = "__content__"
+ty = "string"
+value = "fixture"
+
+[[tests]]
+name = "vmc unmf unmfz adapter standard path"
+
+[tests.expect]
+node_count = 25
+trigger_count = 1
+trace_count = 4
+trace_contains = [
+  "unmfz.publish dry-run: un-motion/frame/example/v1",
+  "log: un-motion/frame/example/v1",
+  "log: 0.75",
+]
+
+[[tests.expect.exec_count]]
+node = "main::publish_unmfz"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::log_key"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::log_payload_len"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::log_vmc_joy"
+count = 1
+
+[[tests.expect.stored_values]]
+node = "main::publish_unmfz"
+port = "key_expr"
+ty = "string"
+value = "un-motion/frame/example/v1"
+
+[[tests.expect.stored_values]]
+node = "main::extract_vmc_joy"
+port = "value"
+ty = "float"
+value = 0.75

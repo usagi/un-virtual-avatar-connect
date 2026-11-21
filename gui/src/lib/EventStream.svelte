@@ -1,251 +1,317 @@
 <script lang="ts">
- // eventsStore.recent をリアルタイムに表示するログペイン。
- //
- // 機能:
- //   - kind ごとのフィルタ（heartbeat はデフォルト OFF、その他 ON）
- //   - kind ごとの色分け
- //   - 1 行サマリ + 展開で生 JSON
- //   - Clear（バッファクリア）、Pause（UI 更新停止 — WS は開いたまま）
- //   - dropped（lagged）・received カウンタ表示
- //
- // 設計ポイント:
- //   - **型安全** : 各 event の 1 行サマリ生成を `switch (ev.kind)` + `assertNever` で書く。
- //     Rust 側で ControlEvent variant を追加したとき、`types.ts` の更新とここの更新が
- //     **両方**必要になるよう、compile-time に検出される。
+	// eventsStore.recent をリアルタイムに表示するログペイン。
+	//
+	// 機能:
+	//   - kind ごとのフィルタ（heartbeat はデフォルト OFF、その他 ON）
+	//   - kind ごとの色分け
+	//   - 1 行サマリ + 展開で生 JSON
+	//   - Clear（バッファクリア）、Pause（UI 更新停止 — WS は開いたまま）
+	//   - dropped（lagged）・received カウンタ表示
+	//
+	// 設計ポイント:
+	//   - **型安全** : 各 event の 1 行サマリ生成を `switch (ev.kind)` + `assertNever` で書く。
+	//     Rust 側で ControlEvent variant を追加したとき、`types.ts` の更新とここの更新が
+	//     **両方**必要になるよう、compile-time に検出される。
 
- import { eventsStore, type TimestampedEvent } from './events.svelte';
- import { assertNever, type ControlEvent, type ControlEventKind } from './types';
+	import { eventsStore, type TimestampedEvent } from "./events.svelte";
+	import { assertNever, type ControlEvent, type ControlEventKind } from "./types";
 
- type FilterMap = Record<ControlEventKind, boolean>;
+	type FilterMap = Record<ControlEventKind, boolean>;
 
- // heartbeat はノイズになるのでデフォルトでは非表示。他は全部表示。
-let filter: FilterMap = $state({
- channel_datum: true,
- heartbeat: false,
- pause_state: true,
- reloaded: true,
- oauth_status: true,
- lagged: true,
- // Phase VI-β-8: Pipeline ノードの発火ログ。パイプライン・ビューと併せて確認するときに便利なので
- // デフォルト ON。ノイズに感じたらこのチェックを外せば一覧からだけ隠れる。
- processor_invoked: true,
- // Phase VI-γ-1: 再起動通知。ノイズになる頻度ではないのでデフォルト ON。
- restarting: true,
- // Phase VI-γ-2b: Managed App の状態変化。配信中に OBS 等の起動/停止を追うのに便利なのでデフォルト ON。
- managed_app_state: true,
- // Phase δ-6: Flowgraph ホットリロード通知。編集中はあったほうが便利なのでデフォルト ON。
- flowgraph_reloaded: true,
- restart_recommended: true,
- runtime_mode_changed: true,
- runtime_mode_managed_apps: true,
-});
+	// heartbeat はノイズになるのでデフォルトでは非表示。他は全部表示。
+	let filter: FilterMap = $state({
+		channel_datum: true,
+		voice_recognition: true,
+		twitch_chat_received: true,
+		twitch_chat_send_result: true,
+		twitch_event_sub_received: true,
+		avatar_camera_effect: true,
+		voice_input_state: true,
+		tts_lifecycle: true,
+		ai_activation_decision: true,
+		ai_initiative_decision: true,
+		ai_turn_decision: true,
+		ai_request_context: true,
+		ai_tool_call: true,
+		heartbeat: false,
+		pause_state: true,
+		reloaded: true,
+		oauth_status: true,
+		lagged: true,
+		// Phase VI-β-8: Pipeline ノードの発火ログ。パイプライン・ビューと併せて確認するときに便利なので
+		// デフォルト ON。ノイズに感じたらこのチェックを外せば一覧からだけ隠れる。
+		processor_invoked: true,
+		// Phase VI-γ-1: 再起動通知。ノイズになる頻度ではないのでデフォルト ON。
+		restarting: true,
+		// Phase VI-γ-2b: Managed App の状態変化。配信中に OBS 等の起動/停止を追うのに便利なのでデフォルト ON。
+		managed_app_state: true,
+		// Phase δ-6: Flowgraph ホットリロード通知。編集中はあったほうが便利なのでデフォルト ON。
+		flowgraph_reloaded: true,
+		restart_recommended: true,
+		runtime_mode_changed: true,
+		runtime_mode_managed_apps: true,
+	});
 
- let paused: boolean = $state(false);
- let expandedSeq: number | null = $state(null);
+	let paused: boolean = $state(false);
+	let expandedSeq: number | null = $state(null);
 
- // paused=false のときだけ store を読む。paused=true の間は frozen 状態を保持したい。
- let frozen: TimestampedEvent[] = $state([]);
+	// paused=false のときだけ store を読む。paused=true の間は frozen 状態を保持したい。
+	let frozen: TimestampedEvent[] = $state([]);
 
- $effect(() => {
-  if (!paused) {
-   // 追従中は store の配列を参照（リアクティブに更新）
-   frozen = eventsStore.recent;
-  }
- });
+	$effect(() => {
+		if (!paused) {
+			// 追従中は store の配列を参照（リアクティブに更新）
+			frozen = eventsStore.recent;
+		}
+	});
 
- const visible = $derived(
-  // 新しいイベントを上に。filter で絞る。
-  [...frozen].reverse().filter((e) => filter[e.event.kind])
- );
+	const visible = $derived(
+		// 新しいイベントを上に。filter で絞る。
+		[...frozen].reverse().filter((e) => filter[e.event.kind])
+	);
 
- function toggleFilter(k: ControlEventKind): void {
-  filter = { ...filter, [k]: !filter[k] };
- }
+	function toggleFilter(k: ControlEventKind): void {
+		filter = { ...filter, [k]: !filter[k] };
+	}
 
- function toggleExpand(seq: number): void {
-  expandedSeq = expandedSeq === seq ? null : seq;
- }
+	function toggleExpand(seq: number): void {
+		expandedSeq = expandedSeq === seq ? null : seq;
+	}
 
- /** 1 行サマリ文字列。Rust の ControlEvent variant が追加されたら compile error になる。 */
- function summarize(ev: ControlEvent): string {
-  switch (ev.kind) {
-   case 'channel_datum':
-    return `[${ev.phase}] #${ev.id} @${ev.channel}: ${truncate(ev.content, 120)}`;
-   case 'lagged':
-    return `dropped ${ev.dropped} events`;
-   case 'heartbeat':
-    return `heartbeat @ ${ev.now}`;
-   case 'pause_state':
-    return `${ev.paused ? 'PAUSED' : 'RESUMED'} — target=${ev.target}, procs=[${ev.processors_affected.join(',')}], ais=[${ev.ais_affected.join(',')}]`;
-   case 'reloaded':
-    return `target=${ev.target}${ev.id ? ` id=${ev.id}` : ''}`;
-  case 'oauth_status':
-   return `${ev.account} → ${ev.status} (code=${ev.view.user_code})`;
-  case 'processor_invoked': {
-   const idPart = ev.id ? `#${ev.id}` : `[${ev.index}]`;
-   return `${ev.feature}${idPart} ← @${ev.trigger_channel} (cd=#${ev.channel_datum_id}, ${ev.elapsed_ms}ms, ${ev.outcome})`;
-  }
-  case 'restarting':
-   return `restarting → pid=${ev.new_pid}, conf=${ev.new_conf_path} (graceful=${ev.graceful_ms}ms)`;
-  case 'managed_app_state':
-   return `${ev.id} ${ev.running ? 'RUNNING' : 'STOPPED'} pids=[${ev.pids.join(',')}]`;
-  case 'flowgraph_reloaded':
-   return `${ev.root_dir} ok=${ev.ok} nodes=${ev.node_count} (err=${ev.error_count} warn=${ev.warning_count})`;
-  case 'restart_recommended':
-   return `${ev.reason}: ${JSON.stringify(ev.details)}`;
-  case 'runtime_mode_changed':
-   return `${ev.previous_effective_id || '(none)'} → ${ev.current_effective_id || '(none)'}${ev.reason ? ` (${ev.reason})` : ''}`;
-  case 'runtime_mode_managed_apps':
-   return `${ev.previous_effective_id} → ${ev.current_effective_id}: ${ev.ops.map((op) => `${op.op}:${op.id}:${op.ok ? 'ok' : 'fail'}`).join(', ')}`;
-  default:
-   return assertNever(ev);
- }
-}
+	/** 1 行サマリ文字列。Rust の ControlEvent variant が追加されたら compile error になる。 */
+	function summarize(ev: ControlEvent): string {
+		switch (ev.kind) {
+			case "channel_datum":
+				return `[${ev.phase}] #${ev.id} @${ev.channel}: ${truncate(ev.content, 120)}`;
+			case "voice_recognition":
+				return `[${ev.phase}] ${ev.node_id} utterance=${ev.utterance_id} +${ev.elapsed_ms}ms: ${truncate(ev.text, 120)}`;
+			case "twitch_chat_received":
+				return `${ev.channel_login} @${ev.sender_login}: ${ev.text_chars} chars`;
+			case "twitch_chat_send_result":
+				return `${ev.node_id}: ${ev.outcome === "sent" ? "Twitch送信承認" : ev.outcome === "skipped_empty" ? "空文のため送信なし" : "送信失敗"}`;
+			case "twitch_event_sub_received":
+				return `${ev.event_type} reward=${ev.reward_title ?? ev.reward_id ?? "-"} actor=${ev.actor_login}`;
+			case "voice_input_state":
+				return `${ev.muted ? "MUTED" : "ACTIVE"} workers=${ev.worker_count}`;
+			case "avatar_camera_effect":
+				return `カメラ ${ev.target_link_id}: ${ev.phase} ${JSON.stringify(ev.details)}`;
+			case "tts_lifecycle":
+				return `[${ev.phase}] ${ev.lane} ${ev.engine}/${ev.voice} utterance=${ev.utterance_id || "-"} ${ev.text_chars} chars +${ev.elapsed_ms}ms${ev.wait_ms === undefined ? "" : ` wait=${ev.wait_ms}ms`}${ev.error ? `: ${ev.error}` : ""}`;
+			case "ai_activation_decision":
+				return `${ev.persona_id} ${ev.outcome} @${ev.observation_channel}#${ev.observation_datum_id} floor=${ev.speech_floor_wait_ms}ms${ev.score === undefined ? "" : ` score=${ev.score}/${ev.threshold}`}${ev.remaining_interval_secs === undefined ? "" : ` remaining=${ev.remaining_interval_secs}s`}`;
+			case "ai_initiative_decision":
+				return `${ev.persona_id} ${ev.outcome} idle=${ev.idle_secs}s attempts=${ev.attempts_last_hour}/h speeches=${ev.speeches_last_hour}/h`;
+			case "ai_turn_decision":
+				return `${ev.persona_id} ${ev.action} @${ev.observation_channel}#${ev.observation_datum_id}: ${truncate(ev.speak ?? "（発話なし）", 120)}`;
+			case "ai_tool_call":
+				return `[${ev.phase}] ${ev.persona_id} ${ev.tool_name} args=${ev.argument_chars} +${ev.elapsed_ms}ms${ev.success === undefined ? "" : ev.success ? " ok" : " failed"}${ev.error ? `: ${ev.error}` : ""}`;
+			case "ai_request_context":
+				return `${ev.persona_id} 入力 #${ev.observation_datum_id} ${ev.model} 画像=${ev.observations.reduce((n, o) => n + o.input_image_count, 0)}`;
+			case "lagged":
+				return `dropped ${ev.dropped} events`;
+			case "heartbeat":
+				return `heartbeat @ ${ev.now}`;
+			case "pause_state":
+				return `${ev.paused ? "PAUSED" : "RESUMED"} — target=${ev.target}, procs=[${ev.processors_affected.join(",")}], ais=[${ev.ais_affected.join(",")}]`;
+			case "reloaded":
+				return `target=${ev.target}${ev.id ? ` id=${ev.id}` : ""}`;
+			case "oauth_status":
+				return `${ev.account} → ${ev.status} (code=${ev.view.user_code})`;
+			case "processor_invoked": {
+				const idPart = ev.id ? `#${ev.id}` : `[${ev.index}]`;
+				return `${ev.feature}${idPart} ← @${ev.trigger_channel} (cd=#${ev.channel_datum_id}, ${ev.elapsed_ms}ms, ${ev.outcome})`;
+			}
+			case "restarting":
+				return `restarting → pid=${ev.new_pid}, conf=${ev.new_conf_path} (graceful=${ev.graceful_ms}ms)`;
+			case "managed_app_state":
+				return `${ev.id} ${ev.running ? "RUNNING" : "STOPPED"} pids=[${ev.pids.join(",")}]`;
+			case "flowgraph_reloaded":
+				return `${ev.root_dir} ok=${ev.ok} nodes=${ev.node_count} (err=${ev.error_count} warn=${ev.warning_count})`;
+			case "restart_recommended":
+				return `${ev.reason}: ${JSON.stringify(ev.details)}`;
+			case "runtime_mode_changed":
+				return `${ev.previous_effective_id || "(none)"} → ${ev.current_effective_id || "(none)"}${ev.reason ? ` (${ev.reason})` : ""}`;
+			case "runtime_mode_managed_apps":
+				return `${ev.previous_effective_id} → ${ev.current_effective_id}: ${ev.ops.map((op) => `${op.op}:${op.id}:${op.ok ? "ok" : "fail"}`).join(", ")}`;
+			default:
+				return assertNever(ev);
+		}
+	}
 
- /** Tailwind の色クラス。kind に応じた帯色。 */
- function kindTone(k: ControlEventKind): string {
-  switch (k) {
-   case 'channel_datum':
-    return 'bg-primary-200-800 text-primary-900-100';
-   case 'heartbeat':
-    return 'bg-surface-300-700 text-surface-800-200';
-   case 'pause_state':
-    return 'bg-warning-200-800 text-warning-900-100';
-   case 'reloaded':
-    return 'bg-success-200-800 text-success-900-100';
-   case 'oauth_status':
-    return 'bg-tertiary-200-800 text-tertiary-900-100';
-  case 'lagged':
-   return 'bg-error-200-800 text-error-900-100';
-  case 'processor_invoked':
-   return 'bg-secondary-200-800 text-secondary-900-100';
-  case 'restarting':
-   return 'bg-warning-200-800 text-warning-900-100';
-  case 'managed_app_state':
-   return 'bg-tertiary-200-800 text-tertiary-900-100';
-  case 'flowgraph_reloaded':
-   return 'bg-success-200-800 text-success-900-100';
-  case 'restart_recommended':
-   return 'bg-warning-200-800 text-warning-900-100';
-  case 'runtime_mode_changed':
-   return 'bg-primary-200-800 text-primary-900-100';
-  case 'runtime_mode_managed_apps':
-   return 'bg-tertiary-200-800 text-tertiary-900-100';
-  default:
-   return assertNever(k);
- }
-}
+	/** Tailwind の色クラス。kind に応じた帯色。 */
+	function kindTone(k: ControlEventKind): string {
+		switch (k) {
+			case "channel_datum":
+				return "bg-primary-200-800 text-primary-900-100";
+			case "voice_recognition":
+				return "bg-secondary-200-800 text-secondary-900-100";
+			case "twitch_chat_received":
+			case "twitch_chat_send_result":
+				return "bg-primary-200-800 text-primary-900-100";
+			case "twitch_event_sub_received":
+			case "avatar_camera_effect":
+				return "bg-success-200-800 text-success-900-100";
+			case "voice_input_state":
+				return "bg-warning-200-800 text-warning-900-100";
+			case "tts_lifecycle":
+				return "bg-tertiary-200-800 text-tertiary-900-100";
+			case "ai_turn_decision":
+			case "ai_activation_decision":
+			case "ai_initiative_decision":
+				return "bg-success-200-800 text-success-900-100";
+			case "ai_request_context":
+				return "bg-surface-300-700 text-surface-800-200";
+			case "ai_tool_call":
+				return "bg-tertiary-200-800 text-tertiary-900-100";
+			case "heartbeat":
+				return "bg-surface-300-700 text-surface-800-200";
+			case "pause_state":
+				return "bg-warning-200-800 text-warning-900-100";
+			case "reloaded":
+				return "bg-success-200-800 text-success-900-100";
+			case "oauth_status":
+				return "bg-tertiary-200-800 text-tertiary-900-100";
+			case "lagged":
+				return "bg-error-200-800 text-error-900-100";
+			case "processor_invoked":
+				return "bg-secondary-200-800 text-secondary-900-100";
+			case "restarting":
+				return "bg-warning-200-800 text-warning-900-100";
+			case "managed_app_state":
+				return "bg-tertiary-200-800 text-tertiary-900-100";
+			case "flowgraph_reloaded":
+				return "bg-success-200-800 text-success-900-100";
+			case "restart_recommended":
+				return "bg-warning-200-800 text-warning-900-100";
+			case "runtime_mode_changed":
+				return "bg-primary-200-800 text-primary-900-100";
+			case "runtime_mode_managed_apps":
+				return "bg-tertiary-200-800 text-tertiary-900-100";
+			default:
+				return assertNever(k);
+		}
+	}
 
- function truncate(s: string, n: number): string {
-  return s.length > n ? `${s.slice(0, n)}…` : s;
- }
+	function truncate(s: string, n: number): string {
+		return s.length > n ? `${s.slice(0, n)}…` : s;
+	}
 
- function formatTime(ms: number): string {
-  const d = new Date(ms);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  const ms3 = String(d.getMilliseconds()).padStart(3, '0');
-  return `${hh}:${mm}:${ss}.${ms3}`;
- }
+	function formatTime(ms: number): string {
+		const d = new Date(ms);
+		const hh = String(d.getHours()).padStart(2, "0");
+		const mm = String(d.getMinutes()).padStart(2, "0");
+		const ss = String(d.getSeconds()).padStart(2, "0");
+		const ms3 = String(d.getMilliseconds()).padStart(3, "0");
+		return `${hh}:${mm}:${ss}.${ms3}`;
+	}
 
- // eventsStore への参照（テンプレで直接読めるように $derived で露出）
- const received = $derived(eventsStore.received_count);
- const dropped = $derived(eventsStore.dropped_count);
+	// eventsStore への参照（テンプレで直接読めるように $derived で露出）
+	const received = $derived(eventsStore.received_count);
+	const dropped = $derived(eventsStore.dropped_count);
 
-const ALL_KINDS: readonly ControlEventKind[] = [
- 'channel_datum',
- 'processor_invoked',
- 'pause_state',
- 'reloaded',
- 'oauth_status',
- 'restarting',
- 'managed_app_state',
- 'runtime_mode_changed',
- 'runtime_mode_managed_apps',
- 'restart_recommended',
- 'flowgraph_reloaded',
- 'heartbeat',
- 'lagged',
-];
+	const ALL_KINDS: readonly ControlEventKind[] = [
+		"channel_datum",
+		"voice_recognition",
+		"twitch_chat_received",
+		"twitch_chat_send_result",
+		"twitch_event_sub_received",
+		"avatar_camera_effect",
+		"voice_input_state",
+		"tts_lifecycle",
+		"ai_activation_decision",
+		"ai_initiative_decision",
+		"ai_turn_decision",
+		"ai_tool_call",
+		"processor_invoked",
+		"pause_state",
+		"reloaded",
+		"oauth_status",
+		"restarting",
+		"managed_app_state",
+		"runtime_mode_changed",
+		"runtime_mode_managed_apps",
+		"restart_recommended",
+		"flowgraph_reloaded",
+		"heartbeat",
+		"lagged",
+	];
 </script>
 
 <section class="flex h-full flex-col space-y-2">
- <header class="flex items-center justify-between">
-  <h2 class="text-lg font-semibold">
-   ライブイベント
-   <span class="text-xs font-normal opacity-70">
-    (received: {received.toLocaleString()}, dropped: {dropped.toLocaleString()})
-   </span>
-  </h2>
-  <div class="flex items-center gap-2 text-xs">
-   <button
-    type="button"
-    class="rounded border border-surface-300-700 bg-surface-100-900 px-2 py-0.5 hover:bg-surface-200-800"
-    onclick={() => (paused = !paused)}
-    title={paused ? 'UI の更新を再開（WS は止まっていません）' : 'UI の更新を一時停止（スクロールの追従を止めます）'}
-   >
-    {paused ? '▶ 再開' : '⏸ 一時停止'}
-   </button>
-   <button
-    type="button"
-    class="rounded border border-surface-300-700 bg-surface-100-900 px-2 py-0.5 hover:bg-surface-200-800"
-    onclick={() => eventsStore.clearRecent()}
-   >
-    クリア
-   </button>
-  </div>
- </header>
+	<header class="flex items-center justify-between">
+		<h2 class="text-lg font-semibold">
+			ライブイベント
+			<span class="text-xs font-normal opacity-70">
+				(received: {received.toLocaleString()}, dropped: {dropped.toLocaleString()})
+			</span>
+		</h2>
+		<div class="flex items-center gap-2 text-xs">
+			<button
+				type="button"
+				class="rounded border border-surface-300-700 bg-surface-100-900 px-2 py-0.5 hover:bg-surface-200-800"
+				onclick={() => (paused = !paused)}
+				title={paused ? "UI の更新を再開（WS は止まっていません）" : "UI の更新を一時停止（スクロールの追従を止めます）"}
+			>
+				{paused ? "▶ 再開" : "⏸ 一時停止"}
+			</button>
+			<button
+				type="button"
+				class="rounded border border-surface-300-700 bg-surface-100-900 px-2 py-0.5 hover:bg-surface-200-800"
+				onclick={() => eventsStore.clearRecent()}
+			>
+				クリア
+			</button>
+		</div>
+	</header>
 
- <div class="flex flex-wrap gap-1 text-xs">
-  {#each ALL_KINDS as k (k)}
-   <button
-    type="button"
-    class="rounded px-2 py-0.5 font-mono transition {filter[k]
-     ? kindTone(k)
-     : 'bg-surface-200-800 text-surface-700-300 opacity-50'}"
-    onclick={() => toggleFilter(k)}
-   >
-    {k}
-   </button>
-  {/each}
- </div>
+	<div class="flex flex-wrap gap-1 text-xs">
+		{#each ALL_KINDS as k (k)}
+			<button
+				type="button"
+				class="rounded px-2 py-0.5 font-mono transition {filter[k]
+					? kindTone(k)
+					: 'bg-surface-200-800 text-surface-700-300 opacity-50'}"
+				onclick={() => toggleFilter(k)}
+			>
+				{k}
+			</button>
+		{/each}
+	</div>
 
- <div
-  class="flex-1 overflow-y-auto rounded-lg border border-surface-300-700 bg-surface-50-950"
-  style="min-height: 24rem; max-height: 32rem;"
- >
-  {#if visible.length === 0}
-   <p class="p-4 text-center text-xs opacity-60">
-    {#if frozen.length === 0}
-     まだイベントが届いていません。VAC からのメッセージを待機中…
-    {:else}
-     フィルタで全て除外されています。上のタグをクリックして有効化してください。
-    {/if}
-   </p>
-  {:else}
-   <ul class="divide-y divide-surface-200-800/60 text-xs">
-    {#each visible as item (item.seq)}
-     <li class="px-2 py-1 hover:bg-surface-100-900/50">
-      <button
-       type="button"
-       class="flex w-full items-start gap-2 text-left"
-       onclick={() => toggleExpand(item.seq)}
-      >
-       <span class="font-mono opacity-60">{formatTime(item.received_at)}</span>
-       <span class="rounded px-1.5 py-0 font-mono text-[10px] font-semibold uppercase {kindTone(item.event.kind)}">
-        {item.event.kind}
-       </span>
-       <span class="flex-1 font-mono break-all">{summarize(item.event)}</span>
-      </button>
-      {#if expandedSeq === item.seq}
-       <pre
-        class="mt-1 overflow-x-auto rounded bg-surface-200-800/60 p-2 text-[11px] leading-tight font-mono"
-       >{JSON.stringify(item.event, null, 2)}</pre>
-      {/if}
-     </li>
-    {/each}
-   </ul>
-  {/if}
- </div>
+	<div
+		class="flex-1 overflow-y-auto rounded-lg border border-surface-300-700 bg-surface-50-950"
+		style="min-height: 24rem; max-height: 32rem;"
+	>
+		{#if visible.length === 0}
+			<p class="p-4 text-center text-xs opacity-60">
+				{#if frozen.length === 0}
+					まだイベントが届いていません。VAC からのメッセージを待機中…
+				{:else}
+					フィルタで全て除外されています。上のタグをクリックして有効化してください。
+				{/if}
+			</p>
+		{:else}
+			<ul class="divide-y divide-surface-200-800/60 text-xs">
+				{#each visible as item (item.seq)}
+					<li class="px-2 py-1 hover:bg-surface-100-900/50">
+						<button type="button" class="flex w-full items-start gap-2 text-left" onclick={() => toggleExpand(item.seq)}>
+							<span class="font-mono opacity-60">{formatTime(item.received_at)}</span>
+							<span class="rounded px-1.5 py-0 font-mono text-[10px] font-semibold uppercase {kindTone(item.event.kind)}">
+								{item.event.kind}
+							</span>
+							<span class="flex-1 font-mono break-all">{summarize(item.event)}</span>
+						</button>
+						{#if expandedSeq === item.seq}
+							<pre
+								class="mt-1 overflow-x-auto rounded bg-surface-200-800/60 p-2 text-[11px] leading-tight font-mono">{JSON.stringify(
+									item.event,
+									null,
+									2
+								)}</pre>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</div>
 </section>

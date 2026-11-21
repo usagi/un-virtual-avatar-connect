@@ -1,0 +1,81 @@
+name: GUI E2E
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  gui-e2e:
+    name: ${{ matrix.os }} / ${{ matrix.browser }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+          - macos-latest
+        browser:
+          - chromium
+          - firefox
+          - webkit
+
+    env:
+      CI: "1"
+      PLAYWRIGHT_BROWSERS: ${{ matrix.browser }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.100.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+
+      - name: Install GUI dependencies
+        working-directory: gui
+        run: npm ci
+
+      - name: Install Playwright browser
+        if: runner.os != 'Linux'
+        working-directory: gui
+        run: npx playwright install ${{ matrix.browser }}
+
+      - name: Install Playwright browser and Linux dependencies
+        if: runner.os == 'Linux'
+        working-directory: gui
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Check GUI
+        working-directory: gui
+        run: npm run check
+
+      - name: Run GUI unit regressions
+        if: matrix.browser == 'chromium'
+        working-directory: gui
+        run: npm run test:unit
+
+      - name: Build GUI
+        working-directory: gui
+        run: npm run build
+
+      - name: Build VAC release binary
+        run: cargo build --release --bin virtual-avatar-connect-cli
+
+      - name: Run Playwright E2E
+        working-directory: gui
+        run: npx playwright test --project=${{ matrix.browser }}
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.os }}-${{ matrix.browser }}
+          path: gui/playwright-report
+          if-no-files-found: ignore

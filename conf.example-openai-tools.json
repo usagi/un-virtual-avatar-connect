@@ -4,7 +4,8 @@
     "function": {
       "name": "vac_ping",
       "description": "配信パイプラインの疎通・動作確認用。副作用はない。ユーザーが接続確認やテストをしたい意図を示したときに呼ぶ（例: テスト、確認、聞こえるか、生きてる、応答して、ping、ピング など。音声認識で表記がぶれても、意図が明らかなら呼ぶ。特定のフレーズに依存しない）。",
-      "parameters": { "type": "object", "properties": {} }
+      "strict": true,
+      "parameters": { "type": "object", "properties": {}, "required": [], "additionalProperties": false }
     }
   },
   {
@@ -12,11 +13,12 @@
     "function": {
       "name": "vac_emit_effect",
       "description": "ブラウザソース（OBS の Browser Source）など、画面演出用の VAC チャンネルへ ChannelDatum を push する。発話とは別系統で、視覚・効果音・演出トリガーを流すために使う。文字どおり「発話」ではなく「演出を仕掛ける」ときにだけ呼ぶ。",
+      "strict": true,
       "parameters": {
         "type": "object",
         "properties": {
           "channel": {
-            "type": "string",
+            "type": ["string", "null"],
             "description": "push 先の VAC チャンネル名。省略時はペルソナ設定 `channel_effect`（既定 \"effect\"）。"
           },
           "content": {
@@ -24,12 +26,92 @@
             "description": "演出識別子や説明（例: \"sparkle\", \"applause\", \"bgm:intro\" など）。必須。ブラウザソース側で content を見て演出を決める。"
           },
           "meta": {
-            "type": "object",
+            "type": ["object", "null"],
             "description": "追加メタ情報（強度・色・持続時間など）。キーと値は文字列化されて ChannelDatum.meta に格納される。",
-            "additionalProperties": true
+            "properties": {
+              "intensity": { "type": ["number", "null"] },
+              "color": { "type": ["string", "null"] },
+              "duration_ms": { "type": ["integer", "null"], "minimum": 0 }
+            },
+            "required": ["intensity", "color", "duration_ms"],
+            "additionalProperties": false
           }
         },
-        "required": ["content"]
+        "required": ["channel", "content", "meta"],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "vac_emit_avatar_intent",
+      "description": "UNVAC 2.0 の AI アバター身体表現用。表情、頷き、首振り、視線などの小さな AvatarIntent を VAC チャンネルへ送る。UNMF/Z 送信は Flowgraph 側が行うため、このツールは直接 UNAvatar を制御しない。発話内容や配信状況に身体反応を添えるときだけ、1 応答につき 1-2 intent 程度で控えめに使う。",
+      "strict": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": ["string", "null"],
+            "description": "AvatarIntent を push する VAC チャンネル。省略時は \"avatar_intent\"。"
+          },
+          "target_link_id": {
+            "type": "string",
+            "description": "UNVAC 側 AvatarLink ID。例: \"kaltsit_ai\"。必須。"
+          },
+          "intents": {
+            "type": "array",
+            "description": "1-3 個の身体意図。基本は expression と head_nod / head_shake を少数だけ使う。",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": ["expression", "head_nod", "head_shake", "look_at"]
+                },
+                "name": {
+                  "type": ["string", "null"],
+                  "description": "expression 用。例: concerned, smile, stern, surprised, blink。"
+                },
+                "intensity": {
+                  "type": ["number", "null"],
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "duration_ms": {
+                  "type": ["integer", "null"],
+                  "minimum": 100,
+                  "maximum": 5000
+                },
+                "curve": {
+                  "type": ["string", "null"],
+                  "enum": ["linear", "ease_out", "hold", null]
+                },
+                "count": {
+                  "type": ["integer", "null"],
+                  "minimum": 1,
+                  "maximum": 3
+                },
+                "yaw_deg": {
+                  "type": ["number", "null"],
+                  "minimum": -20,
+                  "maximum": 20
+                },
+                "pitch_deg": {
+                  "type": ["number", "null"],
+                  "minimum": -20,
+                  "maximum": 20
+                }
+              },
+              "required": ["kind", "name", "intensity", "duration_ms", "curve", "count", "yaw_deg", "pitch_deg"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["channel", "target_link_id", "intents"],
+        "additionalProperties": false
       }
     }
   },
@@ -38,19 +120,22 @@
     "function": {
       "name": "vac_twitch_set_category",
       "description": "Twitch Helix API で配信中チャンネルのカテゴリ（ゲーム）を変更する。要 OAuth スコープ `channel:manage:broadcast`。`game_id` 直接指定が最も確実。`game_name` を渡した場合は内部で Helix /games で解決するが、曖昧一致はせず厳密一致のみ。",
+      "strict": true,
       "parameters": {
         "type": "object",
         "properties": {
           "game_id": {
-            "type": "string",
+            "type": ["string", "null"],
             "description": "Twitch の game_id（例: \"509658\" = Just Chatting）。指定時はこちらが優先。"
           },
           "game_name": {
-            "type": "string",
+            "type": ["string", "null"],
             "description": "Twitch のカテゴリ名。Helix /games で厳密一致解決。"
           }
         },
-        "description": "game_id / game_name のどちらか一方は必須。"
+        "description": "game_id / game_name のどちらか一方は必須。",
+        "required": ["game_id", "game_name"],
+        "additionalProperties": false
       }
     }
   },
@@ -59,20 +144,22 @@
     "function": {
       "name": "vac_twitch_chat_say",
       "description": "Twitch Helix API `POST /chat/messages` でチャットに発話する（モデレーター/ボット口）。通常の AI 発話は [[ai.personas]] の channel_utterance → twitch-out プロセッサー経由で中継されるので、**このツールは AI が明示的に『今ここで／この内容だけを Twitch チャットに送りたい』と判断したときだけ使う**。普段は呼ばないこと。",
+      "strict": true,
       "parameters": {
         "type": "object",
         "properties": {
           "content": { "type": "string", "description": "発話本文。空文字不可。500 文字まで。" },
           "reply_parent_message_id": {
-            "type": "string",
+            "type": ["string", "null"],
             "description": "返信先の Twitch メッセージ ID（EventSub で受けた ChannelDatum.source.meta.message_id 等）。省略可。"
           },
           "broadcaster_login": {
-            "type": "string",
+            "type": ["string", "null"],
             "description": "送信先配信チャンネルの login。省略時は [twitch.eventsub].broadcaster_login / [twitch].username をフォールバック。"
           }
         },
-        "required": ["content"]
+        "required": ["content", "reply_parent_message_id", "broadcaster_login"],
+        "additionalProperties": false
       }
     }
   },
@@ -81,16 +168,19 @@
     "function": {
       "name": "vac_twitch_ban_user",
       "description": "Twitch Helix `POST /moderation/bans` で視聴者を BAN または timeout する。`duration_secs` 未指定で永久 BAN、指定で timeout（秒数）。要スコープ `moderator:manage:banned_users`。**虚偽・誤爆は重大事故になるため、状況が明確なときだけ呼ぶこと**。",
+      "strict": true,
       "parameters": {
         "type": "object",
         "properties": {
-          "user_id": { "type": "string", "description": "Twitch user_id。user_login より優先。" },
-          "user_login": { "type": "string", "description": "Twitch login 名（@不要）。user_id 未指定時に Helix /users で解決する。" },
-          "duration_secs": { "type": "integer", "description": "timeout の秒数。省略で永久 BAN。" },
-          "reason": { "type": "string", "description": "運営側に残る BAN 理由（任意）。" },
-          "broadcaster_login": { "type": "string", "description": "対象配信の login。省略時は上記と同じフォールバック。" }
+          "user_id": { "type": ["string", "null"], "description": "Twitch user_id。user_login より優先。" },
+          "user_login": { "type": ["string", "null"], "description": "Twitch login 名（@不要）。user_id 未指定時に Helix /users で解決する。" },
+          "duration_secs": { "type": ["integer", "null"], "description": "timeout の秒数。nullで永久 BAN。" },
+          "reason": { "type": ["string", "null"], "description": "運営側に残る BAN 理由（任意）。" },
+          "broadcaster_login": { "type": ["string", "null"], "description": "対象配信の login。省略時は上記と同じフォールバック。" }
         },
-        "description": "user_id / user_login のどちらか一方は必須。"
+        "description": "user_id / user_login のどちらか一方は必須。",
+        "required": ["user_id", "user_login", "duration_secs", "reason", "broadcaster_login"],
+        "additionalProperties": false
       }
     }
   },
@@ -99,14 +189,17 @@
     "function": {
       "name": "vac_twitch_unban_user",
       "description": "Twitch Helix `DELETE /moderation/bans` で BAN / timeout を解除する。要スコープ `moderator:manage:banned_users`。",
+      "strict": true,
       "parameters": {
         "type": "object",
         "properties": {
-          "user_id": { "type": "string" },
-          "user_login": { "type": "string" },
-          "broadcaster_login": { "type": "string" }
+          "user_id": { "type": ["string", "null"] },
+          "user_login": { "type": ["string", "null"] },
+          "broadcaster_login": { "type": ["string", "null"] }
         },
-        "description": "user_id / user_login のどちらか一方は必須。"
+        "description": "user_id / user_login のどちらか一方は必須。",
+        "required": ["user_id", "user_login", "broadcaster_login"],
+        "additionalProperties": false
       }
     }
   },
@@ -115,15 +208,25 @@
     "function": {
       "name": "vac_twitch_delete_message",
       "description": "Twitch Helix `DELETE /moderation/chat` で特定メッセージを削除する。要スコープ `moderator:manage:chat_messages`。message_id は EventSub 経由で受けた ChannelDatum.source.meta.message_id から取る。",
+      "strict": true,
       "parameters": {
         "type": "object",
         "properties": {
           "message_id": { "type": "string", "description": "削除対象の Twitch message_id。必須。" },
-          "broadcaster_login": { "type": "string", "description": "省略時はフォールバック。" }
+          "broadcaster_login": { "type": ["string", "null"], "description": "null時はフォールバック。" }
         },
-        "required": ["message_id"]
+        "required": ["message_id", "broadcaster_login"],
+        "additionalProperties": false
       }
+    }
+  },
+  {
+    "type": "web_search",
+    "search_context_size": "medium",
+    "user_location": {
+      "type": "approximate",
+      "country": "JP",
+      "timezone": "Asia/Tokyo"
     }
   }
 ]
-

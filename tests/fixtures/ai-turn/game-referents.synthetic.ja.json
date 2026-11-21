@@ -1,0 +1,14 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "game-referents-synthetic-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": { "max_chars": 160, "max_sentences": 3, "forbid_question_ending": true },
+  "cases": [
+    { "id": "game-skill-impression", "content": "今はゲームの戦闘中。スキルを使うたびにキャラが大げさな台詞を言うので、ちょっと気恥ずかしい。ケルシー先生はどう思う？", "allowed_actions": ["respond"], "speech": "required" },
+    { "id": "ambiguous-referent", "content": "勝手に謝られても知らんが。さすがに痛いんで。", "allowed_actions": ["observe", "react", "respond", "close"] },
+    { "id": "separate-people-correction", "content": "いや、謝っている人と痛い言動をしている人は別の人たちなので、混ぜないであげてください。", "allowed_actions": ["observe", "react", "respond", "close"] },
+    { "id": "stop", "content": "その話は引きずらなくていい。もう触れなくていい。", "allowed_actions": ["observe", "close"], "speech": "forbidden" },
+    { "id": "damage-question", "content": "別件。今の痛いってゲーム内の被ダメージの話。ケルシー先生、この画面で回復が足りているか分かる？", "allowed_actions": ["respond"], "speech": "required" }
+  ]
+}

@@ -65,6 +65,8 @@ username = "your_channel_login"
 # 負荷上限や purpose に応じて間引いて下さい。
 # stream_online = true
 # stream_offline = true
+# channel.update v2 はAI配信知覚の宣言状態同期に必須のため、Flowgraph EventSub bridgeが常時購読。
+# category/title/language/content classification labelsを更新し、個別無効化はしない。
 # follow = true
 # subscribe = true
 # channel_subscription_message = true

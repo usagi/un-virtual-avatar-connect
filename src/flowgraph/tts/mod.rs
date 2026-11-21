@@ -21,5 +21,5 @@ pub mod driver;
 pub mod drivers;
 pub mod registry;
 
-pub use driver::{TtsDriver, TtsError, TtsOutcome, TtsRequest};
+pub use driver::{TtsDriver, TtsError, TtsOutcome, TtsRequest, TtsSynthesis};
 pub use registry::{registry, TtsRegistry};

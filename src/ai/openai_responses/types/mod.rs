@@ -11,10 +11,11 @@ pub mod stream;
 // 内部呼び出しが `types::input::*` などのフルパスを利用しているため `unused_imports`
 // が出るが、公開表面として維持したいので allow で抑制しておく。
 #[allow(unused_imports)]
-pub use input::{InputContent, InputContentPart, InputItem};
+pub use input::{InputContent, InputContentPart, InputItem, PromptCacheBreakpoint, PromptCacheBreakpointMode};
 #[allow(unused_imports)]
 pub use request::{
-	CreateResponseRequest, NamedToolChoice, Reasoning, ReasoningEffort, TextConfig, TextFormat, Tool, ToolChoice, ToolChoiceMode,
+	CreateResponseRequest, NamedToolChoice, PromptCacheMode, PromptCacheOptions, PromptCacheTtl, Reasoning, ReasoningEffort, TextConfig,
+	TextFormat, Tool, ToolChoice, ToolChoiceMode,
 };
 #[allow(unused_imports)]
 pub use response::{

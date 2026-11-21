@@ -1,4 +1,4 @@
-source	replacement	kind	priority	is_locked	enabled	by	created_at	expires_at	tags	note
-にんげん	人間	literal	0	true	true	arknights	2026-04-23T00:00:00Z		arknights,seed	Arknights 固定辞書のサンプル（削除不可）
-Dr.USAGI	ドクターウサギ	literal	10	false	true	user:bootstrap	2026-04-23T00:00:00Z		arknights	通常学習エントリのサンプル
-(?P<num>\d+)円	$num 円	regex	50	false	true	system	2026-04-23T00:00:00Z		formatting	数値キャプチャのサンプル
+reading	surface	part_of_speech	comment	priority	is_locked	enabled	by	created_at	expires_at	tags
+にんげん	人間	名詞	Arknights 固定辞書のサンプル（削除不可）	0	true	true	arknights	2026-04-23T00:00:00Z		arknights,seed
+どくたーうさぎ	Dr.USAGI	固有名詞	通常学習エントリのサンプル	10	false	true	user:bootstrap	2026-04-23T00:00:00Z		arknights
+$num 円	(?P<num>\d+)円	正規表現	数値キャプチャのサンプル	50	false	true	system	2026-04-23T00:00:00Z		formatting

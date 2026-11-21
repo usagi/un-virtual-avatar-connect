@@ -1,9 +1,8 @@
 //! Phase δ-9 D.2/D.3 (v1.0 前): V1 `Processor` trait / `ProcessorKind` / dispatch ループを除去した後の
 //! **薄いモジュール群**。ここに残っているのは以下の 2 種類だけ:
 //!
-//! 1. **ingress 系**: まだ Flowgraph bridge が完全実装されていない voice / twitch (IRC + EventSub) を
-//!    V1 `[[processors]]` 経由で起動するための spawn ロジック。bridges::voice / bridges::twitch 完成後に
-//!    bridge 側から本ファイル群の `spawn_*` を呼び出すよう切り替える想定。
+//! 1. **ingress 系**: Flowgraph bridge から呼び出される voice / twitch (IRC + EventSub) の
+//!    低レベル worker 実装。V1 `[[processors]]` 経由の起動は廃止済みで、残存設定は警告のみ。
 //! 2. **共通ユーティリティ**: `voicevox_engine` は Flowgraph の `tts.speak` ドライバ (VoiceVox) が直接呼ぶ。
 //!
 //! V1 変換系 (Modify/Command/翻訳/TTS/OCR/Screenshot など) は全て Flowgraph ノードに置き換わったため削除済み。
@@ -14,14 +13,17 @@ pub(crate) mod ingress;
 pub(crate) mod ocr;
 pub(crate) mod screenshot;
 pub(crate) mod voice;
+pub(crate) mod voice_partial_preview;
 #[cfg(feature = "voice-vosk")]
-mod voice_vosk;
+pub(crate) mod voice_vosk;
 #[cfg(feature = "voice-vosk")]
-mod voice_vosk_model;
+pub(crate) mod voice_vosk_model;
 #[cfg(feature = "voice-whisper")]
-mod voice_whisper;
-#[cfg(feature = "voice-whisper")]
-mod voice_whisper_model;
+pub(crate) mod voice_whisper;
+#[cfg(any(feature = "voice-whisper", feature = "stt-eval-whisper"))]
+pub(crate) mod voice_whisper_model;
 pub(crate) mod voicevox_engine;
+#[cfg(feature = "voice-whisper")]
+pub(crate) mod whisper_worker;
 
 pub use voicevox_engine::{VoicevoxSpeaker, VoicevoxStyle};

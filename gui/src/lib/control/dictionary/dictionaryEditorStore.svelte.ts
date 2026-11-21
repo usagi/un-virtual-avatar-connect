@@ -13,28 +13,24 @@
  *     一時的に持たせて「採用」ボタン押下後にストアを更新する。
  */
 
-import { api } from '../../api';
-import { ControlApiError } from '../../types';
-import type {
-	TableCatalogItem,
-	TableCatalogResponse,
-	TableFileDto,
-} from '../../types';
+import { api } from "../../api";
+import { ControlApiError } from "../../types";
+import type { TableCatalogItem, TableCatalogResponse, TableFileDto } from "../../types";
 
 export type DictionaryEditorPhase =
-	| { kind: 'idle' }
-	| { kind: 'loading-catalog' }
-	| { kind: 'loading-table'; key: string }
-	| { kind: 'ready' }
-	| { kind: 'error'; message: string };
+	| { kind: "idle" }
+	| { kind: "loading-catalog" }
+	| { kind: "loading-table"; key: string }
+	| { kind: "ready" }
+	| { kind: "error"; message: string };
 
 /**
  * `role` が "glossary" かどうかを判定。
  * 未指定 / null の場合は「汎用 Table」として Glossary Editor からは除外する。
  */
 export function isDictionaryRole(item: TableCatalogItem): boolean {
-	const role = (item.role ?? '').toLowerCase();
-	return role === 'glossary';
+	const role = (item.role ?? "").toLowerCase();
+	return role === "glossary";
 }
 
 function extractMessage(e: unknown): string {
@@ -47,21 +43,25 @@ function extractMessage(e: unknown): string {
 }
 
 class DictionaryEditorStore {
-	phase: DictionaryEditorPhase = $state({ kind: 'idle' });
+	phase: DictionaryEditorPhase = $state({ kind: "idle" });
 	catalog: TableCatalogItem[] = $state([]);
 	/** Glossary Editor Pane から見えるべき Table のみ（role=="glossary"）。 */
 	dictionaryTables: TableCatalogItem[] = $state([]);
 	currentKey: string | null = $state(null);
 	currentTable: TableFileDto | null = $state(null);
+	// Catalog, selection and mutation publication share one ordering boundary.
+	private readGeneration = 0;
 
 	async loadCatalog(): Promise<void> {
-		this.phase = { kind: 'loading-catalog' };
+		const generation = ++this.readGeneration;
+		this.phase = { kind: "loading-catalog" };
 		try {
 			const res: TableCatalogResponse = await api.listControlTables();
+			if (generation !== this.readGeneration) return;
 			this.catalog = res.tables;
 			this.dictionaryTables = res.tables.filter(isDictionaryRole);
 			if (this.dictionaryTables.length === 0) {
-				this.phase = { kind: 'idle' };
+				this.phase = { kind: "idle" };
 				this.currentKey = null;
 				this.currentTable = null;
 				return;
@@ -73,19 +73,25 @@ class DictionaryEditorStore {
 					: this.dictionaryTables[0].key;
 			await this.selectTable(resolvedKey);
 		} catch (e) {
-			this.phase = { kind: 'error', message: extractMessage(e) };
+			if (generation !== this.readGeneration) return;
+			this.phase = { kind: "error", message: extractMessage(e) };
 		}
 	}
 
 	async selectTable(key: string): Promise<void> {
+		const generation = ++this.readGeneration;
 		this.currentKey = key;
-		this.phase = { kind: 'loading-table', key };
+		this.currentTable = null;
+		this.phase = { kind: "loading-table", key };
 		try {
 			const dto = await api.getControlTable(key);
+			if (generation !== this.readGeneration) return;
+			if (dto.key !== key) throw new Error("選択した辞書と読込結果が一致しません。再読込してください。");
 			this.currentTable = dto;
-			this.phase = { kind: 'ready' };
+			this.phase = { kind: "ready" };
 		} catch (e) {
-			this.phase = { kind: 'error', message: extractMessage(e) };
+			if (generation !== this.readGeneration) return;
+			this.phase = { kind: "error", message: extractMessage(e) };
 			this.currentTable = null;
 		}
 	}
@@ -102,8 +108,9 @@ class DictionaryEditorStore {
 	 */
 	applyTableOverride(dto: TableFileDto): void {
 		if (dto.key !== this.currentKey) return;
+		++this.readGeneration;
 		this.currentTable = dto;
-		this.phase = { kind: 'ready' };
+		this.phase = { kind: "ready" };
 	}
 }
 

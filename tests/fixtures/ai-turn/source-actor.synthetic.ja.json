@@ -1,0 +1,11 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "source-actor-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": { "max_chars": 160, "max_sentences": 3, "forbid_question_ending": true },
+  "cases": [
+    { "id": "viewer-apology", "actor": "ミドリ", "content": "ケルシー先生、さっき私が書いたコメントに誤字があった。ごめんね。", "allowed_actions": ["respond"], "speech": "required" },
+    { "id": "streamer-question", "actor": "ドクター", "content": "ケルシー先生、いまコメントの誤字を謝った人の名前は分かる？", "allowed_actions": ["respond"], "speech": "required", "speech_includes": ["ミドリ"] }
+  ]
+}

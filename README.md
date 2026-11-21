@@ -1,23 +1,20 @@
-# Virtual Avatar Connect
+# U.N. Virtual Avatar Connect 2.0
 
-配信支援アプリ Virtual Avatar Connect; VAC
+VACは、Twitchの通知やクリップ紹介、字幕、読み上げ、AI共演者を組み合わせて使えるWindows向けの配信支援アプリです。使いたい用途から始めて、必要な機能をFlowgraph Studioで追加できます。
 
-AI疑似人格共演者、VRM制御、音声認識、画像認識、字幕、翻訳、読み上げなどなど
+[公式サイト](https://usagi.github.io/un-virtual-avatar-connect/) · [Windows x64版のダウンロード](https://github.com/usagi/un-virtual-avatar-connect/releases/latest) · [使い始める](docs/manual/quickstart.md)
 
-- ここは開発プロジェクトとしての公式ウェブサイト <https://github.com/usagi/virtual-avatar-connect> です。
-  - ご要望や不具合の報告、OSSとしてのプロジェクトへのご参加はこちらからどうぞ。🙇🏼‍♀️
-- 通常の閲覧用の公式ウェブサイトは <https://usagi.github.io/virtual-avatar-connect/> です。
-  - 通常はこちらへアクセスして下さい。🙏
+1. Releasesの配布ZIPをすべて展開し、`virtual-avatar-connect-desktop.exe` を起動します。
+2. 通知とクリップを使うなら「Twitch配信支援（AIなし）」、共演者を使うなら「配信AIと始める」を選び、「作成して開始」を押します。
+3. 用途に応じてTwitchやOBSを接続します。AIなしの構成はOpenAIの契約やAPIキーなしで使えます。
 
-## ご注意: VAC は現在開発途中のα版となっております🙏
+## 開発・不具合の報告
 
-- 基本機能は動作しますが、まだたくさんの不具合があるかもしれません。🙇🏼‍♀️
-  - 不具合を見つけたら [Issues] へご報告ください。
-    - 「1. 動作環境」、「2. 再現手順」、「3. 期待した動作」の3点をご報告下さい。
-    - 設定やスクショを貼る場合は API-KEY などの漏らしたくない情報が含まれないようご注意下さい。
-  - ご要望も [Issues] へどうぞ！
+ビルドには **Rust 1.100.0** を使用します。`rust-toolchain.toml` に従って rustup が選択します（最低対応バージョン: 1.100、プロジェクト内コードの Edition: 2024）。依存関係は `Cargo.lock` を維持し、検証時は `cargo check --locked` / `cargo test --locked` を使用してください。 Cargoの中間生成先 `build-dir` を実行ファイルの出力先と分離する場合は、`UN_BUILD_PROFILE_DIR` に実行ファイルを配置するディレクトリの絶対パスを指定してください。
 
-[Issues]:https://github.com/usagi/virtual-avatar-connect/issues
+不具合やご要望は [Issues] へどうぞ。動作環境と再現手順、期待した動作を添えてください。設定やスクリーンショットを共有する際は認証情報を伏せてください。
+
+[Issues]: https://github.com/usagi/un-virtual-avatar-connect/issues
 
 ## v1 → v2 移行
 
@@ -27,33 +24,27 @@ v0.10.0 で **V1 processor 層は撤去**されました。`[[processors]]` は 
 
 ## Roadmap (抜粋)
 
-現在は Phase VI: **GUI 化** を進めています。GUI 本体に先立ち、まず制御面を REST/WS として切り出します。
+v2 は **Flowgraph + Control API + GUI Runtime Cockpit** を中心にしています。
 
-- **Phase VI-α: Control API 層**（いま進行中）
-  - `/api/v1/control/*` に REST / WebSocket を集約する認証付きコントロールプレーン。
-    - `GET /ping` / `GET /whoami` — 疎通・認証ポリシー診断
-    - `GET /snapshot` — processors / ai_personas / twitch の現状 JSON
-    - `POST /pause` / `POST /resume` — processor / AI persona の soft pause（全体・id/index 指定）
-    - `POST /reload` — AI persona の `custom_instructions` / `system_instructions_extra` / `heartbeat.enabled` / `decision.threshold` と、`modify` プロセッサの辞書ファイルを無停止で差し替え
-    - `POST /oauth/twitch/{broadcaster|moderator}/start|cancel` / `GET /status` — Twitch Device Code Flow を GUI ボタンからオンデマンドで起動・追跡・取消（起動時ブロックを避けるための仕組み）
-    - `POST /ingress` — 任意の `ChannelDatum` をパイプラインに投入（GUI からの発話テスト等、`[[processors]] feature="webinput"` 非依存）
-    - `GET /profiles` / `POST /restart` — 同ディレクトリの `conf.*.toml` を列挙し、GUI からワンクリックでプロファイル切替再起動（Phase VI-γ-1）
-    - `GET /events` — WebSocket で `ChannelDatum` / `pause_state` / `reloaded` / `oauth_status` / `processor_invoked` / `restarting` / `heartbeat` / `lagged` を一本ストリームで購読
-  - 既存の `/resources/…`・`/output/…`（OBS ブラウザソース）や現行 UI の `/websocket` は引き続き無保護で維持（OBS に Bearer を埋めるのは現実的でないため）。
-  - 設定: [`conf.example-control-api.toml`](conf.example-control-api.toml)
-  - 認証モデル: 「bind 先は `web_ui_address`」「その接続に Bearer が要るかは `[control_api]` のポリシー」の二軸分離。
-    - 同 PC (loopback) は既定無認証で、LAN からは Bearer 必須。フルトラスト LAN は設定で緩和可。
-    - WebSocket は `Authorization: Bearer …` ヘッダに加え `?token=…` クエリでも認証可能（ブラウザの `new WebSocket()` 向け）。
-  - 動作確認用 [Bruno](https://www.usebruno.com/) collection: [`dev/bruno/vac-control-api/`](dev/bruno/vac-control-api/README.md)
-- **Phase VI-β: Web GUI 本体**（着手中）
-  - スタック: Svelte 5 (runes) + Vite + TypeScript + [Svelte Flow](https://svelteflow.dev/) + [Skeleton v4](https://skeleton.dev/) + Tailwind v4 + melt-ui。
-  - 詳細と開発手順: [`gui/README.md`](gui/README.md)
-  - ダッシュボード、ログ/イベントビューア、設定 UI、node ベースの pipeline エディタ、Kill Switch / Dry-run。
-- Phase VI-γ: 可視化・リプレイ（AI Decision スコア内訳、イベントリプレイ、タイムラインバー）。
-- Phase VII: モデレーター定型機能（RAID 応答・サブ/cheer 謝意・BAN エスカレーション）。
-- Phase VIII (将来): Tauri 化（ブラウザレス・デスクトップ GUI）。
+- `/api/v1/control/*` は GUI / 外部ツール向けの認証付き control plane です。
+  - `snapshot` / `events` / pause / reload / restart / profile edit
+  - Flowgraph tree / node catalog / diagnostics / fragment copy-paste / ZIP import-export
+  - Managed App / OBS Browser Source / Quick Effects / AI persona config
+  - UN App API over Zenoh (UNAA/Z) discovery / command / diagnostics
+- GUI は `gui/` の Svelte 5 + Vite 実装です。Now、Live、Modes、Flowgraph Studio、Resources、Observability、Settings を持ちます。
+- Motion は **UNMF / UNMF/Z** を core data plane とし、VMC は互換 adapter として扱います。
+- U.N. シリーズアプリ連携の control plane は **UN App API over Zenoh (UNAA/Z)** です。
 
-Phase VI 以降は破壊的な設定変更がしばらく続きます。ご注意ください。🙏
+主要ドキュメント:
+
+- 開発引き継ぎ（2026-09-13）: [`docs/maintenance/handoff-2026-09-13.md`](docs/maintenance/handoff-2026-09-13.md)
+- 設定リファレンス: [`docs/manual/conf-reference.md`](docs/manual/conf-reference.md)
+- GUI 開発手順: [`gui/README.md`](gui/README.md)
+- UNAA/Z protocol: [`docs/manual/un-app-api-over-zenoh.md`](docs/manual/un-app-api-over-zenoh.md)
+- Motion / VMC / UNMF 方針: [`docs/roadmap/v2-vmc-and-restructure.md`](docs/roadmap/v2-vmc-and-restructure.md)
+- Control API 動作確認用 [Bruno](https://www.usebruno.com/) collection: [`dev/bruno/vac-control-api/`](dev/bruno/vac-control-api/README.md)
+
+v2 は `[[processors]]` から Flowgraph へ移行済みです。古い設定からの移行は [`docs/manual/v1-to-v2-migration.md`](docs/manual/v1-to-v2-migration.md) を参照してください。
 
 ## LICENSE
 

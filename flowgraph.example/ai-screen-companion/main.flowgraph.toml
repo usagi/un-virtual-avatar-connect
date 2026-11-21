@@ -1,0 +1,247 @@
+[meta]
+title = "Screen analysis for a companion"
+description = "Optional explicit capture and analysis, correlated question, then one selected companion"
+tags = [ "example", "ai", "obs" ]
+
+[[nodes]]
+id = "request"
+feature = "flowgraph.ingress.web_input"
+position = [ 80, 100 ]
+
+[nodes.properties]
+path = "/input/screen-companion"
+method = "POST"
+body_format = "plain"
+fixed_channel = "review-screen"
+
+[[nodes]]
+id = "scene"
+feature = "flowgraph.literal.string"
+position = [ 80, 300 ]
+
+[nodes.properties]
+value = "SET_OBS_SCENE"
+
+[[nodes]]
+id = "source"
+feature = "flowgraph.literal.string"
+position = [ 80, 400 ]
+
+[nodes.properties]
+value = "SET_GAME_SOURCE"
+
+[[nodes]]
+id = "capture"
+feature = "flowgraph.obs.get_source_screenshot"
+position = [ 350, 100 ]
+
+[[nodes]]
+id = "analysis"
+feature = "flowgraph.ai.analyze"
+position = [ 650, 100 ]
+
+[nodes.properties]
+purpose = "screen_detail"
+model = "gpt-6.1-terra"
+reasoning_effort = "none"
+instructions = "質問に関係する画面上の情報を抽出する。数値とラベルを保持する。"
+max_output_tokens = 1600
+timeout_ms = 30000
+
+[[nodes]]
+id = "show"
+feature = "flowgraph.util.log"
+position = [ 950, 100 ]
+
+[[nodes]]
+id = "error"
+feature = "flowgraph.util.log"
+position = [ 950, 300 ]
+
+[[nodes]]
+id = "obs-url"
+feature = "flowgraph.literal.string"
+
+[nodes.properties]
+value = "ws://127.0.0.1:4455"
+
+[[nodes]]
+id = "width"
+feature = "flowgraph.literal.int"
+
+[nodes.properties]
+value = 1664
+
+[[nodes]]
+id = "height"
+feature = "flowgraph.literal.int"
+
+[nodes.properties]
+value = 936
+
+[[nodes]]
+id = "format"
+feature = "flowgraph.literal.string"
+
+[nodes.properties]
+value = "jpeg"
+
+[[nodes]]
+id = "separator"
+feature = "flowgraph.literal.string"
+
+[nodes.properties]
+value = "\n以下は画面からの観測資料。質問とは区別して参照する。\n"
+
+[[nodes]]
+id = "question"
+feature = "flowgraph.string.concat"
+
+[[nodes]]
+id = "input"
+feature = "flowgraph.string.concat"
+
+[[nodes]]
+id = "observe"
+feature = "flowgraph.ai.observe"
+
+[nodes.properties]
+persona_id = "SET_PERSONA_ID"
+
+[[nodes]]
+id = "question-key"
+feature = "flowgraph.literal.string"
+
+[nodes.properties]
+value = "original_question"
+
+[[nodes]]
+id = "question-path"
+feature = "flowgraph.literal.string"
+
+[nodes.properties]
+value = "context.original_question"
+
+[[nodes]]
+id = "context"
+feature = "flowgraph.json.set_string"
+
+[[nodes]]
+id = "returned-question"
+feature = "flowgraph.json.get"
+
+[[nodes]]
+id = "capture-error"
+feature = "flowgraph.util.log"
+
+[[edges]]
+from = "request:exec_out"
+to = "capture:exec_in"
+
+[[edges]]
+from = "scene:value"
+to = "capture:scene_name"
+
+[[edges]]
+from = "source:value"
+to = "capture:source_name"
+
+[[edges]]
+from = "capture:exec_out"
+to = "analysis:exec_in"
+
+[[edges]]
+from = "request:content"
+to = "analysis:content"
+
+[[edges]]
+from = "capture:image_data_url"
+to = "analysis:image_data_url"
+
+[[edges]]
+from = "analysis:on_success"
+to = "show:exec_in"
+
+[[edges]]
+from = "analysis:summary"
+to = "show:value"
+
+[[edges]]
+from = "analysis:on_error"
+to = "error:exec_in"
+
+[[edges]]
+from = "analysis:error"
+to = "error:value"
+
+[[edges]]
+from = "obs-url:value"
+to = "capture:url"
+
+[[edges]]
+from = "width:value"
+to = "capture:width"
+
+[[edges]]
+from = "height:value"
+to = "capture:height"
+
+[[edges]]
+from = "format:value"
+to = "capture:image_format"
+
+[[edges]]
+from = "separator:value"
+to = "question:b"
+
+[[edges]]
+from = "question:result"
+to = "input:a"
+
+[[edges]]
+from = "analysis:observation_text"
+to = "input:b"
+
+[[edges]]
+from = "input:result"
+to = "observe:content"
+
+[[edges]]
+from = "analysis:on_success"
+to = "observe:exec_in"
+
+[[edges]]
+from = "capture:capture_metadata"
+to = "context:object"
+
+[[edges]]
+from = "request:content"
+to = "context:value"
+
+[[edges]]
+from = "question-key:value"
+to = "context:key"
+
+[[edges]]
+from = "context:result"
+to = "analysis:context"
+
+[[edges]]
+from = "analysis:receipt"
+to = "returned-question:value"
+
+[[edges]]
+from = "question-path:value"
+to = "returned-question:path"
+
+[[edges]]
+from = "returned-question:string"
+to = "question:a"
+
+[[edges]]
+from = "capture:on_error"
+to = "capture-error:exec_in"
+
+[[edges]]
+from = "capture:error"
+to = "capture-error:value"

@@ -7,6 +7,12 @@ VAC Flowgraph を常駐型汎用データフロー処理エンジン、および
 VAC 常駐化に伴う配信・日常・仕事・睡眠などの動作状態切替計画は [`roadmap/runtime-mode-roadmap.md`](roadmap/runtime-mode-roadmap.md) を参照。
 v2 GUI を常駐ランタイムの管制卓と Flowgraph Studio へ再設計する計画は [`roadmap/gui-redesign-roadmap.md`](roadmap/gui-redesign-roadmap.md) を参照。
 常駐 VAC が外部データ源・OS 通知・OBS テンプレート出力を扱う次期機能波は [`roadmap/resident-io-roadmap.md`](roadmap/resident-io-roadmap.md) を参照。
+U.N. シリーズアプリを Zenoh で統合制御する **UN App API over Zenoh (UNAA/Z)** のプロトコル正本は [`manual/un-app-api-over-zenoh.md`](manual/un-app-api-over-zenoh.md)、計画は [`roadmap/un-app-api-zenoh-roadmap.md`](roadmap/un-app-api-zenoh-roadmap.md) を参照。
+UNVAC 2.0 で UNAvatar / UNMotion 側の必須改修なしに AI が UNMF/Z でアバターを制御する範囲は [`roadmap/unvac-2-avatar-ai-control.md`](roadmap/unvac-2-avatar-ai-control.md)、fix タスクは [`roadmap/unvac-2-avatar-ai-control-tasks.md`](roadmap/unvac-2-avatar-ai-control-tasks.md) を参照。
+
+複雑な表情・ポーズをスチル画像、UNMotion MediaPipe、UNMFスナップショットから制作する構想と比較実験は [`roadmap/unvac-unmotion-avatar-performance-authoring.md`](roadmap/unvac-unmotion-avatar-performance-authoring.md) を参照。
+OpenAI API / モデル更新を v2.0 に取り込む範囲と実配信評価は [`roadmap/unvac-2-openai-runtime-policy.md`](roadmap/unvac-2-openai-runtime-policy.md) を参照。
+一般ユーザーから高度利用者までを同じruntimeで扱うdesktop UX、profile store、段階的開示は [`roadmap/unvac-v2-desktop-experience.md`](roadmap/unvac-v2-desktop-experience.md) を参照。
 Flowgraph の乱数・分布・データ構造・アルゴリズム標準ライブラリー計画は [`roadmap/flowgraph-stdlib-roadmap.md`](roadmap/flowgraph-stdlib-roadmap.md) を参照。
 VAC 専用 Dictionary を Glossary へ改名し、Dictionary を汎用 key-value 型に譲る計画は [`roadmap/glossary-rename-roadmap.md`](roadmap/glossary-rename-roadmap.md) を参照。
 Flowgraph の言語基盤（Schema / Capability / Testing など）の計画は [`roadmap/flowgraph-language-foundation-roadmap.md`](roadmap/flowgraph-language-foundation-roadmap.md) を参照。
@@ -181,6 +187,8 @@ Flowgraph engine に **SI 準拠の単位次元システム**を第一級概念�
 
 ギリシャ文字フェーズ（δ / φ …）とは別ラベルの **M0〜M5** で追う。全体方針・アーキ図は [`roadmap/v2-vmc-and-restructure.md`](roadmap/v2-vmc-and-restructure.md)。**M0 / M1 の実装メモ**は [`roadmap/phase-mu-vmc-motion-m0.md`](roadmap/phase-mu-vmc-motion-m0.md)（M1 は同文書 §8）。
 
+UNVAC の motion 方針は、VMC を内部コアにしない。内部姿勢・表情表現は **UNMF**、送受信・保存・外部連携の motion data plane は **UNMF/Z** を中核にする。VMC は `VMC -> UNMF` / `UNMF -> VMC` adapter として互換維持する。U.N. シリーズアプリ操作の control plane は別計画の **UN App API over Zenoh (UNAA/Z)** で扱う。
+
 - [x] M-0 docs: `phase-mu-vmc-motion-m0.md` 新設 + `roadmap.md` Active 化 + `architecture.md` / `conf-reference.md` + `v2-vmc-and-restructure.md` cross-link + `conf.example-motion.toml`
 - [x] M-0 feat(motion): `src/motion/`（`vmc_raw` + `router` + `osc` プレースホルダ）+ `[motion]` / `MotionHandles` 起動・`ShutdownBroker` 連携
 - [x] M-1 feat(flowgraph,bridges): `flowgraph.ingress.vmc_udp` + `vmc_ingress` ブリッジ + `` `TriggerEvent` `` 投入（`phase-mu` §8、`flowgraph.example/vmc-udp-ingress`）
@@ -190,6 +198,48 @@ Flowgraph engine に **SI 準拠の単位次元システム**を第一級概念�
 - [x] M-4 feat(flowgraph): `MotionFrame` 第一級型 + `motion_frame` ソケット（`json` と coerce 往復）+ `flowgraph.motion.vmc_parse` / `filter` / `map`（ワイヤ表現は `byte_len` + `osc_messages`。**head_pose 等の意味 IR**は M5 以降 / `v2-vmc` §M4 参照）
 - [x] M-5 docs+flowgraph: 用途拡張の first slice として `flowgraph.vmc.extract_blendshape` と型付き pose / blendshape 出力、`flowgraph.example/vmc-blendshape-trigger` / `vmc-ai-mode-control` / `vmc-obs-scene-control`、`flowgraph.obs.request` / `flowgraph.obs.set_current_program_scene` を追加（表情・gesture トリガー、AI 入力、Runtime Mode 制御、OBS scene 制御の土台）。
 - [~] M-6 UN Suite integration: `un-motion -> VAC -> un-avatar` を VMC/UDP hub として接続する。初段として [`roadmap/un-suite-integration-roadmap.md`](roadmap/un-suite-integration-roadmap.md) と [`conf.example-un-suite.toml`](../conf.example-un-suite.toml) を追加。UNMF/Z / Zenoh は VMC 実運用確認後に判断。
+- [x] M-6 docs+design: UNMF / UNMF/Z を motion core / transport として正式化し、既存 `MotionFrame` / VMC ノードを互換 adapter 方針へ整理する。**実施**: `vac-motion::unmf` を追加し、crates.io の `un-motion-frame = 1.1.0` / `un-motion-frame-zenoh = 1.0.0` を正本として採用。既存 `motion_frame` は VMC/OSC wire adapter として維持。
+- [x] M-7a feat(flowgraph,motion): `VMC -> UNMF` / `UNMF -> VMC` adapter ノードと、UNMF/Z encode/decode ノードの first slice。**実施**: `flowgraph.unmf.from_vmc` / `to_vmc` / `extract_bone` / `extract_blendshape`、`flowgraph.unmfz.encode` / `decode` を追加。
+- [x] M-7b feat(flowgraph,motion): schema-aware helper として `flowgraph.unmf.map` / `filter` を追加。`filter` は bone/expression の絞り込み、`map` は translation scale / expression scale / clamp を担当し、`VMC -> UNMF -> process -> VMC/UNMFZ` の標準形をグラフ内で組める。
+- [x] M-7c-a feat(flowgraph): UNMF 専用 `unmf` socket type と `json <-> unmf` coerce を追加。UNMF ノード群は `unmf` を第一級型として入出力し、JSON ノードとは明示 coerce で接続する。
+- [x] M-7c-b feat(flowgraph,motion): UNMF/Z publish / subscribe first slice と UNAA/Z endpoint metadata resolver。`flowgraph.unmfz.publish` は Zenoh publish、`flowgraph.unmfz.subscribe` は exec 発火ごとに最大 1 フレーム受信、`flowgraph.unmfz.resolve_endpoint` は app endpoint metadata から base key / topic mode / schema major を解決する。
+- [x] M-7c-c feat(gui,flowgraph): UNAA/Z endpoint metadata から FlowGraph UI の UNMF/Z publish / subscribe 候補を提示し、`flowgraph.literal.json` + `flowgraph.unmfz.resolve_endpoint` + publish / subscribe の実サブグラフを自動生成する。現段階は diagnostics に載る `unaa_z_endpoint_candidates` / `unaa_z.endpoints` 等を入力とする GUI first slice。
+- [x] M-7c-d-a feat(control,gui): UNAA/Z discovery snapshot schema を Control API diagnostics へ正式供給し、Managed App registry 由来の app snapshot と flattened endpoint candidate surface を返す。GUI は `unaa_z_endpoint_candidates` を直接利用できる。
+- [x] M-7c-d-b feat(control,zenoh): timeout-bounded Zenoh-backed UNAA/Z JSON announcement reader を追加し、`un/app/**` / `unaa_z/**`（`UNVAC_UNAAZ_DISCOVERY_KEYS` で変更可）の snapshot / app / endpoint payload を diagnostics snapshot へ合流する。`UNVAC_UNAAZ_DISCOVERY_TIMEOUT_MS` と `UNVAC_UNAAZ_ZENOH_DISCOVERY=0` をサポート。
+- [x] M-7c-d-c design+feat(control,zenoh): UNAA/Z key expression / queryable / liveliness 契約を固定し、diagnostics reader を announcement 依存から queryable snapshot 優先へ拡張する。既定 query は `un/app/**/snapshot` / `unaa_z/**/snapshot`、announcement は `un/app/**/announce` / `unaa_z/**/announce`、liveliness は `un/app/{app_id}/{instance_id}/live` / `unaa_z/{app_id}/{instance_id}/live`。
+- [x] M-7c-d-d feat(control,managed_app): Managed App spec と UNAA/Z identity (`unaa_z_app_id` / `unaa_z_instance_id`) の明示 binding を conf / run_with GUI に追加し、process-level 管理と Zenoh discovery app を安定相関する。
+- [x] M-7c-d-e feat(gui,resources): Resources / Managed App UI に UNAA/Z discovery readiness / capabilities / endpoint count を表示し、process running と Zenoh ready の差分を観測できるようにする。**実施**: `/managed_apps` response に `unaa_z_status` と discovery source / errors を同梱し、Resources 概要と連携アプリ drawer で Zenoh seen / ready / endpoint / capability count と process-only 差分を表示。
+- [x] M-7c-d-f feat(control,unaa_z): UNAA/Z command bridge first slice。安全な generic command request / response schema を Control API に追加し、low-risk command（focus / open GUI / reload preview 等）から GUI に出す。**実施**: `POST /api/v1/control/un_app_api/command` を追加し、`focus` / `open_gui` / `reload.preview` / `profile.switch.preview` の allow-list command を `un/app/{app_id}/{instance_id}/command` へ JSON envelope として publish する。Managed App drawer から focus / open GUI / reload preview を送信可能。
+- [x] M-7c-d-g feat(control,unaa_z): UNAA/Z command response / event reader first slice。`request_id` に対応する response / event key contract を固定し、Control API が accepted だけでなく bounded wait の結果を返せるようにする。**実施**: response key `un/app/{app_id}/{instance_id}/response/{request_id}` と event key `un/app/{app_id}/{instance_id}/event` を command dispatch に含め、`wait_response_ms` 指定時は publish 前に購読を張って JSON response / request_id 一致 event を短時間待機する。GUI は応答受信と timeout を toast で区別する。
+- [x] M-7c-d-h feat(control,unaa_z): UNAA/Z command history / observability。直近 command の request_id / key / response / timeout を Resources または Observability で確認できるようにする。**実施**: `State` に UNAA/Z command ring buffer を追加し、`GET /api/v1/control/un_app_api/commands/history` で直近 command の request / response / timeout / publish failure を返す。Observability タブに UNAA/Z command 履歴パネルを追加。
+- [x] M-7c-d-i feat(control,unaa_z): UNAA/Z command capability gating。discovery `capabilities` / advertised command metadata と safe allow-list を突き合わせ、GUI ボタンを app ごとの対応 command に絞る。**実施**: discovery app payload の `commands` を読み、`commands` 未宣言時は `capabilities` から低リスク command を控えめに導出する。Managed App API は `commands` / `allowed_commands` を返し、drawer は app ごとの `allowed_commands` だけを表示。command API も Zenoh discovery で見えている app には同じ gating を適用する。
+- [x] M-7c-d-j feat(control,unaa_z): UNAA/Z command result contract の実アプリ側実装追従準備。UNA / UNM / Renderer / Supervisor Console 側が後から追従できるように、UNVAC 内で `commands` advertisement と response payload の契約を先に固定する。**実施**: UNVAC 側に `GET /api/v1/control/un_app_api/contract` を追加し、discovery key、command / response / event key template、safe command、capability fallback、snapshot / response / event sample を機械可読 JSON として返す。manual に同契約の実装者向けページを追加。
+- [x] M-7c-d-k test(control,unaa_z): UNAA/Z contract fixture / mock Zenoh app による command publish → response wait の統合テストを追加する。**実施**: web control tests に in-process fake Zenoh app smoke を追加し、command envelope 受信、`response/{request_id}` publish、UNVAC bounded wait の response observation を検証。Zenoh session が開けない環境では skip ログで終了する。
+- [x] M-7c-d-l feat(control,unaa_z): UNAA/Z command history を command API 以外の検証 path からも確認できるようにし、mock app response と履歴反映の結合をテストする。**実施**: command publish / bounded wait / history append を `publish_command_and_record_history` に切り出し、Control API handler と test が同じ記録経路を使うようにした。web control 側に fake Zenoh app smoke を追加し、response observation が `response_observed` として履歴に残ることを検証。
+- [x] M-7c-d-m feat(gui,observability): UNAA/Z command history から app ごとの直近応答 / timeout / publish failure を Managed App drawer と Resources 概要に薄く反映する。**実施**: Resources 概要は直近 command 件数、response / timeout / failed 集計を表示し、起動中 app 行に最新 command status を併記。Managed App drawer は app / instance ごとの最新 command を `last={command}:{status}` として表示し、command 送信後に履歴を再取得する。
+- [x] M-7c-d-n feat(control,unaa_z): UNAA/Z discovery / command history の stale 判定を追加し、古い app announcement や古い command result を GUI で区別する。**実施**: discovery app payload の `reported_at` / `updated_at` / `announced_at` / `timestamp` / `time` を RFC3339 として読み、`UNVAC_UNAAZ_DISCOVERY_STALE_MS`（既定 10000ms）超過を stale として Managed App API に返す。GUI は UNAA/Z stale badge と command history の stale 表示を追加。
+- [x] M-7c-d-o feat(control,unaa_z): UNAA/Z discovery snapshot に source key / payload kind を保持し、どの query / announce から app metadata が来たかを diagnostics で追えるようにする。**実施**: Zenoh discovery payload を `source_key` / `kind` 付きで扱い、app metadata に `discovery_source_key` と `discovery_payload_kind` を保存。Managed App API と GUI は `via=query|announce|managed_app_registry|missing` と source key tooltip を表示する。
+- [x] M-7c-d-p feat(control,unaa_z): UNAA/Z discovery provenance を endpoint candidates にも伝播し、FlowGraph palette の UNMF/Z endpoint 候補で source app / source key を確認できるようにする。**実施**: flattened endpoint candidate に app / instance / display name、discovery source key、payload kind、stale / age を補完し、Palette の UNMF/Z endpoint 候補で source app と `via=query|announce|managed_app_registry`、tooltip の source key を確認可能にした。
+- [x] M-7c-d-q feat(gui,flowgraph): UNMF/Z endpoint 候補から生成した publish / subscribe subgraph に provenance note / labels を埋め込み、後からどの UNAA/Z app metadata から作った接続か追跡できるようにする。**実施**: endpoint graph 生成時に `unaa_z_provenance` を JSON literal payload へ同梱し、生成ノード群を `UNMF/Z publish|subscribe: app / endpoint via kind` の group として保存する。group label と endpoint payload の両方で app / instance / source key / payload kind / stale を追跡できる。
+- [x] M-7c-d-r feat(gui,flowgraph): UNMF/Z endpoint graph 生成後の Inspector / group UI から provenance 詳細を読みやすく表示し、source key と app identity をコピーできるようにする。**実施**: group Inspector が member JSON literal の `unaa_z_provenance` を検出し、app / instance / endpoint / mode / base key / source key / stale を表示する。`app_id`、`discovery_source_key`、provenance JSON 全体を clipboard へコピー可能。
+- [x] M-7c-d-s feat(control,unaa_z): UNAA/Z discovery endpoint candidate の schema / validation diagnostics を追加し、欠落した app id / endpoint id / base key / direction を FlowGraph palette で警告できるようにする。**実施**: backend は UNMF/Z endpoint candidate の `app_id` / `endpoint_id` / `base_key_expr` / `direction` を検証し、candidate ごとの `validation_warnings` と diagnostics response の `unaa_z_endpoint_candidate_diagnostics` を返す。Palette は警告 badge と tooltip で欠落・不正 metadata を表示する。
+- [x] M-7c-d-t feat(control,gui): UNAA/Z endpoint candidate diagnostics を Resources / Observability にも集約し、どの app が不完全な endpoint advertisement を出しているか一覧できるようにする。**実施**: Resources 概要は endpoint warning 件数 / app 件数と running app 行の warning 数を表示し、Observability の UNAA/Z command 履歴パネルは endpoint diagnostics の code / field / app / source key / message を一覧表示する。
+- [x] M-7c-d-u feat(control,unaa_z): UNAA/Z discovery snapshot の app / endpoint payload を fixture 化し、diagnostics validation と GUI parser の回帰テストを追加する。**実施**: `tests/fixtures/unaa_z/discovery_snapshot_mixed.json` を追加し、complete / invalid / root endpoint を含む discovery payload から app-scoped candidate provenance、GUI-facing fields、`validation_warnings`、集約 diagnostics を検証する Rust 回帰テストを追加。
+- [x] M-7c-d-v feat(gui,flowgraph): UNAA/Z endpoint candidate parser を独立 module 化し、Node / browser どちらからも同じ fixture で直接テストできるようにする。**実施**: FlowGraph store 内の endpoint candidate 正規化を `gui/src/lib/flowgraph/unmfzEndpointCandidates.ts` へ分離し、共有 fixture `tests/fixtures/unaa_z/discovery_snapshot_mixed.json` を直接読む `npm run test:unit` を追加。complete / invalid endpoint、fallback、warning、dedupe / sort を GUI 側でも固定した。
+- [x] M-7c-d-w test(gui,flowgraph): UNMF/Z endpoint candidate warning / provenance UI を Playwright E2E で確認し、Palette warning badge と group Inspector provenance 表示を固定する。**実施**: `gui/tests/e2e/flowgraph-unmfz-endpoints.spec.ts` を追加し、共有 discovery fixture 由来の endpoint candidates を diagnostics route に注入して、Palette warning badge、Publish 生成、group Inspector の UNAA/Z provenance を production `/gui/` で検証する。Palette / provenance block には安定 test hook を追加。
+- [x] M-7c-d-x fix(runtime,unaa_z): actix current-thread runtime 上の Zenoh open panic を防ぐ。**実施**: CLI entrypoint を `tokio::main(flavor = "multi_thread", worker_threads = 1)` に変更し、UNAA/Z discovery / command path は current-thread runtime 上では Zenoh 処理だけ専用 1-worker multi-thread runtime へ退避するようにした。
+- [x] M-7c-d-y test(control,unaa_z): fixture server で UNAA/Z discovery diagnostics を実 API 経由で叩き、Zenoh 未到達時も panic せず JSON contract で戻ることを E2E または integration smoke で固定する。**実施**: `gui/tests/e2e/flowgraph-unaa-z-diagnostics-api.spec.ts` を追加し、production fixture server の `/api/v1/control/flowgraph/diagnostics` を route mock なしで呼ぶ。`unaa_z`、`unaa_z_endpoint_candidates`、`unaa_z_endpoint_candidate_diagnostics` の contract と、直後の `/ping` 生存を確認する。
+- [x] M-7c-d-z test(control,unaa_z): UNVAC 内 fake UNAA/Z snapshot queryable を別 session で立て、query 由来 app / endpoint candidate / provenance / validation warning を取り込むことを E2E または Rust integration smoke で固定する。**実施**: `zenoh_queryable_snapshot_flows_into_endpoint_candidates` を追加し、UNA / UNM 実体には依存せず、UNVAC 内 fake queryable の snapshot reply から app metadata、UNMF/Z endpoint candidates、`discovery_source_key` / payload kind、invalid endpoint diagnostics まで検証する。
+- [x] M-7c-d-z2 feat(flowgraph,bridges): long-lived UNMF/Z ingress bridge。**実施**: `flowgraph.ingress.unmfz` と `bridges::unmfz_ingress` を追加し、UNMF/Z Zenoh topic を常時購読して `unmf` / `content_bytes` / `key_expr` を frame ごとの FlowGraph trigger として投入する。`flowgraph.example/unmfz-ingress` で常時 stream 入口の標準形を追加。
+- [x] M-7c-d-z3 feat(gui,flowgraph): UNMF/Z endpoint candidate の受信側 graph 生成を一回 subscribe から常時 ingress へ更新。**実施**: FlowGraph palette / command palette の受信ボタンを `Ingress` とし、`flowgraph.ingress.unmfz` を生成して endpoint の base key / topic mode / schema major を properties に保存する。provenance JSON は従来通り group に保持する。
+- [x] M-7c-e-a feat(control,unaa_z): UNAA/Z discovery diagnostics の API / GUI 表示を整理し、query / announce / managed registry の件数、timeout / open failure、candidate warning 件数を一つの health summary として返す。**実施**: diagnostics response に `unaa_z_health` を追加し、source / app source 件数 / stale / root endpoint / candidate / warning / discovery error / query key / announce key counts を返す。Resources 概要はこの health summary を表示し、API E2E と Rust 集計テストで contract を固定。
+- [x] M-7c-e-b feat(gui,observability): UNAA/Z health summary を Observability 側にも小さく表示し、discovery error と warning がある場合に command history と同じ確認導線へ誘導する。**実施**: UNAA/Z command 履歴パネルに `unaa_z_health` summary、discovery errors、endpoint diagnostics anchor を追加。warning / error badge から詳細リストへ移動でき、Observability E2E で表示を固定。
+- [x] M-7c-e-c test(gui,observability): UNAA/Z discovery error / endpoint warning を fixture route で注入し、Observability の badge → details 導線を Playwright で固定する。**実施**: Observability E2E に diagnostics route mock を追加し、`unaa_z_health` の error / warning badge、detail anchor、discovery error detail、endpoint diagnostic code 表示を検証。
+- [x] M-7c-e-d chore(unaa_z): UNAA/Z first-slice 完了後の差分を整理し、残る Flowgraph app-control nodes と実アプリ相互運用テストを次フェーズへ切り分ける。**実施**: first-slice は discovery / Managed App binding / command bridge / diagnostics / GUI observability / UNMF/Z endpoint advertisement までで完了とし、`flowgraph.un.app.*` nodes と UNA / UNM 実アプリ相互運用テストは UNAA/Z next phase へ送る方針を明文化。
+- [x] M-8-a feat(flowgraph,unaa_z): `flowgraph.un.app.status` first slice。UNAA/Z discovery snapshot から app readiness / capabilities / stale / endpoint counts を読む Pure node を追加する。**実施**: `flowgraph.un.app.status` を追加し、UNAA/Z snapshot または diagnostics 全体 JSON から app / instance を検索して found / ready / running / stale / counts / app JSON を返す。Zenoh を直接叩かないため effect policy は M-8-b へ温存。
+- [x] M-8-b feat(flowgraph,unaa_z): `flowgraph.un.app.command` first slice。safe command allow-list と capability gating を Flowgraph effect policy に接続し、manual trigger から focus / open_gui / reload preview を送れるようにする。**実施**: `flowgraph.un.app.command` を effectful node として追加し、UNAA/Z safe allow-list、snapshot 由来 advertised command gating、dry-run dispatch、Zenoh publish / bounded wait response をサポート。capability metadata は `network` + `app_control`。
+- [x] M-8-c feat(flowgraph,unaa_z): `flowgraph.un.app.event` first slice。UNAA/Z command response / event stream を Flowgraph ingress または polling node として扱う設計を固定する。**実施**: first slice は bounded wait polling node として `flowgraph.un.app.event` を追加。`app_id` / `instance_id` / `request_id` から response key と event key を購読し、観測時は payload、timeout 時は key contract を返す。常駐 ingress 化は後続へ送る。
+- [ ] M-8-d test(integration,unaa_z): UNA / UNM / UN Avatar Renderer が UNAA/Z に対応した後、UNVAC-local fake ではなく実アプリ discovery / command response / endpoint advertisement の相互運用 smoke を追加する。
 
 ### v2 crate / runner / GUI 同梱（再構造化メタ）
 
@@ -235,18 +285,26 @@ VAC を常駐型データフローアプリとして動かし続ける前提で�
 - 仕様草案: [`roadmap/runtime-mode-roadmap.md`](roadmap/runtime-mode-roadmap.md)
 - 初期 Flowgraph node 方針: `flowgraph.mode.get` / `flowgraph.mode.equals` / `flowgraph.mode.transit` の 3 種に絞る。`on_transit` 専用 ingress node は初期実装しない。
 
+### UN App API over Zenoh Roadmap（UNAA/Z）
+
+U.N. シリーズアプリの control plane。正式名称は **UN App API over Zenoh**、略称は **UNAA/Z**。UNMF/Z が姿勢・表情 frame の data plane であるのに対し、UNAA/Z は app discovery / status / capability / command / profile / endpoint advertisement を扱う。UNVAC はこれを Managed App / Resources / Diagnostics / Runtime Mode に接続し、後段で必要な範囲だけ Flowgraph ノード化する。
+
+- プロトコル正本: [`manual/un-app-api-over-zenoh.md`](manual/un-app-api-over-zenoh.md)
+- 計画: [`roadmap/un-app-api-zenoh-roadmap.md`](roadmap/un-app-api-zenoh-roadmap.md)
+- 初期順序: docs / vocabulary 固定 → discovery snapshot → Managed App binding → command bridge → Flowgraph nodes → UNMF/Z endpoint advertisement
+
 ### GUI Redesign Roadmap
 
-VAC GUI を「機能別の設定パネル」から「常駐ランタイムの管制卓 + Flowgraph Studio」へ再設計する横断計画。トップレベル IA を `Now / Modes / Flowgraph Studio / Resources / Observability / Settings` へ変更し、現在状態の把握、Runtime Mode、Flowgraph 編集、外部リソース、観測、設定を分離して進める。
+VAC GUI を「機能別の設定パネル」から「常駐ランタイムの管制卓 + Flowgraph Studio」へ再設計する横断計画。トップレベル IA を `利用 / 構成 / 接続と管理` に分類し、AIパートナー、Flowgraph Studio、辞書を直接開ける構成項目として、運用画面や外部連携から分離する。
 
 - 仕様草案: [`roadmap/gui-redesign-roadmap.md`](roadmap/gui-redesign-roadmap.md)
-- 初期実装スコープ: `Now` first screen、`Modes` placeholder、新 IA への hash fallback、既存 Flowgraph editor 内部は温存
+- 初期実装スコープ: `Now` first screen、`Live` operation surface、`Modes` placeholder、新 IA への hash fallback、既存 Flowgraph editor 内部は温存
 
 ### Phase ρ — OSC / VMC / VRC bridge (TBD)
 
 **Phase M0〜M2** で VMC **生 UDP** のパススルーと（将来）Flowgraph ingress を先に切る。[`v2-vmc-and-restructure.md`](roadmap/v2-vmc-and-restructure.md) / [`phase-mu-vmc-motion-m0.md`](roadmap/phase-mu-vmc-motion-m0.md)。本 Phase ρ は **OSC の型付き送受信・VRChat ヘルパー・Flowgraph ノード群**（`rosc` 等）の横串として従来どおり backlog に残す（M 系完了後の接続を想定）。
 
-Flowgraph から OSC（Open Sound Control）を使ってアバターアプリ・VRChat・その他 OSC 対応ソフト（VTube Studio の一部 / LiveLinkFace 等）を制御する基盤。VAC を「独自 avatar renderer を持つ前に、既存アバターアプリを Flowgraph から総合制御するハブ」に格上げする phase。
+Flowgraph から OSC（Open Sound Control）を使ってアバターアプリ・VRChat・その他 OSC 対応ソフトを制御する基盤。UNVAC は独自 renderer を持たず、UNA / UNM / UNMF/Z と外部アプリ連携を統合するハブとして扱う phase。
 
 - [x] `rosc` crate 追加（`Cargo.toml`）— デコードは `src/motion/vmc_osc.rs`、単発送信は `flowgraph.osc.send`
 - [x] `src/flowgraph/osc.rs` 共有基盤（JSON args → OSC エンコード・UDP 単発送出）。受信 ingress 型は従来どおり `bridges` / `motion` 側
@@ -255,7 +313,7 @@ Flowgraph から OSC（Open Sound Control）を使ってアバターアプリ・
 - [x] VMC Protocol pose send（`/VMC/Ext/Bone/Pos` / `/VMC/Ext/Root/Pos` の単発送出ノード + `flowgraph::vmc` ヘルパ。全骨ストリームはグラフ側ループ）
 - [x] VMC Protocol pose recv（UDP 受信は既存 `ingress.vmc_udp` / `ingress.osc_udp` + `motion.vmc_parse`。**抽出**: `flowgraph.vmc.extract_bone_pos` / `extract_root_pos` が `MotionFrame` から `/VMC/Ext/*/Pos` を JSON 化）
 - [x] VRChat OSC 専用ヘルパー（`flowgraph::vrchat` + `flowgraph.vrchat.avatar_parameter_{float,int,bool}` / `chatbox_input` / `chatbox_typing`。公式 OSC ドキュメント準拠の固定アドレス）
-- scope: iFacialMocap 単独ノードは VMC bridge 経由で吸収できる前提で外す。足りなければ長期 backlog に再掲
+- scope: iFacialMocap 等の mocap app 個別対応は UNM 側の責務。UNVAC は UNMF/Z ingress と汎用 motion/gesture 処理で受ける。
 
 ### Phase σ — 外部連携 HTTP + OBS + System Metrics + Twitch Helix 拡張 (TBD)
 
@@ -285,19 +343,19 @@ Flowgraph editor の大規模 UX 改修。ν-β で送った "Svelte Flow handle
 - **λ との分担**: 再利用の**意味論**（閉集合、`library_uses`、境界ノード v0）は [Phase λ（完了）](roadmap/phase-lambda-flowgraph-enum-and-library.md)。υ の subgraph / グループは **エディタ上のカプセル化・Undo 等**が主で、将来の engine 側合成は λ（λ+）の境界モデルと整合させる。
 
 - [x] 汎用 Undo/Redo スタック（add/delete/move/connect/disconnect/property-edit を draft snapshot stack で一括対象化。Redo stack も保持）
-- [~] 本物のマルチ選択（`selectedNodeIds` + Svelte Flow 選択 + toolbar layout command + 同一 feature 複数選択時の property editor batch edit / mixed 差異ハイライト + E2E 回帰まで完了。選択 UX の細部は継続）
-- [~] Flowgraph subgraph / group（`[[groups]]` metadata + GUI での Create group + node badge 表示 + Inspector 上の group label/color 編集 + canvas group frame 表示/選択/移動 + member 追加/除外 + group command palette 操作まで完了。engine 側 subgraph 合成と入出力 port 再 export は継続）
+- [x] 本物のマルチ選択（`selectedNodeIds` + Svelte Flow 選択 + toolbar layout command + 同一 feature 複数選択時の property editor batch edit / mixed 差異ハイライト + 複数ノード fragment copy / ZIP export + E2E 回帰まで完了。リリース基準では完了）
+- [x] Flowgraph subgraph / group（`[[groups]]` metadata + GUI での Create group + node badge 表示 + Inspector 上の group label/color 編集 + canvas group frame 表示/選択/移動 + member 追加/除外 + group command palette 操作 + group member fragment copy / ZIP export + fragment paste 時の group metadata 復元まで完了。リリース基準では editor group 機能として完了。engine 側 subgraph 合成と入出力 port 再 export は λ+ 系の将来機能へ分離）
 - [x] Svelte Flow handle drag edge の E2E 回帰（source/target handle の安定 test id + Playwright pointer drag で exec edge 作成を検証）
 
 ### Phase ω — Audio-reactive + Physics (TBD)
 
 Phase ο の vec2/3 と signal util に直接乗る形で、音声反応と古典力学系を追加する。procedural avatar motion のコア。
 
-- [ ] `flowgraph.audio.play`（`rodio` crate 想定、SE ファイル再生 / 音量 / ピッチ）
-- [ ] `flowgraph.audio.envelope`（voice ingress 副産物から RMS / ピーク / 平滑化）
-- [ ] `flowgraph.audio.pitch`（voice ingress の fundamental frequency 抽出）
-- [ ] `flowgraph.physics.spring`（target + stiffness + damping + velocity state）
-- [ ] `flowgraph.physics.damper` / `.integrator` / `.gravity`（vec2/vec3 ベース）
+- [x] `flowgraph.audio.play`（first slice: EffectfulNode。encoded audio bytes または path を VAC 共有 `audio_sink` へ `rodio` で enqueue。volume / speed 対応、headless では `played=false` で成功。専用 soundboard UI / stop / bus mixer は後続）
+- [x] `flowgraph.audio.envelope`（first slice: PureNode。`bytes` PCM (`pcm_s16le` / `pcm_f32le`) から RMS / peak / dBFS / sample_count / frame_count / duration_ms を算出。voice ingress 副産物との直結と平滑化は後続）
+- [x] `flowgraph.audio.pitch`（first slice: PureNode。`bytes` PCM (`pcm_s16le` / `pcm_f32le`) から normalized autocorrelation で frequency_hz / confidence / voiced を推定。voice ingress 直結と高精度 F0 は後続）
+- [x] `flowgraph.physics.spring`（first slice: scalar StatefulNode。`target` / `initial` / `dt` / `stiffness` / `damping` で value + velocity を積分し、snapshot / restore 対応。vec2/vec3 spring は後続）
+- [x] `flowgraph.physics.damper` / `.integrator` / `.gravity`（first slice: scalar。`damper` / `gravity` は PureNode、`integrator` は snapshot / restore 対応 StatefulNode。vec2/vec3 版は後続）
 - scope: avatar renderer を持たない前提で、OSC / VMC 経由で外部 renderer に流すことを想定
 
 ### Unscheduled Flowgraph Nodes
@@ -321,29 +379,29 @@ Phase χ / ψ-α を経てなお残る将来フェーズ候補:
 
 推奨実装順:
 
-- [ ] RI-0 File I/O foundation。ファイル更新監視 ingress と Binary / String / JSON / TOML / RON 読み書きを整え、以降の外部データ reader の基礎にする。
-- [ ] RI-1 `.xlsx -> Table` 読み込み。まずローカルファイルから sheet / range / header を扱い、Table パイプラインの入口を増やす。
-- [ ] RI-2 Google Sheets public URL / ID -> Table 読み込み。OAuth なしの公開共有・公開 CSV 経路から始め、RI-1 と同じ Table 仕様へ正規化する。
-- [ ] RI-3 Table draw node。Table から抽選し、配信企画・コメント抽選・ランダム選択を Flowgraph で扱えるようにする。
-- [ ] RI-4 RSS polling / WebSub bridge。初期は RSS / Atom fetch、次に WebSub を外部イベント ingress として扱う。
-- [ ] RI-5 OS desktop notification。desktop 常駐 runner の通知サービス + Flowgraph ノードとして追加し、Runtime Mode の通知ポリシーに従わせる。
-- [ ] RI-6 OBS Browser Source template output。OBS 側は 1 ソースで取り込める完成形テンプレートを優先し、字幕・会話・チャット・RAID 演出を段階追加する。
-- [ ] RI-7 physical constants。標準ライブラリー寄りの低リスク pure node / constants provider として追加する。
-- [ ] RI-8 authenticated Google Sheets。OAuth / token storage / scope 設計が必要なため、public reader の実用確認後に着手する。
-- [ ] RI-9 MsgPack support。Binary / JSON 変換の延長として、保存・通信で必要になった時点で追加する。
-- [ ] RI-10 SQLite3 operations。local DB を `Table` / `record` と接続する。初期は read-only query を優先し、write / transaction / migration は capability を分ける。
+- [x] RI-0 File I/O foundation。String / Bytes / JSON / TOML / RON の read/write effectful node、polling 型 `flowgraph.ingress.file_watch`、`file_read` / `file_write` / `file_watch` capability、JSON/TOML/RON 変換 helper を実装済み。OS native watcher / debounce 詳細化は必要時に後続で扱う。
+- [x] RI-1 `.xlsx -> Table` 読み込み。`flowgraph.table.load_xlsx` を追加し、ローカル `.xlsx` から sheet / A1 range / header_mode を Table 化する。`calamine`、`file_read` capability、fixture mock contract、node catalog 反映まで完了。
+- [x] RI-2 Google Sheets public URL / ID -> Table 読み込み。`flowgraph.table.load_google_sheet_public` を追加し、公開 Google Sheets を CSV export で取得して RI-1 と同じ Table 仕様へ正規化する。ID / URL / gid / sheet / A1 range、HTTP mock、`network` capability まで完了。OAuth / private sheet は RI-8。
+- [x] RI-3 Table draw node。`flowgraph.table.draw` を追加し、`count` / `weight_column` / `seed` / `replacement` による Table 行抽選、単一 `row` 出力、重複なし抽選、全 0 重み時の通常抽選 fallback を実装。
+- [x] RI-4 RSS polling。`flowgraph.web.rss_fetch` を追加し、RSS / Atom / JSON Feed を normalized item JSON と Table に変換。`limit` / `since` / `include_content` / `timeout_ms`、HTTP mock contract、`network` capability まで実装。WebSub bridge は後続 subphase。
+- [x] RI-5 OS desktop notification。`flowgraph.notify.desktop` を追加し、Windows Toast 出力、`dry_run`、recorded effect、`desktop_notification` capability、Runtime Mode policy preview との接続面を実装。通知 policy の hard enforcement / action callback は後続。
+- [x] RI-6 OBS Browser Source template output。`/obs-template/{subtitle|conversation|chat|raid}` を追加し、OBS Browser Source 1 つで `/output` polling による字幕・会話・チャット・RAID 表示を扱える first slice を実装。WebSocket/SSE、GUI 管理、演出詳細は後続。
+- [x] RI-7 physical constants。`flowgraph.constants.math` / `flowgraph.constants.physics` を追加し、dimensionless math constants と SI 明示名つき physics Float constants を pure provider として実装。
+- [x] RI-8 authenticated Google Sheets。`flowgraph.table.load_google_sheet_auth`、`token_env` / `token_file` 解決、Google Sheets OAuth Device Flow Control API、Resources GUI 認可パネルを実装。refresh token 自動更新と platform keyring は後続拡張。
+- [x] RI-9 MsgPack support。`flowgraph.convert.json_to_msgpack` / `flowgraph.convert.msgpack_to_json` を追加し、JSON value と `bytes` 間の MessagePack 変換を pure node として実装。
+- [x] RI-10 SQLite3 operations。`flowgraph.db.sqlite.query` を追加し、read-only SQLite 接続、JSON 配列 params の binding、結果 Table 化、`file_read` / `db_read` capability、recorded effect を実装。write / transaction / migration は後続。
 
 ### Flowgraph Standard Library Roadmap（計画中）
 
 汎用言語化のため、乱数・分布・応用データ構造・アルゴリズムを段階追加する。
 詳細: [`roadmap/flowgraph-stdlib-roadmap.md`](roadmap/flowgraph-stdlib-roadmap.md)
 
-- [ ] SL-0 Ranges / LINQ / Iterator foundation。list / table / stream の map / filter / window / aggregate を標準化し、有限で観測可能なコレクション処理を先に整える。
-- [ ] SL-1 PRNG foundation。LCG / PCG / xoshiro / Philox / ChaCha / SplitMix64 を seedable に扱う。
-- [ ] SL-2 Distribution library。一様、正規、指数、ポアソン、カテゴリ、ディリクレなどを PRNG に接続する。
-- [ ] SL-3 Sequence / buffer data structures。ring buffer、deque、sliding window、reservoir sampling を提供する。
-- [ ] SL-4 Sort / search algorithms。stable sort、bucket sort、top-k、binary search、skip list index を提供する。
-- [ ] SL-5 Indexed collections。ordered map、bucket index、hash index、priority queue を Table / record と接続する。
+- [x] SL-0 Ranges / LINQ / Iterator foundation。first slice として `flowgraph.list.range` / `slice` / `map_json_get` / `filter_json_eq` / `window` / `aggregate_numbers` を追加し、有限 `List<Json>` の map / filter / window / aggregate と int range 生成を標準化。Table / stream 横断の iterator ABI は後続 SL subphase へ送る。
+- [x] SL-1 PRNG foundation。first slice として `flowgraph.prng.sequence` / `uniform_int` / `uniform_float` を追加し、seed + algorithm + offset で deterministic sequence を扱えるようにした。対応 algorithm は `splitmix64` / `lcg64` / `pcg32` / `xoshiro256ss`。Philox / ChaCha は外部 crate と互換性を見て後続 SL subphase へ送る。
+- [x] SL-2 Distribution library。first slice として `flowgraph.dist.normal` / `exponential` / `poisson` / `categorical` を追加し、SL-1 PRNG の seed + algorithm + offset に接続した。一様分布は `flowgraph.prng.uniform_int` / `uniform_float` で提供済み。Dirichlet や高精度 Poisson sampler は後続 SL subphase へ送る。
+- [x] SL-3 Sequence / buffer data structures。first slice として worker-lifetime state の `flowgraph.collection.ring_buffer` / `deque` / `reservoir_sample` を追加し、JSON event stream の bounded buffer、両端 queue、seeded deterministic reservoir sampling を提供。restart 永続化や table / stream 専用 ABI は後続 SL subphase へ送る。
+- [x] SL-4 Sort / search algorithms。first slice として `flowgraph.list.sort_json` / `top_k_json` / `binary_search_json` を追加し、`List<Json>` の stable sort、上位 K 件抽出、昇順 binary search を提供。bucket sort、skip list index、Table 専用 sort / search は後続 SL subphase へ送る。
+- [x] SL-5 Indexed collections。first slice として `flowgraph.collection.priority_queue` を追加し、JSON item + float priority の bounded max-priority queue を worker-lifetime state として提供。ordered map、bucket / hash index、Table / record schema 接続は後続 SL subphase へ送る。
 
 ### Glossary Rename Roadmap（計画中）
 
@@ -355,7 +413,7 @@ Phase χ / ψ-α を経てなお残る将来フェーズ候補:
 - [x] GRN-3 control API / config role。`role = "glossary"` を正にし、`role = "dictionary"` の互換 alias は v2 破壊変更フェーズ中に撤去済み。
 - [x] GRN-4 GUI rename。Glossary Editor 系表示・テストを Glossary に揃える。
 - [x] GRN-5 examples / tests / migration。sample / E2E / manual / migration note を更新する。
-- [ ] GRN-6 Dictionary as generic key-value。Glossary 移行後に汎用 `dictionary<K,V>` / `flowgraph.dictionary.*` を設計する。
+- [x] GRN-6 Dictionary as generic key-value。first slice として `dictionary<string,T>` の現行 runtime 表現である `Map<Json>` に対応する `flowgraph.dictionary.from_entries` / `get` / `set` / `remove` / `keys` / `has` を追加し、Glossary とは別の汎用 key-value 名前空間として `flowgraph.dictionary.*` を復活。非 string key の `dictionary<K,V>`、typed value specialization、Table / record schema index は後続設計へ送る。
 
 ### Flowgraph Language Foundation Roadmap（計画中）
 
@@ -363,23 +421,32 @@ Flowgraph を汎用プログラミング言語へ近づけるための基礎整�
 
 優先:
 
-- [~] LF-1 Schema / Contract。`record` / `table schema` / node signature / library signature を統一する。node catalog に派生 `contract` metadata を追加し、ロード済み graph の `graph_signature` metadata 抽出まで進行。
-- [~] LF-2 Capability / Effect。file / network / db / notification / OBS / Twitch などの権限と effect kind を明示する。初段として node catalog に `effect_class` / `capabilities` metadata を追加し、GUI palette / node card で表示。
-- [~] LF-3 Testing / Debugger。graph fixture test、mock capability、trace、watch、trigger history を整える。初段として CLI fixture runner / trace JSON を追加。
+- [x] LF-1 Schema / Contract。node catalog contract metadata、graph signature、signature API、package / type schema metadata の diagnostics / signature surface を完了。graph-as-node 実行、structural validation、schema migration は後続設計へ送る。
+- [x] LF-2 Capability / Effect。node catalog effect metadata、graph capability summary、GUI effect visibility、Runtime Mode capability policy preview を完了。hard deny enforcement、approval UI、credential / UNAA/Z / WASM policy は後続設計へ送る。
+- [x] LF-3 Testing / Debugger。CLI fixture runner、suite runner、trigger sequence、mock HTTP / file read / file write、recorded effects、state / signature / capability assertions、manual を完了。GUI debugger、step execution、mock OBS / Twitch / db は後続設計へ送る。
 
 計画として保持:
 
 - [x] LF-4 Module / Package System。local package manifest / dependency DAG / lock preview / `flowgraph.lock.json` envelope / save & status API / stale warning の基盤を完了。external registry resolution、version range solving、WASM ABI は後続設計へ送る。
-- [ ] LF-5 Generic / Type Parameter。`list<T>` / `dictionary<K,V>` / `result<T>` の型束縛。
-- [ ] LF-6 Error Model。`result<T>` / `on_error` / fatal diagnostics / retry policy の統一。
-- [ ] LF-7 Persistence / State Model。state 寿命、reload、profile scope、snapshot / migration。
+- [x] LF-5 Generic / Type Parameter。`bytes` / `option<T>` / `result<T>` / `record<schema_id>`、型 AST、parser / compatibility API、GUI edge validation、record schema catalog / dependency metadata の基盤を完了。`dictionary<K,V>` 非 string key、structural validation、schema migration は後続設計へ送る。
+- [x] LF-6 Error Model。fatal `NodeExecError` と recoverable `result<T>` を分離し、主要 I/O / Effectful ノードの result contract と try-parse 系 Pure ノードを完了。retry policy、typed error enum、result combinator は後続設計へ送る。
+- [x] LF-7 Persistence / State Model。state model metadata、snapshot / restore contract、profile-local snapshot file、明示 save / restore / state-preserving reload、GUI / fixture / E2E coverage の基盤を完了。自動保存 / 自動復元 / migration registry は後続設計へ送る。
 - [x] LF-8 Documentation Generation。`NodeRegistry` / `NodeSpec` 由来の generated manual catalog と Control API / GUI catalog metadata の同期基盤を完了。`library signature` / schema 由来の追加生成は LF-1 / LF-4 後続へ送る。
 
 ### Phase ν+（TBD）: E2E 拡張
 
-- [ ] φ / γ 後続サーフェス（Managed App Drawer 詳細、BOS Preview の縦画面トグル 等）
-- [ ] visual regression（`toHaveScreenshot`）
-- [ ] GitHub Actions 上での chromium / firefox / webkit マトリクス
+- [x] BOS Preview の縦横比トグル。Live タブの BOS プレビューに 16:9 / 9:16 / 1:1 の OBS 代表キャンバス比率を追加し、選択ソースの ID / category / path とあわせて E2E で固定。`/obs-template/{subtitle|conversation|chat|raid}` も BOS 仮想エントリとして一覧へ露出し、template 系は `theme` / `poll_ms` / `limit` を GUI から URL 反映できる。
+- [x] φ / γ 後続サーフェス（第 1 段）。Managed App Drawer は UNAA/Z identity / discovery / capability / command / latest command の詳細パネルを追加し、BOS Preview は template 系の `theme` / `poll_ms` / `limit` / aspect を一括反映するクイック演出プリセット（字幕 / 最小 / チャット / RAID）を追加。いずれも E2E で固定。
+- [x] φ / γ 後続サーフェス（第 2 段: BGM / 画面効果キュー、AI 管理画面、OBS 出力管理の実運用 UI）first slice。Live タブに OBS 出力管理パネルを追加し、BOS 一覧をカテゴリ別に確認、標準 channel 付き URL をコピー / 別タブ起動できるようにした。AI 管理は Resources に persona 状態一覧、個別 pause / resume、persona ごとの runtime reload（system extra / heartbeat / decision threshold）を追加。BGM / 画面効果キューは Control API の in-memory quick-effect queue と GUI を追加し、RAID / chat highlight / screen effect / BGM fade の enqueue、duration、cancel、status 表示を扱える。OBS WebSocket widget は現行シーンの source item 一覧と表示 / 非表示トグルを追加。
+- [x] φ / γ 後続サーフェス refinement: Quick Effects の scheduled fire / queue reorder、profile preset 永続化、OBS source item の transform / volume / filter 操作、AI persona runtime edit の永続 conf 反映導線まで完了。
+
+## OCR PaddleOCR Native Experiment
+
+- 仕様草案: [`roadmap/ocr-paddle-native-roadmap.md`](roadmap/ocr-paddle-native-roadmap.md)
+- 評価結果: v2.0既定backendは追加配布不要のWindows Media OCR。PaddleOCR ONNX/nativeはexperimental比較資産として維持し、製品runtimeへは統合しない。
+- 詳細: [`roadmap/ocr-backend-evaluation.md`](roadmap/ocr-backend-evaluation.md)。native wrapperはstubのまま、通常workspace検証ではnative import libraryを要求しない。
+- [x] visual regression（`toHaveScreenshot`）first slice。動的要素が少ない Settings theme surface を 4 テーマ分固定し、既存の広域 screenshot smoke は blank-screen / severe render regression 検出として維持。Now / Flowgraph 等の動的 surface baseline は fixture state をさらに固定してから拡張する。
+- [x] GitHub Actions 上での chromium / firefox / webkit マトリクス。`.github/workflows/gui-e2e.yml` を追加し、Windows / Ubuntu / macOS × chromium / firefox / webkit で GUI check / build / VAC release build / Playwright E2E を実行する。ローカル既定は chromium のまま、`PLAYWRIGHT_BROWSERS` で対象 browser を切り替える。
 
 ### ε-2 Tauri ネイティブウィンドウ化
 
@@ -389,11 +456,11 @@ Flowgraph を汎用プログラミング言語へ近づけるための基礎整�
 
 設計重量が大きい or VAC 現役ユースケースへの直結度を需要確認してから phase 化する候補群。各 1 行のみ、詳細は phase doc 化のタイミングで起こす。
 
-- [ ] **Discord voice ingress**（Discord bot + voice gateway + opus decode、大工事。独立 phase / または VAC とは別プロセスの bridge 化も視野）
-- [ ] **iFacialMocap 単独**（ρ の VMC bridge 経由で吸収できない場合のみ。需要次第）
-- [ ] **VTube Studio API**（WebSocket、表情 / パラメータ / Hotkey 制御。OSC と機能重複するため ρ 完了後に需要を再確認）
+- [ ] **Discord account / voice presence overlay**（voice ingress より前に検討。Discord 認可で権限のあるサーバー / ボイスチャンネル参加者 / 発話中状態を取得し、OBS で合成できる独立 WebView または既存 BOS レイヤーとして表示する。配信支援機能として phase 化候補）
+- [ ] **Discord voice ingress**（Discord bot + voice gateway + opus decode。上記 presence overlay より後。独立 phase / または VAC とは別プロセスの bridge 化も視野）
 - [ ] **Global hotkey / MIDI**（StreamDeck 互換、OS 横断の global hotkey listener + MIDI input ingress ノード）
-- [ ] **独自 avatar renderer**（VAC が OSC / VMC 経由で外部 renderer を制御する現行路線に対して、独自に renderer を内包する巨大フェーズ。ψ / η 規模、別軸）
+
+配信演出の進行中仕様: [`roadmap/unavatar-camera-effect.md`](roadmap/unavatar-camera-effect.md) — AvatarLinkで指定した単一UNAvatar Rendererのカメラを進入・保持・開始時状態へ復帰させるUNAA/Z原子命令。
 
 ---
 

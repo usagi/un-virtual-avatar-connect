@@ -118,6 +118,9 @@ id = "example.dep"
 version = "2.0.0"
 exports = ["dep"]
 
+[graph]
+kind = "module"
+
 [[nodes]]
 id = "lit"
 feature = "flowgraph.literal.string"
@@ -135,6 +138,9 @@ exports = ["main"]
 "example.dep" = "2.0.0"
 "example.tooling" = "*"
 
+[graph]
+kind = "module"
+
 [[nodes]]
 id = "lit"
 feature = "flowgraph.literal.string"
@@ -146,6 +152,9 @@ properties.value = "hi"
 		r#"[package]
 id = "example.tooling"
 exports = ["tooling"]
+
+[graph]
+kind = "module"
 
 [[nodes]]
 id = "lit"
@@ -211,6 +220,9 @@ id = "example.main"
 version = "1.0.0"
 exports = ["main"]
 
+[graph]
+kind = "module"
+
 [[nodes]]
 id = "lit"
 feature = "flowgraph.literal.string"
@@ -260,6 +272,9 @@ fn package_lockfile_invalid_returns_warning() {
 id = "example.main"
 version = "1.0.0"
 exports = ["main"]
+
+[graph]
+kind = "module"
 
 [[nodes]]
 id = "lit"

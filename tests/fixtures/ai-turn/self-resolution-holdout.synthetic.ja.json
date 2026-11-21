@@ -1,0 +1,45 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "self-resolution-holdout-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "different-consult",
+      "content": "ケルシー先生、この扉が開かない。鍵を探す方がいいと思う？",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "different-resolved",
+      "content": "あ、反対側から押すだけだった。開いたからこのまま進もう。",
+      "allowed_actions": [
+        "observe"
+      ],
+      "speech": "forbidden"
+    },
+    {
+      "id": "joy-after-solving",
+      "content": "やったー！ あの仕掛け、ついに解けた！ めちゃくちゃ嬉しい！",
+      "allowed_actions": [
+        "react"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "correct-ai",
+      "content": "ケルシー先生、さっき食料不足と言ったけど、食料はある。寝ていたから食べられなかったんだ。",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    }
+  ]
+}

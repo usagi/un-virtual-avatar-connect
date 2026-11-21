@@ -18,16 +18,12 @@ pub async fn get(path_or_data_url: String) -> Result<PathOrTempFileWithMime> {
 		};
 
 		// 一時ファイルを作成して blob を書き込み
-		let mut tempfile = TempFile::new()
-			.await
-			.map_err(|e| log::error!("一時ファイルの作成に失敗しました: {:?}", e))
-			.unwrap();
+		let mut tempfile = TempFile::new().await.context("OCR画像用一時ファイルの作成に失敗しました")?;
 
 		tempfile
 			.write_all(&blob)
 			.await
-			.map_err(|e| log::error!("一時ファイルへの書き込みに失敗しました: {:?}", e))
-			.unwrap();
+			.context("OCR画像用一時ファイルへの書き込みに失敗しました")?;
 
 		PathOrTempFileWithMime::TempFile(tempfile, mime)
 	} else {

@@ -6,7 +6,8 @@
 //! 完全ホットリロード（ε 目標）への途中段階として、GUI からワンクリックで再起動できる形を用意する。
 //!
 //! 同一バイナリを新しい引数（= 新しい conf path）で `spawn` し、現プロセスを `graceful_ms` 後に
-//! `exit(0)` する。GUI 側は WS の自動再接続で新インスタンスの Control API にそのまま吸い付く。
+//! `exit(0)` する。新プロセスは旧PIDの終了を待ってからbootし、同一portやdeviceの競合を防ぐ。
+//! GUI 側は WS の自動再接続で新インスタンスの Control API にそのまま吸い付く。
 //!
 //! ### エンドポイント
 //!
@@ -22,6 +23,9 @@
 //! パス解決・ラベル生成は [`util`]。
 
 mod util;
+mod arguments;
+mod endpoint;
+use std::net::ToSocketAddrs;
 
 use actix_web::web::{self, Data, Json};
 use actix_web::{get, post, HttpResponse, Responder};
@@ -37,8 +41,8 @@ use util::{label_from_filename, paths_equivalent, resolve_new_conf_path};
 pub struct RestartRequest {
 	/// 新 conf への切替を指定するときだけ渡す。省略時は現 conf をそのまま引き継ぐ。
 	///
-	/// 指定値は現 conf と同ディレクトリの相対パスか絶対パスを受け付けるが、`..` による
-	/// ディレクトリ脱出や別ドライブ指定は弾く（= 現 conf の親ディレクトリの直下、または直接絶対）。
+	/// 指定値は現 conf のフォルダー内を指す相対パスか絶対パス。
+	/// 管理プロファイルの conf.toml への絶対パスも受け付ける。相対パスでの領域外移動は拒否する。
 	#[serde(default)]
 	pub conf: Option<String>,
 
@@ -114,6 +118,7 @@ pub async fn get_profiles(state: Data<SharedState>) -> impl Responder {
 			Ok(iter) => {
 				for ent in iter.flatten() {
 					let p = ent.path();
+					if crate::profile_store::is_managed_metadata_path(&p) { continue; }
 					if !p.is_file() {
 						continue;
 					}
@@ -192,10 +197,28 @@ pub async fn post_restart(state: Data<SharedState>, body: Json<RestartRequest>) 
 	// Load で軽く検証（deserialize 成功しなければ再起動させない）。
 	// Phase VI-γ-1 時点では ε（hot reload）は未実装なので、ここで弾かないと
 	// 起動できない conf に切り替えた VAC を GUI から手動起動し直す羽目になる。
-	if let Err(e) = crate::Conf::new_noop_probe(&new_conf_path) {
-		return HttpResponse::BadRequest().json(serde_json::json!({
-		 "error": format!("conf load failed: {e}"),
-		 "path": new_conf_path.display().to_string(),
+	let new_conf = match crate::Conf::new_noop_probe(&new_conf_path) {
+		Ok(conf) => conf,
+		Err(e) => return HttpResponse::BadRequest().json(serde_json::json!({
+			"error": format!("conf load failed: {e}"), "path": new_conf_path.display().to_string(),
+		})),
+	};
+	let targets: Vec<_> = match new_conf.get_web_ui_address().to_socket_addrs() {
+		Ok(addresses) => addresses.collect(),
+		Err(e) => return HttpResponse::BadRequest().json(serde_json::json!({"error":"invalid_restart_address", "detail":format!("再起動先の接続先を確認できません。現在のVACは継続します: {e}")})),
+	};
+	let instances = match super::local_instances::list() {
+		Ok(instances) => instances,
+		Err(e) => return HttpResponse::ServiceUnavailable().json(serde_json::json!({"error":"restart_instances_unavailable", "detail":format!("稼働中のVACを確認できないため、再起動していません: {e}")})),
+	};
+	let peers: Vec<_> = instances.iter().filter_map(|entry| {
+		entry.gui_url.strip_prefix("http://").and_then(|value| value.strip_suffix("/gui/"))
+			.and_then(|value| value.parse().ok()).map(|address| (entry.pid, address))
+	}).collect();
+	if let Some(pid) = endpoint::conflicting_peer(&targets, &peers, std::process::id()) {
+		return HttpResponse::Conflict().json(serde_json::json!({
+			"error":"restart_address_in_use", "conflicting_pid":pid,
+			"detail":"保存した接続先は別のVACが使用中です。接続先を変更するか、そのVACを終了してから適用してください。現在のVACは継続しています。"
 		}));
 	}
 
@@ -207,18 +230,28 @@ pub async fn post_restart(state: Data<SharedState>, body: Json<RestartRequest>) 
 	};
 
 	let new_conf_arg = new_conf_path.display().to_string();
-	// 現プロセスの CLI 引数から conf パスを除いた他のフラグを引き継ぐ。`args().next()` は自プロセス名なので捨てる。
-	let mut extra_args: Vec<String> = std::env::args().skip(1).collect();
-	// 旧 conf (最初の非フラグ引数) を除去し、新 conf を先頭に置く（clap の DEFAULT_CONF_PATH も上書き）。
-	if let Some(pos) = extra_args.iter().position(|a| !a.starts_with('-')) {
-		extra_args.remove(pos);
+	let mut extra_args = match arguments::inherited_options(std::env::args_os()) {
+		Ok(args) => args,
+		Err(error) => return HttpResponse::InternalServerError().json(serde_json::json!({ "error": error })),
+	};
+	if crate::desktop::is_primary_desktop() && !extra_args.iter().any(|arg| arg == "--desktop-primary") {
+		extra_args.push("--desktop-primary".into());
 	}
 
 	let mut cmd = std::process::Command::new(&current_exe);
+	// Managed profiles may be siblings. Their relative assets/run_with paths must
+	// resolve in the selected profile, not the previous process's working directory.
+	if let Ok(root) = crate::profile_store::user_config_root() {
+		if let Some(managed) = crate::profile_store::lifecycle::managed_conf_at(&root, &new_conf_path) {
+			cmd.current_dir(managed.parent().expect("managed conf has a parent"));
+		}
+	}
 	cmd.arg(&new_conf_arg);
 	for a in extra_args.iter() {
 		cmd.arg(a);
 	}
+	let current_pid = std::process::id();
+	cmd.arg("--restart-parent-pid").arg(current_pid.to_string());
 
 	// Windows では CREATE_NEW_PROCESS_GROUP を付ける。
 	//
@@ -255,7 +288,6 @@ pub async fn post_restart(state: Data<SharedState>, body: Json<RestartRequest>) 
 
 	// GUI への先出し通知。WS が配信完了する前に exit してしまうと届かないことがあるので、
 	// `graceful_ms` を確保する意味でも送ってから寝る。
-	let current_pid = std::process::id();
 	let ev = ControlEvent::Restarting {
 		new_conf_path: new_conf_arg.clone(),
 		new_pid,
@@ -283,6 +315,7 @@ pub async fn post_restart(state: Data<SharedState>, body: Json<RestartRequest>) 
 	})
 }
 
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
 	cfg.service(get_profiles);
 	cfg.service(post_restart);
@@ -295,6 +328,7 @@ fn schedule_current_process_exit(graceful_ms: u64) {
 		std::process::exit(0);
 	});
 }
+
 
 #[cfg(test)]
 mod tests {

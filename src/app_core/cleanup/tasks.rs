@@ -15,3 +15,9 @@ pub(super) fn abort_ai_handles(handles: Vec<tokio::task::JoinHandle<()>>) {
 		h.abort();
 	}
 }
+
+pub(super) fn abort_perception_handles(handles: Vec<tokio::task::JoinHandle<()>>) {
+	for handle in handles {
+		handle.abort();
+	}
+}

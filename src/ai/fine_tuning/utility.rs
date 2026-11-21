@@ -1,4 +1,3 @@
-use super::super::ENV_OPENAI_API_KEY;
 use super::types::{FineTuningRequest, NamedData};
 use crate::ai::config::{AiPersonaConf, OpenAiChatFinetuning};
 use crate::Conf;
@@ -34,10 +33,10 @@ pub fn get_persona_conf<'a>(persona_id: Option<&'a String>, conf: &'a Conf) -> R
 }
 
 pub fn get_api_key(persona: &AiPersonaConf) -> Result<String> {
-	match crate::utility::load_from_env_or_conf(ENV_OPENAI_API_KEY, &persona.api_key) {
+	match super::super::resolve_openai_api_key(persona)? {
 		Some(s) => Ok(s),
 		None => {
-			bail!("OpenAI の API KEY が設定されていません。環境変数 VAC_OPENAI_API_KEY を設定するか、設定ファイルに api_key を設定して下さい。")
+			bail!("OpenAI の API KEY が設定されていません。環境変数 VAC_OPENAI_API_KEY、api_key_file、または設定ファイルの api_key を指定して下さい。")
 		}
 	}
 }

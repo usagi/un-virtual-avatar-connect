@@ -28,9 +28,7 @@
 //! - `extra.speed_raw`, `extra.tone_raw`, `extra.volume_raw`, `extra.voice_raw` で
 //!   正規化を迂回して棒読みちゃんの生値を直接指定できる（エキスパート用）。
 
-use super::super::driver::{
-	extra_i64, AudioContext, TtsDriver, TtsError, TtsOutcome, TtsParamEntry, TtsParamSchema, TtsParamType, TtsRequest,
-};
+use super::super::driver::{extra_i64, TtsDriver, TtsError, TtsParamEntry, TtsParamSchema, TtsParamType, TtsRequest, TtsSynthesis};
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -106,7 +104,11 @@ impl TtsDriver for BouyomichanDriver {
 		}
 	}
 
-	async fn speak(&self, req: TtsRequest, _audio: &AudioContext<'_>) -> Result<TtsOutcome, TtsError> {
+	fn supports_deferred_playback(&self) -> bool {
+		false
+	}
+
+	async fn synthesize(&self, req: &TtsRequest) -> Result<TtsSynthesis, TtsError> {
 		let endpoint = if req.endpoint.is_empty() {
 			DEFAULT_ENDPOINT
 		} else {
@@ -141,16 +143,14 @@ impl TtsDriver for BouyomichanDriver {
 
 		// Bouyomichan は合成後の音声を**自身で再生**する。VAC 側の audio_sink は使わない。
 		// save_path も意味を持たない（WAV が返ってこない）ので空を返す。
-		Ok(TtsOutcome {
-			played: true,
-			audio_path: String::new(),
-		})
+		Ok(TtsSynthesis::SelfPlayed)
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::flowgraph::tts::driver::AudioContext;
 
 	#[test]
 	fn speed_pitch_volume_mapping() {

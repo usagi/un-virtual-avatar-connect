@@ -16,10 +16,9 @@
 use crate::flowgraph::activation::{mode_group_orphan_diagnostics, TriggerGate};
 use crate::flowgraph::loader::{
 	Diagnostic, FlowgraphFileActivationMeta, GraphCapabilitySummary, GraphSignature, LoadedNodeMeta, PackageManifestSummary, Severity,
-	TypeSchemaSummary,
+	TypeSchemaGraphSummary, TypeSchemaSummary,
 };
-use crate::flowgraph::node::PureEvalHost;
-use crate::flowgraph::node::TriggerHandle;
+use crate::flowgraph::node::{PureEvalHost, RuntimeTraceBuffer, TriggerHandle};
 use crate::flowgraph::{
 	ProgramCommandError, ProgramCommandHandle, ProgramStateRestoreReport, ProgramStateSnapshot, ProgramStateSnapshotFile,
 	ProgramStateSummary, StateSnapshotFileError,
@@ -37,6 +36,7 @@ pub struct RuntimeHandle {
 	pub command: ProgramCommandHandle,
 	pub shutdown_tx: broadcast::Sender<()>,
 	pub join: tokio::sync::Mutex<Option<JoinHandle<()>>>,
+	pub runtime_trace: RuntimeTraceBuffer,
 }
 
 impl RuntimeHandle {
@@ -60,10 +60,14 @@ pub struct FlowgraphRuntime {
 	pub ok: bool,
 	pub diagnostics: Vec<Diagnostic>,
 	pub node_meta: HashMap<String, LoadedNodeMeta>,
+	/// Resolved topology captured at load; not proof of current mode or playback.
+	pub speech_routes: Vec<crate::flowgraph::speech_routes::SpeechRoute>,
 	/// LF-1: graph-as-node / library signature の入口となる read-only graph signature。
 	pub graph_signature: GraphSignature,
 	/// LF-4: `[package]` manifest catalog。lockfile / tooling の read-only entry point。
 	pub package_manifests: Vec<PackageManifestSummary>,
+	/// Source bytes observed during loading, including files without package declarations.
+	pub source_digests: std::collections::HashMap<String, String>,
 	/// LF-4: local package dependency DAG の dependency-first order。
 	pub package_dependency_order: Vec<String>,
 	/// LF-4: diagnostics API から読める lockfile preview。
@@ -72,6 +76,8 @@ pub struct FlowgraphRuntime {
 	pub type_schemas: Vec<TypeSchemaSummary>,
 	/// LF-5: record schema dependency graph の dependency-first order。
 	pub type_schema_dependency_order: Vec<String>,
+	/// LF-5: record schema dependency graph の集計。
+	pub type_schema_graph_summary: TypeSchemaGraphSummary,
 	/// LF-4: package lock preview 全体の stable digest。
 	pub package_lock_preview_digest: Option<String>,
 	/// LF-2: graph 全体の capability summary。GUI と policy preview 用の read-only metadata。
@@ -86,6 +92,8 @@ pub struct FlowgraphRuntime {
 	pub state_snapshot_file_path: Option<PathBuf>,
 	/// RM-3: 各 flowgraph ファイル fq → mode 用メタ（`GET /flowgraph/diagnostics` 等で参照）。
 	pub file_activation: HashMap<String, FlowgraphFileActivationMeta>,
+	/// v2 composition: definition / instance / cross-file portal read model。
+	pub composition: crate::flowgraph::loader::GraphCompositionSummary,
 	/// RM-3: exec 抑止ゲート（ワーカーと共有）。未 spawn 時は `None`。
 	pub trigger_gate: Option<Arc<TriggerGate>>,
 	/// δ-9 Part A: ワーカーが生きていれば `Some`。ロード失敗 / 空 / spawn 未実行なら `None`。
@@ -100,12 +108,15 @@ impl Clone for FlowgraphRuntime {
 			ok: self.ok,
 			diagnostics: self.diagnostics.clone(),
 			node_meta: self.node_meta.clone(),
+			speech_routes: self.speech_routes.clone(),
 			graph_signature: self.graph_signature.clone(),
 			package_manifests: self.package_manifests.clone(),
+			source_digests: self.source_digests.clone(),
 			package_dependency_order: self.package_dependency_order.clone(),
 			package_lock_preview: self.package_lock_preview.clone(),
 			type_schemas: self.type_schemas.clone(),
 			type_schema_dependency_order: self.type_schema_dependency_order.clone(),
+			type_schema_graph_summary: self.type_schema_graph_summary.clone(),
 			package_lock_preview_digest: self.package_lock_preview_digest.clone(),
 			capability_summary: self.capability_summary.clone(),
 			loaded_state_summary: self.loaded_state_summary.clone(),
@@ -113,6 +124,7 @@ impl Clone for FlowgraphRuntime {
 			loaded_state_restore_report: self.loaded_state_restore_report.clone(),
 			state_snapshot_file_path: self.state_snapshot_file_path.clone(),
 			file_activation: self.file_activation.clone(),
+			composition: self.composition.clone(),
 			trigger_gate: self.trigger_gate.clone(),
 			handle: self.handle.clone(),
 		}
@@ -210,12 +222,15 @@ impl FlowgraphRuntime {
 				format!("state snapshot file restore failed ({}): {error}", snapshot_path.display()),
 			)],
 			node_meta: HashMap::new(),
+			speech_routes: Vec::new(),
 			graph_signature: GraphSignature::default(),
 			package_manifests: Vec::new(),
+			source_digests: Default::default(),
 			package_dependency_order: Vec::new(),
 			package_lock_preview: Vec::new(),
 			type_schemas: Vec::new(),
 			type_schema_dependency_order: Vec::new(),
+			type_schema_graph_summary: TypeSchemaGraphSummary::default(),
 			package_lock_preview_digest: None,
 			capability_summary: GraphCapabilitySummary::default(),
 			loaded_state_summary: ProgramStateSummary::default(),
@@ -223,6 +238,7 @@ impl FlowgraphRuntime {
 			loaded_state_restore_report: None,
 			state_snapshot_file_path: None,
 			file_activation: HashMap::new(),
+			composition: Default::default(),
 			trigger_gate: None,
 			handle: None,
 		}
@@ -245,12 +261,15 @@ impl FlowgraphRuntime {
 						format!("flowgraph_dir '{}' はディレクトリではありません", root_dir.display()),
 					)],
 					node_meta: HashMap::new(),
+					speech_routes: Vec::new(),
 					graph_signature: GraphSignature::default(),
 					package_manifests: Vec::new(),
+					source_digests: Default::default(),
 					package_dependency_order: Vec::new(),
 					package_lock_preview: Vec::new(),
 					type_schemas: Vec::new(),
 					type_schema_dependency_order: Vec::new(),
+					type_schema_graph_summary: TypeSchemaGraphSummary::default(),
 					package_lock_preview_digest: None,
 					capability_summary: GraphCapabilitySummary::default(),
 					loaded_state_summary: ProgramStateSummary::default(),
@@ -258,6 +277,7 @@ impl FlowgraphRuntime {
 					loaded_state_restore_report: None,
 					state_snapshot_file_path: None,
 					file_activation: HashMap::new(),
+					composition: Default::default(),
 					trigger_gate: None,
 					handle: None,
 				},
@@ -267,19 +287,23 @@ impl FlowgraphRuntime {
 		}
 		match crate::flowgraph::load_flowgraph_dir(root_dir) {
 			Ok(report) => {
+				let speech_routes = crate::flowgraph::speech_routes::inspect(&report);
 				let crate::flowgraph::LoadReport {
 					mut program,
 					mut diagnostics,
 					node_meta,
 					graph_signature,
 					package_manifests,
+					source_digests,
 					package_dependency_order,
 					package_lock_preview,
 					type_schemas,
 					type_schema_dependency_order,
+					type_schema_graph_summary,
 					package_lock_preview_digest,
 					capability_summary,
 					file_activation,
+					composition,
 					..
 				} = report;
 				let state_restore = if let Some(snapshot) = initial_state_snapshot {
@@ -295,12 +319,15 @@ impl FlowgraphRuntime {
 								ok: false,
 								diagnostics,
 								node_meta,
+								speech_routes,
 								graph_signature,
 								package_manifests,
+								source_digests,
 								package_dependency_order,
 								package_lock_preview,
 								type_schemas,
 								type_schema_dependency_order,
+								type_schema_graph_summary,
 								package_lock_preview_digest,
 								capability_summary,
 								loaded_state_summary: program.state_summary(),
@@ -308,6 +335,7 @@ impl FlowgraphRuntime {
 								loaded_state_restore_report: None,
 								state_snapshot_file_path: None,
 								file_activation,
+								composition,
 								trigger_gate: None,
 								handle: None,
 							};
@@ -326,12 +354,15 @@ impl FlowgraphRuntime {
 					ok: true,
 					diagnostics,
 					node_meta,
+					speech_routes,
 					graph_signature,
 					package_manifests,
+					source_digests,
 					package_dependency_order,
 					package_lock_preview,
 					type_schemas,
 					type_schema_dependency_order,
+					type_schema_graph_summary,
 					package_lock_preview_digest,
 					capability_summary,
 					loaded_state_summary,
@@ -339,6 +370,7 @@ impl FlowgraphRuntime {
 					loaded_state_restore_report,
 					state_snapshot_file_path: None,
 					file_activation,
+					composition,
 					trigger_gate: None,
 					handle: None,
 				};
@@ -350,12 +382,15 @@ impl FlowgraphRuntime {
 					ok: false,
 					diagnostics,
 					node_meta: HashMap::new(),
+					speech_routes: Vec::new(),
 					graph_signature: GraphSignature::default(),
 					package_manifests: Vec::new(),
+					source_digests: Default::default(),
 					package_dependency_order: Vec::new(),
 					package_lock_preview: Vec::new(),
 					type_schemas: Vec::new(),
 					type_schema_dependency_order: Vec::new(),
+					type_schema_graph_summary: TypeSchemaGraphSummary::default(),
 					package_lock_preview_digest: None,
 					capability_summary: GraphCapabilitySummary::default(),
 					loaded_state_summary: ProgramStateSummary::default(),
@@ -363,6 +398,7 @@ impl FlowgraphRuntime {
 					loaded_state_restore_report: None,
 					state_snapshot_file_path: None,
 					file_activation: HashMap::new(),
+					composition: Default::default(),
 					trigger_gate: None,
 					handle: None,
 				},
@@ -374,7 +410,7 @@ impl FlowgraphRuntime {
 
 	/// ロードしてワーカーを spawn する。program がロードできたときのみ `handle` が `Some` になる。
 	///
-	/// `state_weak` は `ExecCtx.state_handle` に入って `channel.emit` などから
+	/// `state_weak` は`ExecCtx.state_handle`に入り、`bos.output`などから
 	/// `State::push_channel_datum` を呼ぶ経路。`audio_sink` は TTS 系ノード用。
 	///
 	/// `conf`: RM-3 の exec 抑止に使う。`None` のときは全ノード exec 許可（互換）。
@@ -408,7 +444,7 @@ impl FlowgraphRuntime {
 		Self::finish_spawn(rt, program, state_weak, audio_sink, conf, runtime_mode, runtime_mode_id)
 	}
 
-	fn finish_spawn(
+	pub(crate) fn finish_spawn(
 		mut rt: Self,
 		program: Option<crate::flowgraph::FlowgraphProgram>,
 		state_weak: std::sync::Weak<RwLock<crate::state::State>>,
@@ -432,14 +468,16 @@ impl FlowgraphRuntime {
 				runtime_mode: runtime_mode_id,
 				default_runtime_mode: conf.and_then(|c| c.default_runtime_mode.clone()),
 			};
-			let (trigger, command, shutdown_tx, join) =
-				crate::flowgraph::spawn::spawn_program(program, state_weak, audio_sink, gate.clone(), pure_host);
+			let runtime_provenance = rt.composition.runtime_provenance();
+			let (trigger, command, shutdown_tx, join, runtime_trace) =
+				crate::flowgraph::spawn::spawn_program_with_root(program, state_weak, audio_sink, gate.clone(), pure_host, runtime_provenance, Some(rt.root_dir.canonicalize().unwrap_or_else(|_| rt.root_dir.clone())));
 			rt.trigger_gate = gate;
 			rt.handle = Some(Arc::new(RuntimeHandle {
 				trigger,
 				command,
 				shutdown_tx,
 				join: tokio::sync::Mutex::new(Some(join)),
+				runtime_trace,
 			}));
 		}
 		rt
@@ -451,12 +489,15 @@ impl FlowgraphRuntime {
 			ok: true,
 			diagnostics: Vec::new(),
 			node_meta: HashMap::new(),
+			speech_routes: Vec::new(),
 			graph_signature: GraphSignature::default(),
 			package_manifests: Vec::new(),
+			source_digests: Default::default(),
 			package_dependency_order: Vec::new(),
 			package_lock_preview: Vec::new(),
 			type_schemas: Vec::new(),
 			type_schema_dependency_order: Vec::new(),
+			type_schema_graph_summary: TypeSchemaGraphSummary::default(),
 			package_lock_preview_digest: None,
 			capability_summary: GraphCapabilitySummary::default(),
 			loaded_state_summary: ProgramStateSummary::default(),
@@ -464,6 +505,7 @@ impl FlowgraphRuntime {
 			loaded_state_restore_report: None,
 			state_snapshot_file_path: None,
 			file_activation: HashMap::new(),
+			composition: Default::default(),
 			trigger_gate: None,
 			handle: None,
 		}

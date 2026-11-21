@@ -1,6 +1,6 @@
 # Glossary Rename Roadmap
 
-> Status: GRN-1〜GRN-5 完了。`flowgraph.glossary.*` と `role = "glossary"` を正規名とし、v2 破壊変更フェーズ中に旧 `flowgraph.dictionary.*` / `role = "dictionary"` の互換 alias は撤去済み。GRN-6 は汎用 `Dictionary` 設計に送る。
+> Status: GRN-1〜GRN-6 完了。`flowgraph.glossary.*` と `role = "glossary"` を正規名とし、v2 破壊変更フェーズ中に旧 VAC 専用 `flowgraph.dictionary.*` / `role = "dictionary"` の互換 alias は撤去済み。`flowgraph.dictionary.*` は汎用 key-value 名前空間として復活した。
 
 現行 VAC 専用の `Dictionary` 機能を `Glossary` へ改名し、`Dictionary` を将来の汎用 key-value / map 型に譲るための破壊変更計画。
 目的は、データ構造の `Dictionary` と Iterator / Ranges 操作の `.map` を共存させ、Flowgraph の言語感を長期的に濁らせないこと。
@@ -80,10 +80,11 @@ GUI 表示名とコンポーネント名を移行する。
 - E2E spec 名も glossary へ移す
 - `v1-to-v2-migration.md` / `conf-reference.md` を更新する
 
-### GRN-6 Dictionary as generic key-value
+### GRN-6 Dictionary as generic key-value ✅
 
 Glossary 移行後に、汎用 `dictionary<K,V>` / `flowgraph.dictionary.*` を標準ライブラリー設計へ戻す。
-この段階までは `dictionary` 名前空間を新規用途に使わない。
+first slice では現行 runtime の `dictionary<string,T>` alias である `map<T>` / `Map<Json>` に合わせ、`flowgraph.dictionary.from_entries` / `get` / `set` / `remove` / `keys` / `has` を追加した。
+非 string key の `dictionary<K,V>`、typed value specialization、Table / record schema index は後続設計へ送る。
 
 ## 5. Map / Dictionary / .map の整理
 

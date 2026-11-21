@@ -1,0 +1,19 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "screen-grounding-menu-direct-edge",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 160,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "corn-direct-edge",
+      "content": "先生、コーンから右へ伸びる線はどの項目につながっている？ 近くにある項目と、線でつながる項目を区別して教えて。",
+      "allowed_actions": ["respond"],
+      "speech": "required"
+    }
+  ]
+}

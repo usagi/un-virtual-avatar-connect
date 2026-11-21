@@ -27,6 +27,8 @@
 //! 3. `is_locked = true` の行は PATCH / DELETE を 403 locked で拒否（ファイル由来の組み込み辞書を保護）。
 //!    行新規作成（POST）は可能。PUT で全行置換する場合は GUI 側で保護を解除する前提。
 //! 4. atomic write: `write_tsv_string` 結果を `<path>.tmp-<random>` に書いてから `fs::rename` で置換する。
+//! 5. mutation は読込から保存まで Flowgraph TSV 保存と共通の排他制御を保持する。
+//!    競合中は 409 table_write_busy。排他制御に参加しない外部エディターは対象外。
 //!
 //! ## 依存
 //!
@@ -190,6 +192,10 @@ pub async fn put_table(
 	if let Err(r) = ensure_editable(&entry) {
 		return r;
 	}
+	let _write_guard = match util::write_guard(&entry.path) {
+		Ok(guard) => guard,
+		Err(response) => return response,
+	};
 	let current = match read_table(&entry.path) {
 		Ok(t) => t,
 		Err(r) => return r,
@@ -259,6 +265,10 @@ pub async fn post_entry(
 	if let Err(r) = ensure_editable(&entry) {
 		return r;
 	}
+	let _write_guard = match util::write_guard(&entry.path) {
+		Ok(guard) => guard,
+		Err(response) => return response,
+	};
 	let mut table = match read_table(&entry.path) {
 		Ok(t) => t,
 		Err(r) => return r,
@@ -306,6 +316,10 @@ pub async fn patch_entry(
 	if let Err(r) = ensure_editable(&entry) {
 		return r;
 	}
+	let _write_guard = match util::write_guard(&entry.path) {
+		Ok(guard) => guard,
+		Err(response) => return response,
+	};
 	let mut table = match read_table(&entry.path) {
 		Ok(t) => t,
 		Err(r) => return r,
@@ -363,6 +377,10 @@ pub async fn delete_entry(runtime: Data<ControlApiRuntime>, req: HttpRequest, pa
 	if let Err(r) = ensure_editable(&entry) {
 		return r;
 	}
+	let _write_guard = match util::write_guard(&entry.path) {
+		Ok(guard) => guard,
+		Err(response) => return response,
+	};
 	let mut table = match read_table(&entry.path) {
 		Ok(t) => t,
 		Err(r) => return r,
@@ -487,10 +505,41 @@ mod tests {
 
 	fn sample_headerful() -> &'static str {
 		concat!(
-			"source\treplacement\tkind\tpriority\tis_locked\tenabled\tby\tcreated_at\texpires_at\ttags\tnote\n",
-			"hello\thi\tliteral\t0\tfalse\ttrue\ttest\t2026-01-01T00:00:00Z\t\t\t\n",
-			"locked\tspecial\tliteral\t0\ttrue\ttrue\tsystem\t2026-01-01T00:00:00Z\t\t\t\n"
+			"reading\tsurface\tpart_of_speech\tcomment\tpriority\tis_locked\tenabled\tby\tcreated_at\texpires_at\ttags\n",
+			"はい\thello\t名詞\t\t0\tfalse\ttrue\ttest\t2026-01-01T00:00:00Z\t\t\n",
+			"すぺしゃる\tlocked\t名詞\t\t0\ttrue\ttrue\tsystem\t2026-01-01T00:00:00Z\t\t\n"
 		)
+	}
+
+	#[actix_web::test]
+	async fn mutations_reject_shared_writer_lock_then_recover() {
+		let (runtime, _tmp, path) = setup_runtime(sample_headerful());
+		let app = test::init_service(App::new().app_data(Data::new(runtime))
+			.service(get_table).service(put_table).service(post_entry).service(patch_entry).service(delete_entry)).await;
+		let original = fs::read(&path).unwrap();
+		let lock = crate::file_publish::data_write_lock(&path).unwrap();
+		let requests = [
+			test::TestRequest::put().uri("/table/sample").set_json(serde_json::json!({"rows": []})).to_request(),
+			test::TestRequest::post().uri("/table/sample/entry").set_json(serde_json::json!({"values": {"surface": "new"}})).to_request(),
+			test::TestRequest::patch().uri("/table/sample/entry/0").set_json(serde_json::json!({"values": {"surface": "changed"}})).to_request(),
+			test::TestRequest::delete().uri("/table/sample/entry/0").to_request(),
+		];
+		for request in requests {
+			let response = test::call_service(&app, request).await;
+			assert_eq!(response.status(), StatusCode::CONFLICT);
+			let body: serde_json::Value = test::read_body_json(response).await;
+			assert_eq!(body["error"], "table_write_busy");
+			assert_eq!(fs::read(&path).unwrap(), original);
+		}
+		let response = test::call_service(&app, test::TestRequest::get().uri("/table/sample").to_request()).await;
+		assert_eq!(response.status(), StatusCode::OK);
+		drop(lock);
+		let request = test::TestRequest::patch().uri("/table/sample/entry/0")
+			.set_json(serde_json::json!({"values": {"surface": "recovered"}})).to_request();
+		assert_eq!(test::call_service(&app, request).await.status(), StatusCode::OK);
+		assert!(fs::read_to_string(&path).unwrap().contains("recovered"));
+		// The API released its guard; a Flowgraph writer can acquire it again.
+		let _next_writer = crate::file_publish::data_write_lock(&path).unwrap();
 	}
 
 	#[actix_web::test]
@@ -517,7 +566,7 @@ mod tests {
 		assert_eq!(body.key, "sample");
 		assert_eq!(body.columns.len(), 11);
 		assert_eq!(body.rows.len(), 2);
-		assert_eq!(body.rows[0].values.get("source").and_then(|v| v.as_str()), Some("hello"));
+		assert_eq!(body.rows[0].values.get("surface").and_then(|v| v.as_str()), Some("hello"));
 		assert_eq!(body.content_hash.len(), 64);
 	}
 
@@ -542,7 +591,7 @@ mod tests {
 		// 1 行だけの PUT
 		let body = serde_json::json!({
 			"rows": [
-				{"source": "foo", "replacement": "bar", "kind": "literal", "priority": 0,
+				{"reading": "ふー", "surface": "foo", "part_of_speech": "名詞", "comment": "", "priority": 0,
 				 "is_locked": false, "enabled": true, "by": "user", "created_at": "2026-04-23T00:00:00Z",
 				 "expires_at": null, "tags": "", "note": ""}
 			]
@@ -570,7 +619,7 @@ mod tests {
 
 		// ディスクに書いた内容を目視確認
 		let written = std::fs::read_to_string(&path).expect("read back");
-		assert!(written.contains("foo\tbar\t"));
+		assert!(written.contains("ふー\tfoo\t名詞\t"));
 	}
 
 	#[actix_web::test]
@@ -579,9 +628,9 @@ mod tests {
 		let app = test::init_service(App::new().app_data(Data::new(runtime)).service(post_entry)).await;
 		let body = serde_json::json!({
 			"values": {
-				"source": "new", "replacement": "shiny", "kind": "literal", "priority": 5,
+				"reading": "しゃいにー", "surface": "shiny", "part_of_speech": "名詞", "comment": "", "priority": 5,
 				"is_locked": false, "enabled": true, "by": "gui", "created_at": "2026-04-23T01:00:00Z",
-				"expires_at": null, "tags": "test", "note": "phi-1"
+				"expires_at": null, "tags": "test"
 			}
 		});
 		let req = test::TestRequest::post().uri("/table/sample/entry").set_json(&body).to_request();
@@ -606,7 +655,7 @@ mod tests {
 	async fn readonly_table_rejects_mutation() {
 		let (runtime, _tmp, _path) = setup_runtime(sample_headerful());
 		let app = test::init_service(App::new().app_data(Data::new(runtime)).service(post_entry)).await;
-		let body = serde_json::json!({"values": {"source": "x", "replacement": "y"}});
+		let body = serde_json::json!({"values": {"reading": "えっくす", "surface": "x"}});
 		let req = test::TestRequest::post().uri("/table/readonly/entry").set_json(&body).to_request();
 		let resp = test::call_service(&app, req).await;
 		assert_eq!(resp.status(), StatusCode::FORBIDDEN);
@@ -616,13 +665,13 @@ mod tests {
 	async fn patch_unlocked_row_updates_value() {
 		let (runtime, _tmp, _path) = setup_runtime(sample_headerful());
 		let app = test::init_service(App::new().app_data(Data::new(runtime)).service(patch_entry).service(get_table)).await;
-		let body = serde_json::json!({"values": {"replacement": "HOWDY"}});
+		let body = serde_json::json!({"values": {"reading": "はうでぃ"}});
 		let req = test::TestRequest::patch().uri("/table/sample/entry/0").set_json(&body).to_request();
 		let resp = test::call_service(&app, req).await;
 		assert_eq!(resp.status(), StatusCode::OK);
 
 		let resp = test::call_service(&app, test::TestRequest::get().uri("/table/sample").to_request()).await;
 		let dto: TableFileDto = test::read_body_json(resp).await;
-		assert_eq!(dto.rows[0].values.get("replacement").and_then(|v| v.as_str()), Some("HOWDY"));
+		assert_eq!(dto.rows[0].values.get("reading").and_then(|v| v.as_str()), Some("はうでぃ"));
 	}
 }

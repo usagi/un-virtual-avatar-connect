@@ -2,7 +2,7 @@
 //!
 //! VOICEVOX 互換 HTTP API のため、実装は `voicevox` ドライバと共通。既定エンドポイントだけ差し替え。
 
-use super::super::driver::{AudioContext, TtsDriver, TtsError, TtsOutcome, TtsParamSchema, TtsRequest};
+use super::super::driver::{TtsDriver, TtsError, TtsParamSchema, TtsRequest, TtsSynthesis};
 use async_trait::async_trait;
 
 pub struct AivisSpeechDriver;
@@ -17,8 +17,8 @@ impl TtsDriver for AivisSpeechDriver {
 	fn params_schema(&self) -> TtsParamSchema {
 		super::voicevox::voicevox_like_schema()
 	}
-	async fn speak(&self, req: TtsRequest, audio: &AudioContext<'_>) -> Result<TtsOutcome, TtsError> {
-		super::voicevox::speak_voicevox_like(AIVIS_SPEECH_DEFAULT, &req, audio).await
+	async fn synthesize(&self, req: &TtsRequest) -> Result<TtsSynthesis, TtsError> {
+		super::voicevox::synthesize_voicevox_like(AIVIS_SPEECH_DEFAULT, req).await
 	}
 }
 

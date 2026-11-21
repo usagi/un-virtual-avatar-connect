@@ -6,7 +6,7 @@
 # 前提:
 #   - VOICEVOX ENGINE（http://127.0.0.1:50021）または
 #     AivisSpeech Engine（http://127.0.0.1:10101）を起動しておく。
-#   - 話者・style_id の確認:  virtual-avatar-connect --voicevox-speakers
+#   - 話者・style_id の確認:  VOICEVOX / AivisSpeech Engine の UI または `/speakers` API。
 #
 # AivisSpeech に切り替える場合は:
 #   1. `engine` リテラルを "aivis_speech" に変更
@@ -27,14 +27,14 @@ tags = ["example", "tts", "voicevox", "aivis_speech"]
 [[nodes]]
 id = "in"
 feature = "flowgraph.ingress.web_input"
-position = [80, 200]
+position = [80, 80]
 
 
 # ---- TTS パラメーター ----
 [[nodes]]
 id = "engine"
 feature = "flowgraph.literal.string"
-position = [80, 380]
+position = [80, 304]
 properties.value = "voicevox"
 
 # 方法 A: グローバル style_id
@@ -44,26 +44,26 @@ properties.value = "voicevox"
 [[nodes]]
 id = "voice"
 feature = "flowgraph.literal.string"
-position = [80, 460]
+position = [80, 470]
 properties.value = "2"
 
 [[nodes]]
 id = "speed"
 feature = "flowgraph.literal.float"
-position = [80, 540]
+position = [80, 636]
 properties.value = 1.15
 
 [[nodes]]
 id = "pitch"
 feature = "flowgraph.literal.float"
-position = [80, 620]
+position = [80, 802]
 properties.value = 0.0
 
 # 空文字で driver 既定。AivisSpeech に変えるなら http://127.0.0.1:10101。
 [[nodes]]
 id = "endpoint"
 feature = "flowgraph.literal.string"
-position = [80, 700]
+position = [80, 968]
 properties.value = ""
 
 # NOTE: `speak:extra` (Map<Json>) には VOICEVOX 固有パラメーター
@@ -79,19 +79,19 @@ properties.value = ""
 [[nodes]]
 id = "speak"
 feature = "flowgraph.tts.speak"
-position = [400, 400]
+position = [500, 80]
 
 
 # ---- 結果ログ ----
 [[nodes]]
 id = "log_ok"
 feature = "flowgraph.util.log"
-position = [720, 320]
+position = [920, 80]
 
 [[nodes]]
 id = "log_err"
 feature = "flowgraph.util.log"
-position = [720, 480]
+position = [920, 246]
 
 
 # ---- 配線 ----

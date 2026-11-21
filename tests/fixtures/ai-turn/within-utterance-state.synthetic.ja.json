@@ -1,0 +1,50 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "within-utterance-state-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {"max_chars": 120, "max_sentences": 2, "forbid_question_ending": true},
+  "cases": [
+    {
+      "id": "lost-then-found-ordinary",
+      "content": "見失った見失った見失った見失ったいた",
+      "allowed_actions": ["observe"],
+      "speech": "forbidden"
+    },
+    {
+      "id": "found-then-lost-question",
+      "content": "いた、あ、また見失った。ケルシー先生、いまどこにいるかわかる？",
+      "allowed_actions": ["respond"],
+      "speech": "required",
+      "speech_forbids": ["見つかったな", "見つけたな", "そこにいる", "右にいる", "左にいる"]
+    },
+    {
+      "id": "found-with-joy",
+      "content": "いた！やっと見つけた！やったー、めちゃくちゃ嬉しい！",
+      "allowed_actions": ["react", "respond"],
+      "speech": "required",
+      "speech_forbids": ["見失ったな", "まだ見つからない", "どこにいるか分からない"]
+    },
+    {
+      "id": "found-with-new-question",
+      "content": "見失った、あ、いた。ケルシー先生、こういうとき焦らず追うにはどう考えたらいい？",
+      "allowed_actions": ["respond"],
+      "speech": "required",
+      "speech_forbids": ["まだ見つからない", "見失ったまま"]
+    },
+    {
+      "id": "negated-found-explicit-question",
+      "content": "いたと思ったけど違った。まだ見つかってない。ケルシー先生、見えてる？",
+      "allowed_actions": ["respond"],
+      "speech": "required",
+      "speech_forbids": ["見つかったな", "見つけたな", "そこにいる", "右にいる", "左にいる"]
+    },
+    {
+      "id": "different-object-not-resolved",
+      "content": "探しているのは敵機。味方はいたけど、敵機はまだ見つかってない。ケルシー先生、敵機の位置がわかる？",
+      "allowed_actions": ["respond"],
+      "speech": "required",
+      "speech_forbids": ["敵機を見つけたな", "敵機が見つかったな", "敵機は右", "敵機は左"]
+    }
+  ]
+}

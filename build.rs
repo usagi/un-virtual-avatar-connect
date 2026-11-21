@@ -148,17 +148,19 @@ fn extract_vosk_libs_from_zip(data: &[u8], dest_flat: &Path) -> Result<(), Strin
 	Ok(())
 }
 
-/// `target/debug` または `target/release`（exe と同じ階層）。
-/// Cargo が `CARGO_TARGET_DIR` を渡さない環境があるため `OUT_DIR` から導出する。
+#[path = "build_support/output_dir.rs"]
+mod build_output_dir;
+
+/// Executable output directory. Set UN_BUILD_PROFILE_DIR when Cargo's build-dir
+/// is configured separately from target-dir (an absolute path is recommended).
 fn profile_output_dir() -> Option<PathBuf> {
-	if let Ok(td) = env::var("CARGO_TARGET_DIR") {
-		let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".into());
-		return Some(PathBuf::from(td).join(profile));
-	}
-	let out = env::var("OUT_DIR").ok()?;
-	let p = PathBuf::from(out);
-	// .../target/debug/build/<crate-hash>/out → 3 つ上が profile 出力ルート
-	p.parent()?.parent()?.parent().map(|x| x.to_path_buf())
+    println!("cargo:rerun-if-env-changed=UN_BUILD_PROFILE_DIR");
+    println!("cargo:rerun-if-changed=build_support/output_dir.rs");
+    if let Some(path) = env::var_os("UN_BUILD_PROFILE_DIR") {
+        return Some(PathBuf::from(path));
+    }
+    let out = PathBuf::from(env::var_os("OUT_DIR")?);
+    build_output_dir::profile_dir_from_out_dir(&out)
 }
 
 /// `vendor_dir` 内のすべての `.dll` を exe と同じ `target/{profile}/` および `deps/` へコピーする。

@@ -28,9 +28,10 @@ use std::sync::Arc;
 
 /// 既知の辞書カラム。
 mod col {
-	pub const SOURCE: &str = "source";
-	pub const REPLACEMENT: &str = "replacement";
-	pub const KIND: &str = "kind";
+	pub const READING: &str = "reading";
+	pub const SURFACE: &str = "surface";
+	pub const PART_OF_SPEECH: &str = "part_of_speech";
+	pub const COMMENT: &str = "comment";
 	pub const PRIORITY: &str = "priority";
 	pub const IS_LOCKED: &str = "is_locked";
 	pub const ENABLED: &str = "enabled";
@@ -38,8 +39,9 @@ mod col {
 	pub const CREATED_AT: &str = "created_at";
 	pub const EXPIRES_AT: &str = "expires_at";
 	pub const TAGS: &str = "tags";
-	pub const NOTE: &str = "note";
 }
+
+const REGEX_PART_OF_SPEECH: &str = "正規表現";
 
 /// Row から列名経由で値を取り出す（Table::schema と突き合わせ）。
 fn row_get<'a>(table: &'a Table, row: &'a Row, name: &str) -> Option<&'a JsonValue> {
@@ -86,8 +88,9 @@ fn current_utc_rfc3339() -> String {
 
 #[derive(Debug, Clone)]
 struct CompiledEntry {
-	source: String,
-	replacement: String,
+	surface: String,
+	reading: String,
+	part_of_speech: String,
 	priority: i64,
 	#[allow(dead_code)]
 	locked: bool,
@@ -123,40 +126,26 @@ impl CompiledDictionary {
 		let mut regex_entries: Vec<(Regex, CompiledEntry)> = Vec::new();
 
 		for (_, row) in &indexed {
-			let source = row_str(table, row, col::SOURCE);
-			if source.is_empty() {
+			let surface = row_str(table, row, col::SURFACE);
+			if surface.is_empty() {
 				continue;
 			}
-			let replacement = row_str(table, row, col::REPLACEMENT);
-			let kind = {
-				let k = row_str(table, row, col::KIND);
-				if k.is_empty() {
-					"literal"
-				} else {
-					k
-				}
-			};
+			let reading = row_str(table, row, col::READING);
+			let part_of_speech = row_str(table, row, col::PART_OF_SPEECH);
 			let entry = CompiledEntry {
-				source: source.to_string(),
-				replacement: replacement.to_string(),
+				surface: surface.to_string(),
+				reading: reading.to_string(),
+				part_of_speech: part_of_speech.to_string(),
 				priority: row_i64(table, row, col::PRIORITY),
 				locked: row_bool(table, row, col::IS_LOCKED, false),
 			};
-			match kind {
-				"literal" => {
-					literal_patterns.push(source.to_string());
-					literal_entries.push(entry);
+			if part_of_speech == REGEX_PART_OF_SPEECH {
+				if let Ok(re) = Regex::new(surface) {
+					regex_entries.push((re, entry));
 				}
-				"regex" => {
-					if let Ok(re) = Regex::new(source) {
-						regex_entries.push((re, entry));
-					}
-				}
-				_ => {
-					// 未知 kind は literal にフォールバック
-					literal_patterns.push(source.to_string());
-					literal_entries.push(entry);
-				}
+			} else {
+				literal_patterns.push(surface.to_string());
+				literal_entries.push(entry);
 			}
 		}
 
@@ -305,7 +294,7 @@ fn replace_with(content: &str, dict: &CompiledDictionary) -> (String, usize) {
 			for m in ac.find_iter(content) {
 				out.push_str(&content[last_end..m.start()]);
 				let entry = &dict.literal_entries[m.pattern().as_usize()];
-				out.push_str(&entry.replacement);
+				out.push_str(&entry.reading);
 				applied += 1;
 				last_end = m.end();
 			}
@@ -318,7 +307,7 @@ fn replace_with(content: &str, dict: &CompiledDictionary) -> (String, usize) {
 	let mut phase2 = phase1;
 	for (re, entry) in &dict.regex_entries {
 		let before_applied = applied;
-		let replaced = re.replace_all(&phase2, entry.replacement.as_str());
+		let replaced = re.replace_all(&phase2, entry.reading.as_str());
 		if matches!(replaced, std::borrow::Cow::Owned(_)) {
 			let occurrences = re.find_iter(&phase2).count();
 			applied += occurrences;
@@ -358,7 +347,8 @@ impl NodeDescriptor for DictionaryMatchNode {
 					"Captures",
 					SocketType::List(Box::new(SocketType::List(Box::new(SocketType::String)))),
 				),
-				PortSpec::output("first_replacement", "First Replacement", SocketType::String),
+				PortSpec::output("first_reading", "First Reading", SocketType::String),
+				PortSpec::output("first_captures", "First Captures", SocketType::List(Box::new(SocketType::String))),
 			],
 			properties: vec![
 				PropertySpec::new(
@@ -431,21 +421,22 @@ impl StatefulNode for DictionaryMatchNode {
 		let matched_count = hits.len() as i64;
 		let mut entries_out: Vec<SocketValue> = Vec::with_capacity(hits.len());
 		let mut captures_out: Vec<SocketValue> = Vec::with_capacity(hits.len());
-		let mut first_replacement = String::new();
+		let mut first_reading = String::new();
 		for (idx, hit) in hits.iter().enumerate() {
 			entries_out.push(SocketValue::Json(hit.entry_json.clone()));
 			let caps_list: Vec<SocketValue> = hit.captures.iter().map(|c| SocketValue::String(c.clone())).collect();
 			captures_out.push(SocketValue::List(caps_list));
 			if idx == 0 {
-				first_replacement = hit.replacement.clone();
+				first_reading = hit.reading.clone();
 			}
 		}
 
 		let mut out = NodeOutput::new()
+			.set_data("first_captures", captures_out.first().cloned().unwrap_or(SocketValue::List(vec![])))
 			.set_data("matched_entries", SocketValue::List(entries_out))
 			.set_data("matched_count", SocketValue::Int(matched_count))
 			.set_data("captures", SocketValue::List(captures_out))
-			.set_data("first_replacement", SocketValue::String(first_replacement));
+			.set_data("first_reading", SocketValue::String(first_reading));
 		if matched_count > 0 {
 			out = out.fire_exec("on_match");
 		} else {
@@ -458,7 +449,7 @@ impl StatefulNode for DictionaryMatchNode {
 struct MatchHit {
 	entry_json: JsonValue,
 	captures: Vec<String>,
-	replacement: String,
+	reading: String,
 	start: usize,
 	end: usize,
 }
@@ -474,9 +465,9 @@ fn match_with(text: &str, dict: &CompiledDictionary, policy: MatchPolicy, anchor
 				continue;
 			}
 			hits.push(MatchHit {
-				entry_json: entry_to_json(entry, source_table, "literal"),
+				entry_json: entry_to_json(entry, source_table),
 				captures: Vec::new(),
-				replacement: entry.replacement.clone(),
+				reading: entry.reading.clone(),
 				start: m.start(),
 				end: m.end(),
 			});
@@ -495,9 +486,9 @@ fn match_with(text: &str, dict: &CompiledDictionary, policy: MatchPolicy, anchor
 				.map(|m| m.map(|m| m.as_str().to_string()).unwrap_or_default())
 				.collect();
 			hits.push(MatchHit {
-				entry_json: entry_to_json(entry, source_table, "regex"),
+				entry_json: entry_to_json(entry, source_table),
 				captures: cap_vec,
-				replacement: entry.replacement.clone(),
+				reading: entry.reading.clone(),
 				start: m.start(),
 				end: m.end(),
 			});
@@ -526,13 +517,13 @@ fn anchor_ok(anchor: Anchor, text: &str, start: usize, end: usize) -> bool {
 	}
 }
 
-fn entry_to_json(entry: &CompiledEntry, _table: &Table, kind: &str) -> JsonValue {
-	// compiled の情報だけでエントリを再構築（source/replacement/kind/priority）。
+fn entry_to_json(entry: &CompiledEntry, _table: &Table) -> JsonValue {
+	// compiled の情報だけでエントリを再構築（reading/surface/part_of_speech/priority）。
 	// 全 11 カラムが必要なら下流で Table.filter を書けばよい。
 	json!({
-		col::SOURCE: entry.source,
-		col::REPLACEMENT: entry.replacement,
-		col::KIND: kind,
+		col::READING: entry.reading,
+		col::SURFACE: entry.surface,
+		col::PART_OF_SPEECH: entry.part_of_speech,
 		col::PRIORITY: entry.priority,
 	})
 }
@@ -553,13 +544,13 @@ impl NodeDescriptor for DictionaryLearnNode {
 			inputs: vec![
 				PortSpec::exec_input("exec_in", "Exec"),
 				PortSpec::input("dictionary", "Glossary", SocketType::Table).with_default(SocketValue::Table(Table::empty())),
-				PortSpec::input("source", "Source", SocketType::String),
-				PortSpec::input("replacement", "Replacement", SocketType::String),
-				PortSpec::input("kind", "Kind", SocketType::String).with_default(SocketValue::String("literal".into())),
+				PortSpec::input("reading", "Reading", SocketType::String),
+				PortSpec::input("surface", "Surface", SocketType::String),
+				PortSpec::input("part_of_speech", "Part Of Speech", SocketType::String).with_default(SocketValue::String("名詞".into())),
+				PortSpec::input("comment", "Comment", SocketType::String).with_default(SocketValue::String(String::new())),
 				PortSpec::input("priority", "Priority", SocketType::Int).with_default(SocketValue::Int(0)),
 				PortSpec::input("by", "By", SocketType::String).with_default(SocketValue::String(String::new())),
 				PortSpec::input("tags", "Tags", SocketType::String).with_default(SocketValue::String(String::new())),
-				PortSpec::input("note", "Note", SocketType::String).with_default(SocketValue::String(String::new())),
 				PortSpec::input("expires_at", "Expires At", SocketType::String).with_default(SocketValue::String(String::new())),
 			],
 			outputs: vec![
@@ -590,29 +581,30 @@ impl PureNode for DictionaryLearnNode {
 		_fired: &ExecFireSet,
 	) -> Result<NodeOutput, NodeExecError> {
 		let base_table = get_required_table(inputs, "dictionary")?.clone();
-		let source = get_required_string(inputs, "source")?;
-		let replacement = get_required_string(inputs, "replacement")?;
-		let kind = get_optional_string(inputs, "kind", "literal")?;
+		let reading = get_required_string(inputs, "reading")?;
+		let surface = get_required_string(inputs, "surface")?;
+		let part_of_speech = get_optional_string(inputs, "part_of_speech", "名詞")?;
+		let comment = get_optional_string(inputs, "comment", "")?;
 		let priority = inputs.get("priority").and_then(|v| v.as_i64().ok()).unwrap_or(0);
 		let by = get_optional_string(inputs, "by", "")?;
 		let tags = get_optional_string(inputs, "tags", "")?;
-		let note = get_optional_string(inputs, "note", "")?;
 		let expires_at = get_optional_string(inputs, "expires_at", "")?;
 
 		let mut table = ensure_dictionary_schema(base_table);
 
-		// duplicate 検出: (source, replacement, kind) が完全一致 & enabled & !expired
+		// duplicate 検出: Google IME 互換の先頭 4 列が完全一致 & enabled & !expired
 		let now = jiff::Timestamp::now();
 		let is_duplicate = table.rows().iter().any(|r| {
 			row_bool(&table, r, col::ENABLED, true)
 				&& !is_expired(r, &table, &now)
-				&& row_str(&table, r, col::SOURCE) == source
-				&& row_str(&table, r, col::REPLACEMENT) == replacement
-				&& (row_str(&table, r, col::KIND).is_empty() && kind == "literal" || row_str(&table, r, col::KIND) == kind)
+				&& row_str(&table, r, col::READING) == reading
+				&& row_str(&table, r, col::SURFACE) == surface
+				&& row_str(&table, r, col::PART_OF_SPEECH) == part_of_speech
+				&& row_str(&table, r, col::COMMENT) == comment
 		});
 
 		if is_duplicate {
-			let feedback = format!("既に同一エントリが登録済み: source='{source}'");
+			let feedback = format!("既に同一エントリが登録済み: surface='{surface}' reading='{reading}'");
 			return Ok(NodeOutput::new()
 				.set_data("updated_dictionary", SocketValue::Table(table))
 				.set_data("added_entry", SocketValue::Json(JsonValue::Null))
@@ -627,9 +619,10 @@ impl PureNode for DictionaryLearnNode {
 			JsonValue::String(expires_at)
 		};
 		let row_values = vec![
-			JsonValue::String(source.clone()),
-			JsonValue::String(replacement.clone()),
-			JsonValue::String(kind.clone()),
+			JsonValue::String(reading.clone()),
+			JsonValue::String(surface.clone()),
+			JsonValue::String(part_of_speech.clone()),
+			JsonValue::String(comment.clone()),
 			JsonValue::Number(priority.into()),
 			JsonValue::Bool(false), // is_locked
 			JsonValue::Bool(true),  // enabled
@@ -637,15 +630,15 @@ impl PureNode for DictionaryLearnNode {
 			JsonValue::String(created_at.clone()),
 			expires_json.clone(),
 			JsonValue::String(tags.clone()),
-			JsonValue::String(note.clone()),
 		];
 		let new_row = Row::new(row_values.clone());
 		table.push_row(new_row.clone());
 
 		let added = json!({
-			col::SOURCE: source,
-			col::REPLACEMENT: replacement,
-			col::KIND: kind,
+			col::READING: reading,
+			col::SURFACE: surface,
+			col::PART_OF_SPEECH: part_of_speech,
+			col::COMMENT: comment,
 			col::PRIORITY: priority,
 			col::IS_LOCKED: false,
 			col::ENABLED: true,
@@ -653,9 +646,12 @@ impl PureNode for DictionaryLearnNode {
 			col::CREATED_AT: created_at,
 			col::EXPIRES_AT: expires_json,
 			col::TAGS: tags,
-			col::NOTE: note,
 		});
-		let feedback = format!("学習: source='{}'", row_values[0].as_str().unwrap_or(""));
+		let feedback = format!(
+			"学習: surface='{}' reading='{}'",
+			row_values[1].as_str().unwrap_or(""),
+			row_values[0].as_str().unwrap_or("")
+		);
 
 		Ok(NodeOutput::new()
 			.set_data("updated_dictionary", SocketValue::Table(table))
@@ -706,12 +702,12 @@ impl NodeDescriptor for DictionaryForgetNode {
 			feature: "flowgraph.glossary.forget".into(),
 			title: "Glossary Forget".into(),
 			category: "glossary".into(),
-			description: Some("Glossary Table から source (+ replacement) 一致行を削除。mode=latest/all/exact、is_locked 保護".into()),
+			description: Some("Glossary Table から surface (+ reading) 一致行を削除。mode=latest/all/exact、is_locked 保護".into()),
 			inputs: vec![
 				PortSpec::exec_input("exec_in", "Exec"),
 				PortSpec::input("dictionary", "Glossary", SocketType::Table).with_default(SocketValue::Table(Table::empty())),
-				PortSpec::input("source", "Source", SocketType::String),
-				PortSpec::input("replacement", "Replacement", SocketType::String).with_default(SocketValue::String(String::new())),
+				PortSpec::input("surface", "Surface", SocketType::String),
+				PortSpec::input("reading", "Reading", SocketType::String).with_default(SocketValue::String(String::new())),
 				PortSpec::input("mode", "Mode", SocketType::String).with_default(SocketValue::String("latest".into())),
 			],
 			outputs: vec![
@@ -744,18 +740,18 @@ impl PureNode for DictionaryForgetNode {
 		_fired: &ExecFireSet,
 	) -> Result<NodeOutput, NodeExecError> {
 		let base_table = get_required_table(inputs, "dictionary")?.clone();
-		let source = get_required_string(inputs, "source")?;
-		let replacement = get_optional_string(inputs, "replacement", "")?;
+		let surface = get_required_string(inputs, "surface")?;
+		let reading = get_optional_string(inputs, "reading", "")?;
 		let mode = get_optional_string(inputs, "mode", "latest")?;
 
 		let mut table = ensure_dictionary_schema(base_table);
 
-		// 対象候補: source 一致（replacement 非空なら replacement も一致）
+		// 対象候補: surface 一致（reading 非空なら reading も一致）
 		let match_pred = |row: &Row, t: &Table| -> bool {
-			if row_str(t, row, col::SOURCE) != source {
+			if row_str(t, row, col::SURFACE) != surface {
 				return false;
 			}
-			if !replacement.is_empty() && row_str(t, row, col::REPLACEMENT) != replacement {
+			if !reading.is_empty() && row_str(t, row, col::READING) != reading {
 				return false;
 			}
 			true
@@ -776,9 +772,9 @@ impl PureNode for DictionaryForgetNode {
 					table.remove_all_where(|r| match_pred(r, &pred_table_clone) && !row_bool(&pred_table_clone, r, col::IS_LOCKED, false));
 			}
 			"exact" => {
-				// replacement 必須
-				if replacement.is_empty() {
-					let feedback = "mode=exact では replacement が必須".to_string();
+				// reading 必須
+				if reading.is_empty() {
+					let feedback = "mode=exact では reading が必須".to_string();
 					return Ok(NodeOutput::new()
 						.set_data("updated_dictionary", SocketValue::Table(table))
 						.set_data("removed_count", SocketValue::Int(0))
@@ -809,11 +805,11 @@ impl PureNode for DictionaryForgetNode {
 			.set_data("removed_count", SocketValue::Int(removed as i64))
 			.set_data("locked_count", SocketValue::Int(locked_count as i64));
 		let feedback = if removed > 0 {
-			format!("忘却: source='{source}' {removed} 件削除（{locked_count} 件ロック保護）")
+			format!("忘却: surface='{surface}' {removed} 件削除（{locked_count} 件ロック保護）")
 		} else if locked_count > 0 {
-			format!("忘却対象あるがロック: source='{source}' {locked_count} 件保護")
+			format!("忘却対象あるがロック: surface='{surface}' {locked_count} 件保護")
 		} else {
-			format!("忘却対象なし: source='{source}'")
+			format!("忘却対象なし: surface='{surface}'")
 		};
 		out = out.set_data("feedback", SocketValue::String(feedback));
 		if removed > 0 {
@@ -845,9 +841,9 @@ mod tests {
 		let schema = dictionary_schema();
 		let rows = vec![
 			dict_row(
-				"hello",
 				"こんにちは",
-				"literal",
+				"hello",
+				"名詞",
 				0,
 				false,
 				true,
@@ -855,11 +851,11 @@ mod tests {
 				"2026-04-01T00:00:00Z",
 				None,
 			),
-			dict_row("Rust", "ラスト", "literal", 10, true, true, "system", "2026-04-01T00:00:00Z", None),
+			dict_row("ラスト", "Rust", "名詞", 10, true, true, "system", "2026-04-01T00:00:00Z", None),
 			dict_row(
-				r"(\d+)円",
 				"$1 yen",
-				"regex",
+				r"(\d+)円",
+				REGEX_PART_OF_SPEECH,
 				50,
 				false,
 				true,
@@ -868,9 +864,9 @@ mod tests {
 				None,
 			),
 			dict_row(
-				"expired",
 				"期限切れ",
-				"literal",
+				"expired",
+				"名詞",
 				0,
 				false,
 				true,
@@ -883,9 +879,9 @@ mod tests {
 	}
 
 	fn dict_row(
-		source: &str,
-		replacement: &str,
-		kind: &str,
+		reading: &str,
+		surface: &str,
+		part_of_speech: &str,
 		priority: i64,
 		is_locked: bool,
 		enabled: bool,
@@ -894,16 +890,16 @@ mod tests {
 		expires_at: Option<&str>,
 	) -> Row {
 		Row::new(vec![
-			JsonValue::String(source.into()),
-			JsonValue::String(replacement.into()),
-			JsonValue::String(kind.into()),
+			JsonValue::String(reading.into()),
+			JsonValue::String(surface.into()),
+			JsonValue::String(part_of_speech.into()),
+			JsonValue::String(String::new()),
 			JsonValue::Number(priority.into()),
 			JsonValue::Bool(is_locked),
 			JsonValue::Bool(enabled),
 			JsonValue::String(by.into()),
 			JsonValue::String(created_at.into()),
 			expires_at.map(|s| JsonValue::String(s.into())).unwrap_or(JsonValue::Null),
-			JsonValue::String(String::new()),
 			JsonValue::String(String::new()),
 		])
 	}
@@ -996,7 +992,7 @@ mod tests {
 			.unwrap();
 		assert!(out.fired_exec.contains("on_match"));
 		assert_eq!(out.data.get("matched_count"), Some(&SocketValue::Int(1)));
-		assert_eq!(out.data.get("first_replacement"), Some(&SocketValue::String("こんにちは".into())));
+		assert_eq!(out.data.get("first_reading"), Some(&SocketValue::String("こんにちは".into())));
 	}
 
 	#[tokio::test]
@@ -1074,8 +1070,8 @@ mod tests {
 		let node = DictionaryLearnNode;
 		let mut inputs = InputMap::new();
 		inputs.insert("dictionary".into(), SocketValue::Table(Table::new(dictionary_schema(), Vec::new())));
-		inputs.insert("source".into(), SocketValue::String("foo".into()));
-		inputs.insert("replacement".into(), SocketValue::String("bar".into()));
+		inputs.insert("reading".into(), SocketValue::String("ふー".into()));
+		inputs.insert("surface".into(), SocketValue::String("foo".into()));
 		let out = node
 			.compute(
 				&crate::flowgraph::node::PureEvalHost::default(),
@@ -1093,14 +1089,34 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn learn_preserves_only_the_supplied_dictionary() {
+		let node = DictionaryLearnNode;
+		let original = sample_dict();
+		assert!(!original.is_empty());
+		for base in [original.clone(), Table::empty()] {
+			let expected = base.len() + 1;
+			let mut inputs = InputMap::new();
+			inputs.insert("dictionary".into(), SocketValue::Table(base.clone()));
+			inputs.insert("reading".into(), SocketValue::String("ついかご".into()));
+			inputs.insert("surface".into(), SocketValue::String("new-onboarding-term".into()));
+			let out = node.compute(&crate::flowgraph::node::PureEvalHost::default(), &InputMap::new(), &inputs, &fire("exec_in")).await.unwrap();
+			let SocketValue::Table(result) = out.data.get("updated_dictionary").unwrap() else { panic!() };
+			assert_eq!(result.len(), expected);
+			for (before, after) in base.rows().iter().zip(result.rows()) {
+				assert_eq!(before, after);
+			}
+		}
+	}
+
+	#[tokio::test]
 	async fn learn_detects_duplicate() {
 		let node = DictionaryLearnNode;
 		let mut t = Table::new(dictionary_schema(), Vec::new());
-		t.push_row(dict_row("foo", "bar", "literal", 0, false, true, "x", "2026-04-01T00:00:00Z", None));
+		t.push_row(dict_row("ふー", "foo", "名詞", 0, false, true, "x", "2026-04-01T00:00:00Z", None));
 		let mut inputs = InputMap::new();
 		inputs.insert("dictionary".into(), SocketValue::Table(t));
-		inputs.insert("source".into(), SocketValue::String("foo".into()));
-		inputs.insert("replacement".into(), SocketValue::String("bar".into()));
+		inputs.insert("reading".into(), SocketValue::String("ふー".into()));
+		inputs.insert("surface".into(), SocketValue::String("foo".into()));
 		let out = node
 			.compute(
 				&crate::flowgraph::node::PureEvalHost::default(),
@@ -1120,12 +1136,22 @@ mod tests {
 		let forget = DictionaryForgetNode;
 		// Initial: (foo, old) at t=0
 		let mut t0 = Table::new(dictionary_schema(), Vec::new());
-		t0.push_row(dict_row("foo", "old", "literal", 0, false, true, "x", "2026-04-01T00:00:00Z", None));
+		t0.push_row(dict_row(
+			"おーるど",
+			"foo",
+			"名詞",
+			0,
+			false,
+			true,
+			"x",
+			"2026-04-01T00:00:00Z",
+			None,
+		));
 		// Learn foo -> new
 		let mut learn_in = InputMap::new();
 		learn_in.insert("dictionary".into(), SocketValue::Table(t0.clone()));
-		learn_in.insert("source".into(), SocketValue::String("foo".into()));
-		learn_in.insert("replacement".into(), SocketValue::String("new".into()));
+		learn_in.insert("reading".into(), SocketValue::String("にゅー".into()));
+		learn_in.insert("surface".into(), SocketValue::String("foo".into()));
 		let learned = learn
 			.compute(
 				&crate::flowgraph::node::PureEvalHost::default(),
@@ -1143,7 +1169,7 @@ mod tests {
 		// Forget (latest): newest "new" が消え、"old" が復活
 		let mut forget_in = InputMap::new();
 		forget_in.insert("dictionary".into(), SocketValue::Table(t1.clone()));
-		forget_in.insert("source".into(), SocketValue::String("foo".into()));
+		forget_in.insert("surface".into(), SocketValue::String("foo".into()));
 		forget_in.insert("mode".into(), SocketValue::String("latest".into()));
 		let forgotten = forget
 			.compute(
@@ -1160,7 +1186,7 @@ mod tests {
 		assert_eq!(t2.len(), 1);
 		assert_eq!(
 			t2.rows()[0].get(1).and_then(|v| v.as_str()),
-			Some("old"),
+			Some("foo"),
 			"UNDO: old が復活してるはず"
 		);
 	}
@@ -1169,12 +1195,12 @@ mod tests {
 	async fn forget_all_removes_all_matching() {
 		let forget = DictionaryForgetNode;
 		let mut t = Table::new(dictionary_schema(), Vec::new());
-		t.push_row(dict_row("foo", "a", "literal", 0, false, true, "x", "2026-04-01T00:00:00Z", None));
-		t.push_row(dict_row("foo", "b", "literal", 0, false, true, "x", "2026-04-02T00:00:00Z", None));
-		t.push_row(dict_row("bar", "c", "literal", 0, false, true, "x", "2026-04-03T00:00:00Z", None));
+		t.push_row(dict_row("えー", "foo", "名詞", 0, false, true, "x", "2026-04-01T00:00:00Z", None));
+		t.push_row(dict_row("びー", "foo", "名詞", 0, false, true, "x", "2026-04-02T00:00:00Z", None));
+		t.push_row(dict_row("しー", "bar", "名詞", 0, false, true, "x", "2026-04-03T00:00:00Z", None));
 		let mut inp = InputMap::new();
 		inp.insert("dictionary".into(), SocketValue::Table(t));
-		inp.insert("source".into(), SocketValue::String("foo".into()));
+		inp.insert("surface".into(), SocketValue::String("foo".into()));
 		inp.insert("mode".into(), SocketValue::String("all".into()));
 		let out = forget
 			.compute(
@@ -1196,10 +1222,20 @@ mod tests {
 	async fn forget_respects_is_locked() {
 		let forget = DictionaryForgetNode;
 		let mut t = Table::new(dictionary_schema(), Vec::new());
-		t.push_row(dict_row("locked", "a", "literal", 0, true, true, "x", "2026-04-01T00:00:00Z", None));
+		t.push_row(dict_row(
+			"ろっく",
+			"locked",
+			"名詞",
+			0,
+			true,
+			true,
+			"x",
+			"2026-04-01T00:00:00Z",
+			None,
+		));
 		let mut inp = InputMap::new();
 		inp.insert("dictionary".into(), SocketValue::Table(t));
-		inp.insert("source".into(), SocketValue::String("locked".into()));
+		inp.insert("surface".into(), SocketValue::String("locked".into()));
 		inp.insert("mode".into(), SocketValue::String("all".into()));
 		let out = forget
 			.compute(
@@ -1244,7 +1280,17 @@ mod tests {
 
 	fn single_row_table_with_expires(expires_at: Option<&str>) -> Table {
 		let schema = dictionary_schema();
-		let row = dict_row("src", "dst", "literal", 0, false, true, "test", "2026-04-01T00:00:00Z", expires_at);
+		let row = dict_row(
+			"りーでぃんぐ",
+			"surface",
+			"名詞",
+			0,
+			false,
+			true,
+			"test",
+			"2026-04-01T00:00:00Z",
+			expires_at,
+		);
 		Table::new(schema, vec![row])
 	}
 

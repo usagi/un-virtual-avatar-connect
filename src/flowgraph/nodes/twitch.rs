@@ -155,7 +155,7 @@ async fn helix_request_json(
 	let status = resp.status();
 	let body_text = resp.text().await.unwrap_or_default();
 	if !status.is_success() {
-		return Err(format!("Helix HTTP {status}: {body_text}"));
+		return Err(helix_action_error(&path_and_query, status, &body_text));
 	}
 	Ok(if body_text.trim().is_empty() {
 		JsonValue::Null
@@ -639,18 +639,42 @@ fn chat_send_success(sent_text: String) -> NodeOutput {
 		.fire_exec("on_success")
 }
 
+fn chat_send_response(sent_text: String, body: &str) -> NodeOutput {
+	let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+		return chat_send_err("POST /chat/messages: invalid JSON response");
+	};
+	let row = &value["data"][0];
+	if row["is_sent"].as_bool() == Some(true) {
+		return chat_send_success(sent_text);
+	}
+	let code = row["drop_reason"]["code"].as_str().unwrap_or("missing_send_confirmation");
+	let message = row["drop_reason"]["message"].as_str().unwrap_or("Twitch did not confirm delivery");
+	chat_send_err(format!("POST /chat/messages: {code}: {message}"))
+}
+
+fn chat_send_outcome(result: &Result<NodeOutput, NodeExecError>) -> &'static str {
+    match result {
+        Ok(output) if output.fired_exec.contains("on_success") => "sent",
+        Ok(output) if output.fired_exec.contains("on_skipped") => "skipped_empty",
+        _ => "failed",
+    }
+}
+
 #[async_trait]
 impl EffectfulNode for ChatSendNode {
-	async fn execute(
-		&self,
-		_ctx: &mut ExecCtx,
-		_props: &InputMap,
-		inputs: &InputMap,
-		fired_exec: &ExecFireSet,
-	) -> Result<NodeOutput, NodeExecError> {
-		if !fired_exec.contains("exec_in") {
-			return Ok(NodeOutput::new());
-		}
+    async fn execute(&self, ctx: &mut ExecCtx, _props: &InputMap, inputs: &InputMap, fired_exec: &ExecFireSet) -> Result<NodeOutput, NodeExecError> {
+        if !fired_exec.contains("exec_in") { return Ok(NodeOutput::new()); }
+        let result = execute_chat_send(inputs).await;
+        if let Some(state) = ctx.state_handle.as_ref().and_then(std::sync::Weak::upgrade) {
+            let _ = state.read().await.control_event_tx.send(crate::control_events::ControlEvent::TwitchChatSendResult {
+                node_id: ctx.node_id.clone(), outcome: chat_send_outcome(&result).into(),
+            });
+        }
+        result
+    }
+}
+
+async fn execute_chat_send(inputs: &InputMap) -> Result<NodeOutput, NodeExecError> {
 		let text_raw = get_required_string(inputs, "text")?;
 		let broadcaster_id = get_required_string(inputs, "broadcaster_id")?;
 		let sender_user_id = get_required_string(inputs, "sender_user_id")?;
@@ -703,8 +727,7 @@ impl EffectfulNode for ChatSendNode {
 		if !status.is_success() {
 			return Ok(chat_send_err(format!("POST /chat/messages HTTP {status}: {body_text}")));
 		}
-		Ok(chat_send_success(text))
-	}
+		Ok(chat_send_response(text, &body_text))
 }
 
 // ---------------------------------------------------------------------
@@ -1836,6 +1859,20 @@ mod tests {
 	}
 
 	#[test]
+	fn chat_send_requires_twitch_delivery_confirmation() {
+		for body in [r#"{"data":[{"is_sent":false,"drop_reason":{"code":"automod_held","message":"Held for review"}}]}"#, r#"{"data":[]}"#, "not json"] {
+			let output = chat_send_response("notice".into(), body);
+			assert_eq!(chat_send_outcome(&Ok(output.clone())), "failed");
+			assert!(matches!(output.data.get("result"), Some(SocketValue::Result(result)) if !result.ok));
+			assert_eq!(output.data.get("sent_text"), Some(&SocketValue::String(String::new())));
+		}
+		let output = chat_send_response("notice".into(), r#"{"data":[{"is_sent":true,"message_id":"test"}]}"#);
+		assert_eq!(chat_send_outcome(&Ok(output.clone())), "sent");
+		assert_eq!(chat_send_outcome(&Ok(chat_send_skipped())), "skipped_empty");
+		assert!(matches!(output.data.get("result"), Some(SocketValue::Result(result)) if result.ok));
+	}
+
+	#[test]
 	fn twitch_individual_outputs_include_result() {
 		let get_token = get_token_fail("boom");
 		match get_token.data.get("result").unwrap() {
@@ -2343,4 +2380,29 @@ mod integration_tests {
 			ctx.trace
 		);
 	}
+}
+
+#[cfg(test)]
+#[path = "twitch_send_diagnostic_tests.rs"]
+mod send_diagnostic_tests;
+
+fn helix_action_error(endpoint: &str, status: reqwest::StatusCode, body: &str) -> String {
+ let message = serde_json::from_str::<JsonValue>(body).ok().and_then(|v| v["message"].as_str().map(str::to_owned)).unwrap_or_default();
+ let lower = message.to_ascii_lowercase();
+ if status == reqwest::StatusCode::FORBIDDEN && (lower.contains("affiliate") || lower.contains("partner")) {
+  format!("{endpoint}: この機能にはTwitchのアフィリエイトまたはパートナー資格が必要です。このノードの処理は実行されていません。他の機能は利用できます。 (HTTP 403: {message})")
+ } else { format!("{endpoint}: Helix HTTP {status}: {body}") }
+}
+
+#[cfg(test)]
+mod capability_tests {
+ use super::*;
+ #[test]
+ fn rejected_action_explains_eligibility_without_hiding_auth_errors() {
+  let message=helix_action_error("/polls",reqwest::StatusCode::FORBIDDEN,r#"{"message":"The broadcaster must have partner or affiliate status."}"#);
+  assert!(message.contains("アフィリエイト"));assert!(message.contains("/polls"));
+  for status in [reqwest::StatusCode::UNAUTHORIZED,reqwest::StatusCode::FORBIDDEN] {
+   assert!(!helix_action_error("/polls",status,r#"{"message":"Missing scope"}"#).contains("資格が必要"));
+  }
+ }
 }

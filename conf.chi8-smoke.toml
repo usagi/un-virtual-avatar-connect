@@ -9,26 +9,27 @@
 # どうしても conf に直書きしたい場合は、各 persona 下に `api_key = "sk-..."` を追加。
 #
 # 叩き方: Bruno collection `dev/bruno/vac-control-api/` の env `Chi8Smoke` を選んで
-#   Ingress/Ingress - chi8 smoke a (gpt-4o-mini).bru
+#   Ingress/Ingress - chi8 smoke a (gpt-5.6-luna).bru
 #   Ingress/Ingress - chi8 smoke b (tool).bru
-#   Ingress/Ingress - chi8 smoke c (gpt-5-mini).bru
+#   Ingress/Ingress - chi8 smoke c (gpt-5.6-terra).bru
 # を順に実行。
 # =========================================================================
 log_level = "Debug"
 web_ui_address = "127.0.0.1:57099"
 flowgraph_dir = "flowgraph.chi8-smoke" # 空/未存在で OK、起動継続する
 
-# --- a. gpt-4o-mini happy path (stream, no tools) ---
+# --- a. GPT-5.6 Luna happy path (stream, no tools) ---
 [[ai.personas]]
 id = "smoke-a-mini"
 channel_utterance = "ai_a"
 observe.triggers = ["user_a"]
-model = "gpt-4o-mini"
+model = "gpt-5.6-luna"
+openai_reasoning_effort = "none"
 openai_stream = true
 openai_max_output_tokens = 256
 custom_instructions = "あなたは配信テスト用 bot。20 字以内で返答。"
 
-# --- b. gpt-4o-mini + tool loop (path-based tools.json) ---
+# --- b. GPT-5.6 Luna + tool loop (path-based tools.json) ---
 # NOTE: tools は `openai_tools_json_path` で**外部 JSON ファイルのパス**を渡す方式のみサポート
 # （TOML 内に `openai_tools_json = """[...]"""` を inline で書いても黙って無視される）。
 # χ-8 スモークでは tool loop 自体は cargo test 側（`tool_loop_drives_chat_completions_when_function_call`）
@@ -38,19 +39,20 @@ custom_instructions = "あなたは配信テスト用 bot。20 字以内で返�
 id = "smoke-b-mini-tool"
 channel_utterance = "ai_b"
 observe.triggers = ["user_b"]
-model = "gpt-4o-mini"
+model = "gpt-5.6-luna"
+openai_reasoning_effort = "none"
 openai_stream = true
 openai_max_output_tokens = 256
 # openai_tool_choice = "auto"
 # openai_tools_json_path = "conf.example-openai-tools.json"
 custom_instructions = "あなたは配信テスト用 bot。ユーザが疎通確認の意図を示したら短く反応し、その他は 20 字以内で返答。"
 
-# --- c. gpt-5-mini + reasoning.effort = low ---
+# --- c. GPT-5.6 Terra + reasoning.effort = low ---
 [[ai.personas]]
 id = "smoke-c-gpt5"
 channel_utterance = "ai_c"
 observe.triggers = ["user_c"]
-model = "gpt-5-mini"
+model = "gpt-5.6-terra"
 openai_stream = true
 openai_max_output_tokens = 1024
 openai_reasoning_effort = "low"

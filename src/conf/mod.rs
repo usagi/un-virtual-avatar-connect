@@ -1,6 +1,6 @@
 mod motion;
 mod processor_conf;
-mod runtime_mode;
+pub(crate) mod runtime_mode;
 
 pub use anyhow::{bail, Result};
 pub use motion::{MotionConf, VmcPassthroughSpec};
@@ -79,12 +79,28 @@ pub enum RunWithShutdownMethod {
 	Both,
 }
 
+/// Processes receiving shutdown requests, waits and optional termination.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RunWithShutdownScope {
+    /// Preserve historical launcher/child-process shutdown behavior.
+    #[default]
+    ProcessTree,
+    /// Let the matched application decide how to handle its own children.
+    MatchedProcesses,
+}
+
 /// Phase ε-2: `run_with` エントリごとのシャットダウン設定。TOML 表現。
 ///
 /// 全フィールド optional で、未指定は VAC 既定値（`CloseAndWait` / `Syscommand` / 10_000ms）で埋まる。
 /// resolved 後の値は [`crate::managed_app::ShutdownCfg`] を参照。
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct RunWithShutdownSpec {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub scope: Option<RunWithShutdownScope>,
+	/// VAC終了時のみの方針。未指定は従来の action を継承する。
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub on_vac_exit: Option<RunWithShutdownAction>,
 	#[serde(default)]
 	pub action: Option<RunWithShutdownAction>,
 	/// このエントリに対して WM_CLOSE 送信後に exit 完了を何 ms 待つか。未指定なら VAC 既定（10_000）。
@@ -115,6 +131,10 @@ pub enum RunWith {
 	CommandIfProcessIsNotRunning {
 		command: String,
 		if_not_running: Option<String>,
+		/// `false` のとき起動時の一括実行を抑止し、Managed App の手動操作や Runtime Mode からのみ起動する。
+		/// 未指定は後方互換のため `true`。
+		#[serde(default)]
+		start_on_launch: Option<bool>,
 		run_as_admin: Option<bool>,
 		working_dir: Option<String>,
 		/// `true` のとき、可能な範囲でウィンドウを最小化した状態で起動する（主に Windows。http(s) URL では無視）
@@ -126,6 +146,12 @@ pub enum RunWith {
 		/// Phase VI-γ-2b: GUI 表示用のラベル。未指定時は `if_not_running` → ファイル名 → command から自動生成される。
 		#[serde(default)]
 		label: Option<String>,
+		/// UNAA/Z: Zenoh discovery 上の app id。未指定時は Managed App id を仮の相関キーに使う。
+		#[serde(default)]
+		unaa_z_app_id: Option<String>,
+		/// UNAA/Z: 同一 app の複数起動を区別する instance id。未指定時は `unaa_z_app_id` または Managed App id と同じ値。
+		#[serde(default)]
+		unaa_z_instance_id: Option<String>,
 		/// Phase ε-2: シャットダウン時の挙動（action / method / grace_ms）。未指定なら既定。
 		/// OBS / CoeiroInk など確認ダイアログ付きアプリには `{ action = "close_only", grace_ms = 30000 }` を推奨。
 		#[serde(default)]
@@ -153,12 +179,34 @@ impl RunWith {
 		}
 	}
 
+	/// UNVAC 起動時の一括実行対象か。従来設定と単純文字列形式は常に対象とする。
+	pub fn start_on_launch(&self) -> bool {
+		match self {
+			RunWith::Command(_) => true,
+			RunWith::CommandIfProcessIsNotRunning { start_on_launch, .. } => start_on_launch.unwrap_or(true),
+		}
+	}
+
 	/// Phase VI-γ-2b: 明示された Managed App ID（`id`）。無ければ `None`。
 	/// 自動採番込みで確定 ID が欲しい場合は呼び出し側で `run-with-<idx>` を使う。
 	pub fn explicit_id(&self) -> Option<&str> {
 		match self {
 			RunWith::Command(_) => None,
 			RunWith::CommandIfProcessIsNotRunning { id, .. } => id.as_deref(),
+		}
+	}
+
+	pub fn unaa_z_app_id(&self) -> Option<&str> {
+		match self {
+			RunWith::Command(_) => None,
+			RunWith::CommandIfProcessIsNotRunning { unaa_z_app_id, .. } => unaa_z_app_id.as_deref(),
+		}
+	}
+
+	pub fn unaa_z_instance_id(&self) -> Option<&str> {
+		match self {
+			RunWith::Command(_) => None,
+			RunWith::CommandIfProcessIsNotRunning { unaa_z_instance_id, .. } => unaa_z_instance_id.as_deref(),
 		}
 	}
 
@@ -306,6 +354,133 @@ pub struct TwitchEventSubConfig {
 pub struct BrowserSourceConfig {
 	/// OBS ブラウザソース用 HTML のルート（相対は cwd）。`GET /output`・`GET /browser-output/...` が参照する。未指定時は `output`。
 	pub document_root: Option<PathBuf>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct UnAvatarIntegrationConf {
+	/// UNVAC 側で扱う UNAvatar profile / Renderer へのリンク。
+	///
+	/// UNAvatar 側の profile 自体は人間用 / AI 用に分類しない。UNVAC が用途として
+	/// `reference` / `ai_control` / `launch` capability を付ける。
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub links: BTreeMap<String, AvatarLinkSpec>,
+}
+
+impl UnAvatarIntegrationConf {
+	pub fn validate(&self) -> Result<()> {
+		for (id, link) in &self.links {
+			link.validate(id)?;
+		}
+		Ok(())
+	}
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct AvatarLinkSpec {
+	/// Model-published presets per semantic emotion, with relative weights.
+	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	pub expression_bindings: vac_motion::avatar_intent::AvatarExpressionBindings,
+	/// Bound model expressions faded out while the compositor closes the eyes.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub blink_suppressed_expressions: Vec<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub label: Option<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub capabilities: Vec<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub profile_hint: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub manifest_path: Option<PathBuf>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub run_with: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub executable: Option<PathBuf>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub launch_command: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub unmfz: Option<AvatarLinkUnmfzSpec>,
+	/// このAvatarLinkが指す単一RendererのUNAA/Z identity。
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub unaa_z: Option<AvatarLinkUnaaZSpec>,
+}
+
+impl AvatarLinkSpec {
+	pub fn has_capability(&self, capability: &str) -> bool {
+		self.capabilities.iter().any(|c| c == capability)
+	}
+
+	pub fn validate(&self, id: &str) -> Result<()> {
+		vac_motion::avatar_intent::validate_expression_bindings(&self.expression_bindings)
+			.map_err(|error| anyhow::anyhow!("un_avatar.links.{id}.expression_bindings: {error}"))?;
+		for preset in &self.blink_suppressed_expressions {
+			if !self.expression_bindings.values().any(|bindings| bindings.contains_key(preset)) {
+				bail!("un_avatar.links.{id}.blink_suppressed_expressions: `{preset}` must exactly name a configured expression binding");
+			}
+		}
+		for capability in &self.capabilities {
+			if !matches!(capability.as_str(), "reference" | "ai_control" | "camera_control" | "launch") {
+				bail!("un_avatar.links.{id}: unknown capability `{capability}`");
+			}
+		}
+		if self.has_capability("ai_control") && !self.has_capability("reference") {
+			bail!("un_avatar.links.{id}: capability `ai_control` requires `reference`");
+		}
+		if self.has_capability("ai_control") && self.unmfz.is_none() {
+			bail!("un_avatar.links.{id}: capability `ai_control` requires `unmfz` endpoint");
+		}
+		if self.has_capability("camera_control") && !self.has_capability("reference") {
+			bail!("un_avatar.links.{id}: capability `camera_control` requires `reference`");
+		}
+		if self.has_capability("camera_control") && self.unaa_z.is_none() {
+			bail!("un_avatar.links.{id}: capability `camera_control` requires `unaa_z` identity");
+		}
+		if let Some(unmfz) = &self.unmfz {
+			if unmfz.base_key_expr.trim().is_empty() {
+				bail!("un_avatar.links.{id}.unmfz: `base_key_expr` is required");
+			}
+		}
+		if let Some(unaa_z) = &self.unaa_z {
+			unaa_z.validate(id)?;
+		}
+		Ok(())
+	}
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AvatarLinkUnaaZSpec {
+	pub app_id: String,
+	pub instance_id: String,
+}
+
+impl AvatarLinkUnaaZSpec {
+	fn validate(&self, link_id: &str) -> Result<()> {
+		for (field, value) in [("app_id", self.app_id.as_str()), ("instance_id", self.instance_id.as_str())] {
+			if value.trim().is_empty() {
+				bail!("un_avatar.links.{link_id}.unaa_z.{field}: value is required");
+			}
+			if value.contains(['/', '*', '?', '#']) {
+				bail!("un_avatar.links.{link_id}.unaa_z.{field}: invalid UNAA/Z key segment");
+			}
+		}
+		Ok(())
+	}
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AvatarLinkUnmfzSpec {
+	pub base_key_expr: String,
+	#[serde(default = "default_unmfz_topic_mode")]
+	pub topic_mode: String,
+	#[serde(default = "default_unmfz_schema_major")]
+	pub schema_major: u16,
+}
+
+fn default_unmfz_topic_mode() -> String {
+	"frame".to_string()
+}
+
+fn default_unmfz_schema_major() -> u16 {
+	1
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -538,6 +713,10 @@ pub struct Conf {
 
 	pub twitch: Option<Twitch>,
 
+	/// Twitch宣言状態と分離した、OBSゲーム画面等のローカル配信知覚。
+	#[serde(default)]
+	pub perception: crate::stream_perception::StreamPerceptionConf,
+
 	/// OBS ブラウザソース向けの静的ファイルルートなど。
 	#[serde(default)]
 	pub browser_source: Option<BrowserSourceConfig>,
@@ -570,6 +749,14 @@ pub struct Conf {
 	/// Phase M0: VMC 生 UDP パススルー等。未指定時は motion ワーカーを起動しない。
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub motion: Option<MotionConf>,
+
+	/// UNMF/Z data plane の Zenoh 接続経路。未指定時は従来どおり自動探索だけを使う。
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub unmfz: Option<crate::unmfz_transport::UnmfzTransportConf>,
+
+	/// UNAvatar 連携設定。v2.0 では主に AvatarLink と UNMF/Z 送信先の明示設定に使う。
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub un_avatar: Option<UnAvatarIntegrationConf>,
 
 	#[serde(default)]
 	pub run_with: Vec<RunWith>,
@@ -653,6 +840,23 @@ pub struct ControlApiConf {
 	/// GUI の Glossary Editor Pane / Live Quick-Add はここに並んだものだけをカタログ表示する。
 	#[serde(default)]
 	pub tables: Vec<ControlTableEntry>,
+
+	/// Live タブの BGM / 画面効果キューで表示する Quick Effects preset。
+	/// 未指定時は GUI / Control API の組み込み既定 preset を使う。
+	#[serde(default)]
+	pub quick_effect_presets: Vec<QuickEffectPresetConf>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct QuickEffectPresetConf {
+	pub id: String,
+	pub label: String,
+	pub channel: String,
+	pub content: String,
+	#[serde(default)]
+	pub flags: Vec<String>,
+	#[serde(default)]
+	pub duration_ms: Option<u64>,
 }
 
 /// Phase φ-1: Control API Table 編集対象エントリ。`[[control_api.tables]]` 配列で列挙する。
@@ -688,6 +892,14 @@ pub struct ControlTableEntry {
 /// 未指定時は Undo ボタンを GUI から無効化する。
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ControlTableQuickAdd {
+	#[serde(default)]
+	pub learn_observe: Vec<DictionaryOutputObservation>,
+	#[serde(default)]
+	pub forget_observe: Vec<DictionaryOutputObservation>,
+	/// direct preserves the legacy glossary-node request; control_meta targets
+	/// an ingress.control entry that can load the current file before editing.
+	#[serde(default)]
+	pub request_format: QuickAddRequestFormat,
 	/// 対象 `glossary.learn` ノードの fq ID（例 `"main::learn"`）。
 	pub node_id: String,
 	/// 既定の `kind`（`"literal"` | `"regex"`）。
@@ -699,7 +911,41 @@ pub struct ControlTableQuickAdd {
 	pub forget_node_id: Option<String>,
 }
 
+#[derive(Debug, Default, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QuickAddRequestFormat {
+	#[default]
+	Direct,
+	ControlMeta,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DictionaryOutputObservation {
+	pub node_id: String,
+	pub port: String,
+	pub outcome: DictionaryOutputOutcome,
+}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum DictionaryOutputOutcome { Saved, Unchanged, Conflict, Failed }
+
 impl Conf {
+	/// `flowgraph_dir` を conf.toml の所在ディレクトリ基準で解決する。
+	///
+	/// `Conf` を文字列から直接構築した場合は `source_path` がないため、従来どおり
+	/// 相対パスをそのまま返し、呼び出し側のカレントディレクトリ基準とする。
+	pub fn resolved_flowgraph_dir(&self) -> Option<PathBuf> {
+		self.flowgraph_dir.as_ref().map(|root| {
+			if root.is_absolute() {
+				return root.clone();
+			}
+			self.source_path
+				.as_deref()
+				.and_then(std::path::Path::parent)
+				.map_or_else(|| root.clone(), |profile_dir| profile_dir.join(root))
+		})
+	}
+
 	fn load<P: Into<PathBuf>>(path: P) -> Result<Self> {
 		let path = path.into();
 		let conf_str = std::fs::read_to_string(&path)?;
@@ -708,6 +954,13 @@ impl Conf {
 		// カレントディレクトリ違いでの再起動でも取り違えない（失敗しても入力パスをそのまま採用）。
 		conf.source_path = Some(std::fs::canonicalize(&path).unwrap_or(path));
 		runtime_mode::validate_runtime_modes(&conf)?;
+		conf.perception.validate()?;
+		if let Some(unmfz) = &conf.unmfz {
+			unmfz.validate()?;
+		}
+		if let Some(un_avatar) = &conf.un_avatar {
+			un_avatar.validate()?;
+		}
 		Ok(conf)
 	}
 
@@ -772,7 +1025,7 @@ impl Conf {
 		let mut system = sysinfo::System::new();
 		system.refresh_processes_specifics(ProcessesToUpdate::All, false, ProcessRefreshKind::everything().without_cpu());
 
-		for run_with in self.run_with.iter() {
+		for run_with in self.run_with.iter().filter(|entry| entry.start_on_launch()) {
 			Self::run_with_entry(run_with, Some(&system))?;
 		}
 		Ok(())
@@ -1180,7 +1433,7 @@ fn run_with_minimize_top_level_windows_for_pids(pids: &std::collections::HashSet
 		} else {
 			if !unsafe { IsWindowVisible(hwnd).as_bool() } {
 				let mut r = RECT::default();
-				if GetWindowRect(hwnd, &mut r).is_err() {
+				if unsafe { GetWindowRect(hwnd, &mut r) }.is_err() {
 					return TRUE;
 				}
 				let w = (r.right - r.left).abs();
@@ -1335,7 +1588,54 @@ fn change_working_dir(working_dir: Option<&String>) -> Result<Option<std::path::
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn quick_add_request_format_preserves_legacy_and_rejects_unknown() {
+		let old: super::ControlTableQuickAdd = toml::from_str("node_id='main::learn'").unwrap();
+		assert_eq!(old.request_format, super::QuickAddRequestFormat::Direct);
+		let updated: super::ControlTableQuickAdd = toml::from_str("node_id='main::learn_request'\nrequest_format='control_meta'").unwrap();
+		assert_eq!(updated.request_format, super::QuickAddRequestFormat::ControlMeta);
+		let restored: super::ControlTableQuickAdd = toml::from_str(&toml::to_string(&updated).unwrap()).unwrap();
+		assert_eq!(restored.request_format, updated.request_format);
+		assert!(toml::from_str::<super::ControlTableQuickAdd>("node_id='main::x'\nrequest_format='typo'").is_err());
+		let watched: super::ControlTableQuickAdd = toml::from_str("node_id='main::learn_request'\nlearn_observe=[{node_id='main::save',port='on_success',outcome='saved'}]").unwrap();
+		assert_eq!(watched.learn_observe.len(),1);
+		assert!(watched.forget_observe.is_empty());
+		assert!(toml::from_str::<super::ControlTableQuickAdd>("node_id='main::x'\nlearn_observe=[{node_id='save',port='x',outcome='typo'}]").is_err());
+	}
+
+	#[test]
+	fn expression_bindings_are_per_link_and_round_trip() {
+		let text = r#"
+[links.one.expression_bindings.smile]
+happy = 1.0
+[links.two]
+label = "No expression overrides"
+"#;
+		let conf: super::UnAvatarIntegrationConf = toml::from_str(text).unwrap();
+		conf.validate().unwrap();
+		assert_eq!(conf.links["one"].expression_bindings["smile"]["happy"], 1.0);
+		assert!(conf.links["two"].expression_bindings.is_empty());
+		let saved = toml::to_string(&conf).unwrap();
+		let restored: super::UnAvatarIntegrationConf = toml::from_str(&saved).unwrap();
+		assert_eq!(restored.links["one"].expression_bindings, conf.links["one"].expression_bindings);
+		let invalid: super::UnAvatarIntegrationConf = toml::from_str(&text.replace("happy = 1.0", "JawOpen = 1.0")).unwrap();
+		assert!(invalid.validate().unwrap_err().to_string().contains("links.one.expression_bindings"));
+	}
 	use super::*;
+
+	#[test]
+	fn blink_suppression_requires_explicit_bound_preset() {
+		let mut link = AvatarLinkSpec::default();
+		link.expression_bindings.insert("smile".into(), BTreeMap::from([("eye_smile1".into(), 1.0)]));
+		link.blink_suppressed_expressions = vec!["eye_smile1".into()];
+		link.validate("test").unwrap();
+		let restored: AvatarLinkSpec = toml::from_str(&toml::to_string(&link).unwrap()).unwrap();
+		assert_eq!(restored.blink_suppressed_expressions, link.blink_suppressed_expressions);
+		for invalid in ["JawOpen", "EyeBlinkLeft", "unknown"] {
+			link.blink_suppressed_expressions = vec![invalid.into()];
+			assert!(link.validate("test").is_err());
+		}
+	}
 
 	/// リポジトリ同梱の `conf.toml`（v2 配布既定）が必ずパースできることを保証する回帰テスト。
 	///
@@ -1371,6 +1671,119 @@ mod tests {
 		}
 	}
 
+	#[test]
+	fn run_with_start_on_launch_defaults_true_and_can_be_disabled() {
+		let conf: Conf = toml::from_str(
+			r#"
+run_with = [
+  { command = "legacy.exe", if_not_running = "legacy" },
+  { command = "mode-only.exe", if_not_running = "mode-only", start_on_launch = false },
+]
+"#,
+		)
+		.unwrap();
+		assert!(conf.run_with[0].start_on_launch());
+		assert!(!conf.run_with[1].start_on_launch());
+	}
+
+	/// リリース配布用のサンプル conf が `Conf` として deserialize できることを保証する。
+	///
+	/// `run_with` 付きサンプルもここでは実行せず、TOML と serde schema の整合だけを見る。
+	#[test]
+	fn distributed_example_confs_parse() {
+		let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+		for name in [
+			"conf.example-control-api.toml",
+			"conf.example--run-with.toml",
+			"conf.example-motion.toml",
+			"conf.example-avatar-ai-control.toml",
+			"conf.example-streaming-ai-avatar.toml",
+		] {
+			let path = root.join(name);
+			let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name} を読めない: {e}"));
+			let conf: Conf = toml::from_str(&text).unwrap_or_else(|e| panic!("{name} の TOML パースに失敗: {e}"));
+			if let Some(un_avatar) = &conf.un_avatar {
+				un_avatar
+					.validate()
+					.unwrap_or_else(|e| panic!("{name} の [un_avatar] validation に失敗: {e}"));
+			}
+		}
+	}
+
+	#[test]
+	fn un_avatar_ai_control_requires_reference_capability() {
+		let src = r#"
+[un_avatar.links.ai]
+capabilities = ["ai_control"]
+[un_avatar.links.ai.unmfz]
+base_key_expr = "un-motion/frame/ai"
+"#;
+		let conf: Conf = toml::from_str(src).unwrap();
+		let err = conf.un_avatar.unwrap().validate().unwrap_err().to_string();
+		assert!(err.contains("ai_control"));
+		assert!(err.contains("reference"));
+	}
+
+	#[test]
+	fn un_avatar_ai_control_requires_unmfz_endpoint() {
+		let src = r#"
+[un_avatar.links.ai]
+capabilities = ["reference", "ai_control"]
+"#;
+		let conf: Conf = toml::from_str(src).unwrap();
+		let err = conf.un_avatar.unwrap().validate().unwrap_err().to_string();
+		assert!(err.contains("ai_control"));
+		assert!(err.contains("unmfz"));
+	}
+
+	#[test]
+	fn un_avatar_camera_control_requires_reference_and_unaa_z_identity() {
+		let missing_identity: Conf = toml::from_str(
+			r#"
+[un_avatar.links.dr_usagi]
+capabilities = ["reference", "camera_control"]
+"#,
+		)
+		.unwrap();
+		let err = missing_identity.un_avatar.unwrap().validate().unwrap_err().to_string();
+		assert!(err.contains("camera_control"));
+		assert!(err.contains("unaa_z"));
+
+		let valid: Conf = toml::from_str(
+			r#"
+[un_avatar.links.dr_usagi]
+capabilities = ["reference", "camera_control"]
+
+[un_avatar.links.dr_usagi.unaa_z]
+app_id = "un-avatar"
+instance_id = "renderer-dr-usagi"
+"#,
+		)
+		.unwrap();
+		valid.un_avatar.unwrap().validate().unwrap();
+	}
+
+	#[test]
+	fn unmfz_transport_explicit_ip_and_port_parse() {
+		let src = r#"
+[unmfz.listen]
+enabled = true
+ip = "0.0.0.0"
+port = 47447
+
+[[unmfz.connect]]
+ip = "192.0.2.10"
+port = 47447
+"#;
+		let conf: Conf = toml::from_str(src).unwrap();
+		let unmfz = conf.unmfz.expect("unmfz");
+		unmfz.validate().unwrap();
+		let snapshot = unmfz.snapshot();
+		assert_eq!(snapshot.mode, "listen_connect");
+		assert_eq!(snapshot.listen_endpoint.as_deref(), Some("tcp/0.0.0.0:47447"));
+		assert_eq!(snapshot.connect_endpoints, ["tcp/192.0.2.10:47447"]);
+	}
+
 	/// Phase π-4c: `[flowgraph]` テーブル経由の FlowgraphInstanceConfig 取り込み確認。
 	///
 	/// conf.toml に `[flowgraph] default_timezone = "+09:00"` を書けば
@@ -1397,6 +1810,22 @@ default_timezone = "+09:00"
 		let src = ""; // 空 conf
 		let conf: Conf = toml::from_str(src).unwrap();
 		assert!(conf.flowgraph_config.is_none());
+	}
+
+	#[test]
+	fn relative_flowgraph_dir_resolves_from_conf_directory() {
+		let mut conf: Conf = toml::from_str("flowgraph_dir = \"flowgraph\"").unwrap();
+		conf.source_path = Some(PathBuf::from("C:/profiles/streaming/conf.toml"));
+		assert_eq!(
+			conf.resolved_flowgraph_dir(),
+			Some(PathBuf::from("C:/profiles/streaming/flowgraph"))
+		);
+	}
+
+	#[test]
+	fn relative_flowgraph_dir_without_source_keeps_cwd_semantics() {
+		let conf: Conf = toml::from_str("flowgraph_dir = \"flowgraph\"").unwrap();
+		assert_eq!(conf.resolved_flowgraph_dir(), Some(PathBuf::from("flowgraph")));
 	}
 
 	#[test]

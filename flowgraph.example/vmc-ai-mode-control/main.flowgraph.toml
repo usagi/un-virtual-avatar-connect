@@ -3,7 +3,7 @@
 # VMC UDP の `/VMC/Ext/Blend/Val` から `Joy` の値を取り出し、
 # 0.7 を超えたフレームで以下を実行する。
 #
-# - `flowgraph.channel.emit` で `channel = "user"` にイベント文を流す。
+# - `flowgraph.ai.observe`でイベント文を対象personaへ明示的に渡す。
 #   AI ペルソナ側の `observe.triggers` に `"user"` が入っていれば AI 入力になる。
 # - `flowgraph.mode.transit` で Runtime Mode を `streaming` へ切り替える。
 #   実運用では `conf.toml` に `[modes.streaming]` を定義しておく。
@@ -55,12 +55,6 @@ feature = "flowgraph.flow.branch"
 position = [1040, 140]
 
 [[nodes]]
-id = "ai_channel"
-feature = "flowgraph.literal.string"
-position = [1040, 360]
-properties.value = "user"
-
-[[nodes]]
 id = "ai_content"
 feature = "flowgraph.literal.string"
 position = [1040, 440]
@@ -68,10 +62,9 @@ properties.value = "VMC expression trigger: Joy > 0.7"
 
 [[nodes]]
 id = "emit_ai_input"
-feature = "flowgraph.channel.emit"
+feature = "flowgraph.ai.observe"
 position = [1280, 80]
-properties.fallback_channel = "user"
-properties.auto_tag_source_actor = true
+properties.persona_id = "*"
 
 [[nodes]]
 id = "streaming_mode"
@@ -131,10 +124,6 @@ to = "branch:cond"
 [[edges]]
 from = "branch:then"
 to = "emit_ai_input:exec_in"
-
-[[edges]]
-from = "ai_channel:value"
-to = "emit_ai_input:channel"
 
 [[edges]]
 from = "ai_content:value"

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import ts from '../gui/node_modules/typescript/lib/typescript.js';
+const source=fs.readFileSync(new URL('../gui/src/lib/resources/PerceptionSetupPanel.svelte',import.meta.url),'utf8');
+const ast=ts.createSourceFile('panel.ts',source.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1],ts.ScriptTarget.Latest,true);
+const saved=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='saved').getText(ast);
+const code=ts.transpileModule(saved,{compilerOptions:{target:ts.ScriptTarget.ESNext}}).outputText;
+let marked=0;
+const h=new Function('confSyncStore',`const instance='vac-a';let profiles={current_profile_id:'running',active_profile_id:'next'},savedCurrent=false;${code};return {saved,state:()=>savedCurrent};`)({markSavedRequiringRestart(){marked++;}});
+h.saved({instance:'vac-a',profile:'next'},true);
+h.saved({instance:'vac-b',profile:'running'},true);
+h.saved({instance:'vac-a',profile:'running'},false);
+assert.equal(marked,0);assert.equal(h.state(),false);
+h.saved({instance:'vac-a',profile:'running'},true);
+assert.equal(marked,1);assert.equal(h.state(),true);
+console.log('Perception apply target: only successful restart-needed save for running VAC/profile marks current restart pending.');

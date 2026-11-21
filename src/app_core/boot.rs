@@ -17,6 +17,7 @@ pub(super) async fn boot(conf: Conf, audio_sink: SharedAudioSink) -> Result<AppC
 	let state = crate::State::new(&conf, audio_sink, shutdown.clone()).await?;
 
 	let ai_handles = spawn_ai_services(&conf, &state).await?;
+	let perception_handles = crate::stream_perception::spawn_all(&conf.perception, state.clone(), shutdown.clone());
 
 	spawn_managed_app_monitor(&state, shutdown.clone()).await;
 
@@ -30,7 +31,7 @@ pub(super) async fn boot(conf: Conf, audio_sink: SharedAudioSink) -> Result<AppC
 
 	let control_api_runtime = init_control_api_runtime(&conf, &state).await?;
 
-	let tasks = AppCoreTasks::new(ai_handles, flowgraph_io.ingress_handles, motion_handles);
+	let tasks = AppCoreTasks::new(ai_handles, perception_handles, flowgraph_io.ingress_handles, motion_handles);
 	let services = AppCoreServices::new(
 		flowgraph_io.web_input_registry,
 		control_api_runtime,

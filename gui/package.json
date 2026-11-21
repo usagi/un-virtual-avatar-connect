@@ -3,17 +3,27 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Phase VI-β: VAC 本体を制御する Svelte 5 + Vite + Svelte Flow 製 Web GUI",
+  "description": "Phase VI-ﾎｲ: VAC 譛ｬ菴薙ｒ蛻ｶ蠕｡縺吶ｋ Svelte 5 + Vite + Svelte Flow 陬ｽ Web GUI",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
+    "format": "prettier --config ../.prettierrc.json --ignore-path ../.prettierignore --write .",
+    "format:check": "prettier --config ../.prettierrc.json --ignore-path ../.prettierignore --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "test:unit": "node ../scripts/check-toast-action-recovery.mjs && node ../scripts/check-flowgraph-tree-confirmation.mjs && node ../scripts/check-run-with-request-order.mjs && node ../scripts/check-run-with-confirmation.mjs && node ../scripts/check-linked-app-draft.mjs && node ../scripts/check-managed-app-confirmation.mjs && node ../scripts/check-shutdown-confirmation.mjs && node ../scripts/check-held-draft-confirmation.mjs && node ../scripts/check-home-partial-refresh.mjs && node tests/readinessPresentation.test.ts && node tests/twitchInputPresentation.test.ts && node tests/unmfzEndpointCandidates.test.ts && node tests/flowgraphLayout.test.ts && node tests/flowgraphPathDisplay.test.ts && node tests/dictionaryConflictRow.test.ts && node ../scripts/check-dictionary-delete-confirmation.mjs && node ../scripts/check-dictionary-read-order.mjs && node ../scripts/check-dictionary-create-conflict.mjs && node ../scripts/check-dictionary-edit-conflict.mjs && node ../scripts/check-dictionary-repeat-conflict.mjs && node ../scripts/check-dictionary-quick-add-target.mjs && node tests/paletteFilter.test.ts && node tests/featureRuntimeStatus.test.ts && node tests/profileWorkspaceBundle.test.ts && npm run test:profiles && npm run test:features && npm run test:flowgraph-save && npm run test:connections && npm run test:setup && npm run test:modes && node tests/perceptionError.test.ts && node tests/perceptionDrafts.test.ts && node tests/perceptionTransport.test.ts && node ../scripts/check-perception-close-guard.mjs && node ../scripts/check-perception-apply-target.mjs && node ../scripts/check-dictionary-receipt.mjs && node tests/dictionarySetup.test.ts && node tests/speechRouteView.test.ts && node tests/speechConnectionPlan.test.ts && node tests/dictionaryConnection.test.ts && node ../scripts/check-flowgraph-property-json-drafts.mjs",
+    "test:flowgraph-save": "node ../scripts/check-flowgraph-save-race.mjs && node ../scripts/check-flowgraph-raw-save-race.mjs && node ../scripts/check-purpose-recovery-target.mjs && node ../scripts/check-purpose-file-selection-retention.mjs && node ../scripts/check-zip-import-review-consumption.mjs && node ../scripts/check-flowgraph-tree-response-order.mjs && node ../scripts/check-state-restore-failure-feedback.mjs && node ../scripts/check-state-save-mutation-guard.mjs && node ../scripts/check-purpose-reload-draft.mjs && node ../scripts/check-flowgraph-instance-delete.mjs && node ../scripts/check-flowgraph-instance-commands.mjs",
+    "test:profiles": "node ../scripts/check-profile-list-response-order.mjs && node ../scripts/check-profile-operation-pending.mjs && node ../scripts/check-file-profile-confirmation.mjs && node ../scripts/check-profile-editor-load-recovery.mjs && node ../scripts/check-profile-backup-recovery.mjs && node ../scripts/check-managed-profile-load-recovery.mjs && node ../scripts/check-managed-profile-confirmation.mjs && node ../scripts/check-desktop-profile-confirmation.mjs",
+    "test:connections": "node ../scripts/check-oauth-response-order.mjs && node ../scripts/check-twitch-setup-discard.mjs && node ../scripts/check-oauth-token-confirmation.mjs && node ../scripts/check-google-oauth-confirmation.mjs",
+    "test:setup": "node ../scripts/check-setup-template-recovery.mjs && node ../scripts/check-setup-start-target.mjs && node ../scripts/check-ai-setup-discard.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "test:e2e:install:all": "playwright install chromium firefox webkit",
+    "test:features": "node ../scripts/check-feature-setup-bindings.mjs && node ../scripts/check-recovery-panel-scope.mjs && node ../scripts/check-feature-install-late-target.mjs && node ../scripts/check-feature-removal-target.mjs && node ../scripts/check-feature-web-input-address.mjs",
+    "test:modes": "node ../scripts/check-runtime-mode-response-order.mjs && node ../scripts/check-runtime-mode-direct-switch.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -28,7 +38,9 @@
     "eslint": "^10.2.1",
     "eslint-plugin-svelte": "^3.17.0",
     "globals": "^17.5.0",
-    "svelte": "^5.55.1",
+    "prettier": "3.8.4",
+    "prettier-plugin-svelte": "3.5.2",
+    "svelte": "^5.56.4",
     "svelte-check": "^4.4.6",
     "svelte-eslint-parser": "^1.6.0",
     "tailwindcss": "^4.2.2",
@@ -38,6 +50,8 @@
   },
   "dependencies": {
     "@xyflow/svelte": "^1.5.2",
-    "melt": "^0.44.0"
+    "fflate": "^0.8.3",
+    "melt": "^0.44.0",
+    "smol-toml": "^1.7.0"
   }
 }

@@ -435,6 +435,7 @@ fn socket_value_to_json(v: &SocketValue) -> JsonValue {
 		// Phase π: DateTime は RFC3339 (Z suffix) 文字列として state.json 等に載せる。
 		SocketValue::DateTime(dt) => JsonValue::String(dt.to_rfc3339()),
 		SocketValue::MotionFrame(m) => m.to_json_value(),
+		SocketValue::Unmf(frame) => vac_motion::unmf::unmf_to_json_value(frame),
 	}
 }
 

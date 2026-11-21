@@ -34,12 +34,11 @@ async fn get() -> Result<impl Responder> {
 		}
 	}
 
-	// δ-9 (v0.9.x) で V1 processor 層を除去したため、CoeiroInk 等の TTS Engine diagnostic
-	// セクションはプレースホルダに変更。δ-9.3 で Flowgraph TTS ドライバ経由の情報表示として再実装予定。
+	// External TTS engines are now configured and observed through FlowGraph nodes.
 	content.push_str(
 		"<section><h2>TTS Engines</h2>\
-   <p>CoeiroInk / AivisSpeech / VOICEVOX / VoicePeak などの engine 詳細は v0.9.x で一時停止中です。\
-   Flowgraph TTS ドライバ経由で δ-9.3 に再実装されます。</p></section><hr>\n",
+   <p>外部 TTS engine の接続と実行は FlowGraph の TTS ノードで扱います。\
+   現在の構成は FlowGraph 画面、設定ファイル、各 TTS tutorial を確認してください。</p></section><hr>\n",
 	);
 
 	Ok(HttpResponse::Ok().content_type(CONTENT_TYPE_TEXT_HTML).body(content))

@@ -7,23 +7,20 @@
 #   - `conf.toml` に `[[ai.personas]]` を 1 つ以上定義（`conf.example-openai-chat.toml`）。
 #   - AI は `channel_utterance = "ai"` に発話を emit する（常駐ループで独立稼働）。
 #
-# 注意（v2 進捗）:
-#   任意チャンネル購読は `flowgraph.ingress.channel_subscribe` で利用可能。
-#   本サンプルは「Web UI で手入力した文字列を OS TTS に流す」最小構成を残しているが、
-#   AI が emit する `channel = "ai"` を TTS へつなぐ場合は `in` を
-#   `channel_subscribe(channel="ai")` に差し替える。
+#   `flowgraph.ingress.ai_speech` が AI の読み上げsegmentを受け、
+#   `flowgraph.tts.speak` へ流す。
 # =========================================================================
 
 [meta]
-title = "OpenAI Persona → TTS (stub)"
-description = "AI 出力を TTS に繋ぐ下流部分だけを示すスタブ。入口は将来 ingress.channel に差替え予定。"
+title = "OpenAI Persona → TTS"
+description = "AI persona の読み上げsegmentを専用境界からOS TTSへ流す最小サンプル。"
 tags = ["example", "ai", "openai", "tts"]
 
 
-# ---- 入口（将来 ingress.channel(channel="ai") に差し替える想定） ----
+# ---- AI 発話チャンネル購読 ----
 [[nodes]]
 id = "in"
-feature = "flowgraph.ingress.web_input"
+feature = "flowgraph.ingress.ai_speech"
 position = [80, 200]
 
 

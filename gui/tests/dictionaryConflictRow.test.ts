@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { findConflictRow } from '../src/lib/control/dictionary/conflictRow.ts';
+const base = {row_index: 1, values:{surface:'target',created_at:'2026-10-17',by:'fixture',reading:'old'}};
+const moved = {...base,row_index:0,values:{...base.values,reading:'new'}};
+const unrelated = {row_index:1,values:{surface:'other',created_at:'2026-10-17',by:'fixture'}};
+assert.equal(findConflictRow(base,[unrelated]),null,'deleted row must not match shifted neighbor');
+assert.equal(findConflictRow(base,[moved,unrelated]),moved,'moved original row should remain editable');
+assert.equal(findConflictRow(base,[moved,{...moved,row_index:2}]),null,'ambiguous identity must be rejected');
+assert.equal(findConflictRow(base,[{...base,values:{...base.values,created_at:'different'}}]),null);
+assert.equal(findConflictRow(base,[{...base,values:{...base.values,surface:'renamed'}}]),null);
+console.log('dictionary conflict identity: 5 checks passed');

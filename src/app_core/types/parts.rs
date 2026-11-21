@@ -15,6 +15,7 @@ pub(in crate::app_core) struct AppCoreParts {
 
 pub(in crate::app_core) struct AppCoreTasks {
 	pub(in crate::app_core) ai_handles: Vec<tokio::task::JoinHandle<()>>,
+	pub(in crate::app_core) perception_handles: Vec<tokio::task::JoinHandle<()>>,
 	pub(in crate::app_core) ingress_handles: processor::ingress::IngressHandles,
 	pub(in crate::app_core) motion_handles: motion::MotionHandles,
 }
@@ -29,11 +30,13 @@ pub(in crate::app_core) struct AppCoreServices {
 impl AppCoreTasks {
 	pub(in crate::app_core) fn new(
 		ai_handles: Vec<tokio::task::JoinHandle<()>>,
+		perception_handles: Vec<tokio::task::JoinHandle<()>>,
 		ingress_handles: processor::ingress::IngressHandles,
 		motion_handles: motion::MotionHandles,
 	) -> Self {
 		Self {
 			ai_handles,
+			perception_handles,
 			ingress_handles,
 			motion_handles,
 		}

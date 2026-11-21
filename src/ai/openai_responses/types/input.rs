@@ -79,12 +79,26 @@ pub enum InputContent {
 pub enum InputContentPart {
 	InputText {
 		text: String,
+		#[serde(skip_serializing_if = "Option::is_none", default)]
+		prompt_cache_breakpoint: Option<PromptCacheBreakpoint>,
 	},
 	InputImage {
 		image_url: String,
 		#[serde(skip_serializing_if = "Option::is_none", default)]
 		detail: Option<String>,
 	},
+}
+
+/// GPT-5.6以降で、ここまでの正確なprompt prefixを明示キャッシュ対象にする。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptCacheBreakpoint {
+	pub mode: PromptCacheBreakpointMode,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PromptCacheBreakpointMode {
+	Explicit,
 }
 
 impl From<String> for InputContent {
@@ -105,6 +119,53 @@ impl InputItem {
 		InputItem::Message {
 			role: role.into(),
 			content: content.into(),
+		}
+	}
+
+	/// このtext block末尾を、明示prompt cacheの再利用prefix境界にする。
+	pub fn message_with_explicit_cache_breakpoint(role: impl Into<String>, text: impl Into<String>) -> Self {
+		InputItem::Message {
+			role: role.into(),
+			content: InputContent::Parts(vec![InputContentPart::InputText {
+				text: text.into(),
+				prompt_cache_breakpoint: Some(PromptCacheBreakpoint {
+					mode: PromptCacheBreakpointMode::Explicit,
+				}),
+			}]),
+		}
+	}
+
+	/// messageの末尾text blockへ明示cache境界を付ける。text message以外は変更しない。
+	pub fn mark_explicit_cache_breakpoint(&mut self) -> bool {
+		let InputItem::Message { content, .. } = self else {
+			return false;
+		};
+		match content {
+			InputContent::Text(text) => {
+				let text = std::mem::take(text);
+				*content = InputContent::Parts(vec![InputContentPart::InputText {
+					text,
+					prompt_cache_breakpoint: Some(PromptCacheBreakpoint {
+						mode: PromptCacheBreakpointMode::Explicit,
+					}),
+				}]);
+				true
+			}
+			InputContent::Parts(parts) => parts
+				.iter_mut()
+				.rev()
+				.find_map(|part| match part {
+					InputContentPart::InputText {
+						prompt_cache_breakpoint, ..
+					} => {
+						*prompt_cache_breakpoint = Some(PromptCacheBreakpoint {
+							mode: PromptCacheBreakpointMode::Explicit,
+						});
+						Some(true)
+					}
+					InputContentPart::InputImage { .. } => None,
+				})
+				.unwrap_or(false),
 		}
 	}
 

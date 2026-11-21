@@ -18,12 +18,13 @@ Flowgraph を汎用データフロー処理エンジンへ近づけるため、�
 
 `.xlsx` や Google Sheets より基礎側の常駐 I/O。ファイル更新監視 ingress と、主要なファイル形式の読み書きを先に整える。
 
-- Ingress node: `flowgraph.file.watch`
-- Read nodes: `flowgraph.file.read_binary`, `flowgraph.file.read_text`, `flowgraph.file.read_json`, `flowgraph.file.read_toml`, `flowgraph.file.read_ron`
-- Write nodes: `flowgraph.file.write_binary`, `flowgraph.file.write_text`, `flowgraph.file.write_json`, `flowgraph.file.write_toml`, `flowgraph.file.write_ron`
+- 実装済み first slice: `flowgraph.file.read_string`, `flowgraph.file.read_bytes`, `flowgraph.file.read_json`, `flowgraph.file.read_toml`, `flowgraph.file.read_ron`, `flowgraph.file.write_string`, `flowgraph.file.write_bytes`, `flowgraph.file.write_json`, `flowgraph.file.write_toml`, `flowgraph.file.write_ron`, `flowgraph.ingress.file_watch`, `flowgraph.convert.json_to_toml`, `flowgraph.convert.toml_to_json`, `flowgraph.convert.toml_to_ron`, `flowgraph.convert.ron_to_toml`
+- Ingress node: `flowgraph.ingress.file_watch`（polling bridge）
+- Read nodes: `flowgraph.file.read_bytes`, `flowgraph.file.read_string`, `flowgraph.file.read_json`, `flowgraph.file.read_toml`, `flowgraph.file.read_ron`
+- Write nodes: `flowgraph.file.write_bytes`, `flowgraph.file.write_string`, `flowgraph.file.write_json`, `flowgraph.file.write_toml`, `flowgraph.file.write_ron`
 - Convert nodes: `flowgraph.convert.json_to_toml`, `flowgraph.convert.toml_to_json`, `flowgraph.convert.toml_to_ron`, `flowgraph.convert.ron_to_toml`
-- 初期 capability: `file_read` / `file_write` / `file_watch` を分ける
-- watch は debounce と recursive flag を持つ
+- 初期 capability: `file_read` / `file_write` / `file_watch` は実装済み
+- watch は polling bridge と recursive flag を持つ。OS native watcher / debounce 詳細化は必要時に後続で扱う
 - TOML は Flowgraph の source format と近いため JSON と並ぶ構造化データとして扱う
 - RON は Rust / 高度ユーザー向けの serialization format として、TOML value model へ寄せて読む
 
@@ -31,25 +32,30 @@ Flowgraph を汎用データフロー処理エンジンへ近づけるため、�
 
 最初の実装対象。ローカルファイルを `Table` 化できると、配信企画表、抽選表、辞書、設定表を Flowgraph に接続しやすくなる。
 
+- 実装済み: `flowgraph.table.load_xlsx`
 - Node: `flowgraph.table.load_xlsx`
 - 入力: `path`, `sheet`, `range`, `header_mode`
 - 出力: `table`, `sheet_name`, `row_count`, `column_count`
 - sheet 省略時: 最初の表示 sheet を読む
 - range 省略時: sheet の使用範囲を読む
 - header: 既定は 1 行目を column name とみなす。空名や重複名は安定した suffix で正規化する
-- 候補 crate: `calamine`
+- crate: `calamine`
+- capability: `file_read`
 
 ### RI-2 Google Sheets public URL / ID -> Table
 
 `.xlsx` 読み込みと同じ Table 仕様へ正規化する。最初は認可なしで、公開共有・公開 CSV export に限る。
 
+- 実装済み: `flowgraph.table.load_google_sheet_public`
 - Node: `flowgraph.table.load_google_sheet_public`
-- 入力: `spreadsheet`, `sheet`, `range`, `header_mode`
-- `spreadsheet` は ID だけでも URL でも許容する
-- 公開されていない sheet は明確なエラーにする
+- 入力: `spreadsheet`, `sheet`, `range`, `header_mode`, `timeout_ms`
+- `spreadsheet` は ID だけでも URL でも許容する。URL 内 `gid` は `sheet` 未指定時に使う
+- `sheet` は sheet 名または numeric gid として扱う
+- 公開されていない sheet は recoverable `result` と `on_error` で返す
+- capability: `network`
 - OAuth / private sheet は RI-8 へ回す
 
-### RI-3 Table draw node
+### RI-3 Table draw node ✅
 
 Table から行を抽選するノード。配信企画、コメント抽選、ランダム台詞、ゲーム内お題決定に直結する。
 
@@ -60,74 +66,88 @@ Table から行を抽選するノード。配信企画、コメント抽選、�
 - `replacement=false` の場合は重複なし
 - 重み列は数値変換できない値を 0 扱いにし、全 0 なら通常抽選へフォールバックする
 
-### RI-4 RSS polling / WebSub bridge
+### RI-4 RSS polling / WebSub bridge ✅
 
 常駐 VAC が外部更新を拾う入口。まず polling で安定させ、WebSub は ingress bridge として後から追加する。
 
-- 初期ノード: `flowgraph.web.rss_fetch`
+- 初期ノード: `flowgraph.web.rss_fetch` ✅
 - 入力: `url`, `limit`, `since`, `include_content`
 - 出力: `items_json`, `items_table`, `latest_updated_at`
 - RSS / Atom を同じ item schema へ正規化する
 - WebSub は購読管理・callback URL・署名検証が必要なため、polling 実装後に独立 subphase とする
 
-### RI-5 OS desktop notification
+### RI-5 OS desktop notification ✅
 
 常駐アプリとして自然な通知出口。GUI 内 Toast ではなく OS の通知センターへ出す。
 
-- Service: desktop runner 側の notification service
-- Node: `flowgraph.notify.desktop`
-- 入力: `title`, `body`, `urgency`, `group`, `icon`, `timeout_ms`
+- Service: desktop runner 側の notification service ✅
+- Node: `flowgraph.notify.desktop` ✅
+- 入力: `title`, `body`, `urgency`, `group`, `icon`, `timeout_ms`, `dry_run`
 - 初期実装では action callback は持たない
 - Runtime Mode 側に通知許可・抑制・重要度の policy を持たせる
-- cross-platform crate が安定して使えるなら採用し、難しければ Windows 実装を先行する
+- Windows Toast 実装を先行し、cross-platform 実装は必要時に拡張する
 
-### RI-6 OBS Browser Source template output
+### RI-6 OBS Browser Source template output ✅
 
 ユーザーが試しやすい完成形を優先する。OBS 側に複数ソースを手で組ませるより、VAC が Browser Source 1 つへテンプレート画面を配信する。
 
-- Runtime: VAC の web server から template page を提供する
-- Transport: template page は WebSocket / SSE / polling のいずれかで VAC の event を受け取る
+- Runtime: VAC の web server から template page を提供する ✅
+- Transport: template page は既存 `/output` polling で VAC の ChannelDatum を受け取る ✅
 - 初期テンプレート:
-  - simple subtitle
-  - conversation dialog
-  - Twitch chat compact / rich
-  - raid alert
+  - simple subtitle ✅
+  - conversation dialog ✅
+  - Twitch chat compact ✅
+  - raid alert ✅
 - 後続で StreamDeck / global hotkey / MIDI と接続し、テンプレート演出の手動制御へ広げる
 
-### RI-7 physical constants
+### RI-7 physical constants ✅
 
 緊急度は低いが、Flowgraph の汎用言語化には相性がよい。最初は標準ライブラリー風の pure provider として小さく入れる。
 
-- Node candidates: `flowgraph.constants.physics`, `flowgraph.constants.math`
-- 出力: `c`, `G`, `h`, `k_B` など
-- 単位系・quantity 型が未整備なら、まずは明示名つき Float 定数として扱う
+- Implemented: `flowgraph.constants.math`, `flowgraph.constants.physics`
+- 出力: `pi`, `tau`, `e`, `sqrt2`, `ln2`, `golden_ratio`、および `c_m_s`, `G_m3_kg_s2`, `h_J_s`, `k_B_J_K` など
+- Quantity 版は後続追加余地として残し、まずは明示名つき Float 定数として固定
 
-### RI-8 authenticated Google Sheets
+### RI-8 authenticated Google Sheets ✅
 
 public reader の実用確認後に着手する。OAuth / token storage / scope / GUI 認可導線が絡むため、最初から入れない。
 
-- read-only scope を既定にする
-- 認可状態は GUI で見えるようにする
-- token は platform keyring か既存 secure storage 方針に合わせる
+- RI-8a ✅: `flowgraph.table.load_google_sheet_auth`
+  - `spreadsheet` / `sheet` / `range` / `header_mode` / `timeout_ms` は public reader と同系統
+  - `access_token` 入力で Google Sheets API v4 `values.get` を Bearer 認可し、private Sheet を Table 化
+  - effect mock と recorded effect は token を `<redacted>` として扱う
+- RI-8b ✅: token storage first slice
+  - `access_token` 直入力を最優先し、未指定時は `token_env`、次に `token_file` を参照
+  - 既定 env は `UNVAC_GOOGLE_SHEETS_ACCESS_TOKEN`
+  - `token_file` は raw token または JSON `{ "access_token": "..." }` を受け付ける
+  - token file read の recorded effect は contents を記録しない
+- RI-8c ✅: Google Sheets OAuth Device Flow first slice
+  - Control API: `POST /oauth/google/sheets/start`, `POST /oauth/google/sheets/poll`, `GET /oauth/google/sheets/status`, `DELETE /oauth/google/sheets/tokens`
+  - 既定 scope は `https://www.googleapis.com/auth/spreadsheets.readonly`
+  - `UNVAC_GOOGLE_OAUTH_CLIENT_ID` または request body `client_id` を使う
+  - 成功時は VAC config dir 配下 `google-sheets-token.json` へ保存
+  - Resources GUI に Google Sheets OAuth panel を追加
+- refresh token 自動更新、platform keyring、multi-account credential registry は後続拡張
 
-### RI-9 MsgPack support
+### RI-9 MsgPack support ✅
 
 必要性はあるが初期優先度は低い。Binary 型と JSON 変換が安定してから、保存・通信・外部ツール連携で必要になった時点で追加する。
 
-- Node candidates: `flowgraph.convert.json_to_msgpack`, `flowgraph.convert.msgpack_to_json`
-- `bytes` / `binary` 型の確定後に実装する
-- schema-less のまま入れると診断が弱いため、最初は JSON value と対応する範囲に限定する
+- Implemented: `flowgraph.convert.json_to_msgpack`, `flowgraph.convert.msgpack_to_json`
+- JSON value と `bytes` 間の MessagePack 変換を pure node として実装
+- schema-less のまま広げず、最初は JSON value と対応する範囲に限定する
 
-### RI-10 SQLite3 operations
+### RI-10 SQLite3 operations ✅
 
 local DB を Flowgraph から扱うための外部 I/O。標準ライブラリーの `Table` / `record` / `result<T>` と接続する。
 
-- Node candidates: `flowgraph.db.sqlite.open`, `flowgraph.db.sqlite.query`, `flowgraph.db.sqlite.execute`
-- 初期実装は read-only query を優先する
+- Implemented: `flowgraph.db.sqlite.query`
+- read-only 接続で `SELECT` / `WITH` / `PRAGMA` に限定する
+- `params` は JSON array として受け取り、SQLite parameter binding に渡す
 - query result は `Table` として出す
-- write / transaction / migration は `file_write` より強い capability として分ける
-- SQL injection 対策として parameter binding を必須にする
-- long-running query は timeout / cancellation を持つ
+- capability: `file_read`, `db_read`
+- recorded effect: `sqlite_query`
+- write / transaction / migration は `file_write` より強い capability として後続で分ける
 
 ## 3. Toast / Notification の整理
 

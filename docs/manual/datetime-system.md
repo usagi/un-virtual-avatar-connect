@@ -2,7 +2,7 @@
 
 Virtual Avatar Connect の Flowgraph は、Phase **π** で **第一級ソケット型 `datetime`** を備えています。内部表現は [`jiff`](https://docs.rs/jiff) の **`Timestamp`（UTC 絶対時刻、ナノ秒精度）**で、**壁時計のインスタント**だけを扱います。タイムゾーン付きの「壁面表示」は `flowgraph.datetime.format` の `timezone` プロパティや `Zoned` 系の**境界**で扱います。
 
-**経過時間（Duration）**は新しい型を増やさず、Phase ξ ですでにある **`quantity`（時間次元、例: `s`, `ms`）**に統一します。設計の動機と詳細は [`../roadmap/phase-pi-datetime-system.md`](../roadmap/phase-pi-datetime-system.md) を参照。
+**経過時間（Duration）**は新しい型を増やさず、Phase ξ ですでにある **`quantity`（時間次元、例: `s`, `ms`）**に統一します。設計の動機と詳細は [`../roadmap/phase-pi-datetime-system.md`](https://github.com/usagi/virtual-avatar-connect/blob/v2/docs/roadmap/phase-pi-datetime-system.md) を参照。
 
 ---
 
@@ -89,4 +89,4 @@ default_timezone = "+09:00"   # 空 / 未指定 / "Z" / "UTC" は UTC
 ## 関連
 
 - 単位次元（時間以外）: [Dimensional Quantity System](./dimensional-quantity-system.md)
-- 全ノードのポート仕様: [Node Catalog](./node-catalog.md)（`./scripts/bless-node-catalog.ps1` で生成）
+- 全ノードのポート仕様: [Node Catalog](./node-catalog.md)（`cargo xtask docs bless-node-catalog` で生成）

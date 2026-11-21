@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "purposes": [
+    {
+      "id": "counter",
+      "name": "カウンターによる自動化",
+      "roots": [
+        "main"
+      ]
+    }
+  ]
+}

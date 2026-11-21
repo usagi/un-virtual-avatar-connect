@@ -1,0 +1,34 @@
+[[triggers]]
+node = "main::eventsub"
+
+[[triggers.overrides]]
+port = "__event_type__"
+ty = "string"
+value = "channel.channel_points_custom_reward_redemption.add"
+
+[[triggers.overrides]]
+port = "__actor_name__"
+ty = "string"
+value = "viewer1"
+
+[[triggers.overrides]]
+port = "__payload__"
+ty = "json"
+value = { reward = { id = "reward-1", title = "水分補給！", cost = 32 }, user_name = "viewer1", user_input = "" }
+
+[[tests]]
+name = "channel point redemption emits reward observation"
+
+[tests.expect]
+node_count = 5
+trigger_count = 1
+
+[[tests.expect.exec_count]]
+node = "main::emit"
+count = 1
+
+[[tests.expect.stored_values]]
+node = "main::reward_title"
+port = "string"
+ty = "string"
+value = "水分補給！"

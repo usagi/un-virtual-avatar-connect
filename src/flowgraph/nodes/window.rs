@@ -73,7 +73,7 @@ impl EffectfulNode for WindowEnumNode {
 }
 
 macro_rules! action_node {
-	($ty:ident, $feature:literal, $title:literal, $description:literal, $action:expr, $extra_inputs:expr) => {
+	($ty:ident, $feature:literal, $title:literal, $description:literal, $action:expr_2021, $extra_inputs:expr_2021) => {
 		impl NodeDescriptor for $ty {
 			fn describe(&self) -> NodeSpec {
 				let mut inputs = vec![

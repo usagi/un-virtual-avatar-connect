@@ -16,6 +16,7 @@
 //!   `content`（本文）/ `source_actor`（発信者識別子）/ `source_kind`（種別）/ `meta`（自由）
 //! - **Phase M1**: `flowgraph.ingress.vmc_udp` + `bridges::vmc_ingress` — VMC 互換の生 UDP。
 //! - **Phase ρ**: `flowgraph.ingress.osc_udp` + `bridges::osc_ingress` — 汎用 OSC/任意 UDP（`__meta__.profile = "osc_udp"`）。
+//! - **Phase M7**: `flowgraph.ingress.unmfz` + `bridges::unmfz_ingress` — UNMF/Z Zenoh を常時購読。
 //!
 //! ## 入力ポートが `__` プレフィックス始まりの理由
 //!
@@ -39,6 +40,7 @@ fn ingress_inputs() -> Vec<PortSpec> {
 		PortSpec::input("__content__", "(internal) content", SocketType::String).with_default(SocketValue::String(String::new())),
 		PortSpec::input("__source_actor__", "(internal) actor", SocketType::String).with_default(SocketValue::String(String::new())),
 		PortSpec::input("__source_kind__", "(internal) kind", SocketType::String).with_default(SocketValue::String(String::new())),
+		PortSpec::input("__trace_id__", "(internal) trace id", SocketType::String).with_default(SocketValue::String(String::new())),
 		PortSpec::input("__meta__", "(internal) meta", SocketType::Json).with_default(SocketValue::Json(JsonValue::Null)),
 	]
 }
@@ -57,6 +59,7 @@ fn ingress_outputs() -> Vec<PortSpec> {
 		PortSpec::output("content", "Content", SocketType::String),
 		PortSpec::output("source_actor", "Source Actor", SocketType::String),
 		PortSpec::output("source_kind", "Source Kind", SocketType::String),
+		PortSpec::output("trace_id", "Trace ID", SocketType::String),
 		PortSpec::output("meta", "Meta", SocketType::Json),
 	]
 }
@@ -65,6 +68,46 @@ fn binary_ingress_outputs() -> Vec<PortSpec> {
 	let mut outputs = ingress_outputs();
 	outputs.push(PortSpec::output("content_bytes", "Content Bytes", SocketType::Bytes));
 	outputs
+}
+
+fn unmfz_ingress_inputs() -> Vec<PortSpec> {
+	let mut inputs = binary_ingress_inputs();
+	inputs.push(
+		PortSpec::input("__unmf__", "(internal) UNMF", SocketType::Unmf)
+			.with_default(SocketValue::Unmf(vac_motion::unmf::UnMotionFrame::new(0))),
+	);
+	inputs
+		.push(PortSpec::input("__key_expr__", "(internal) key expr", SocketType::String).with_default(SocketValue::String(String::new())));
+	inputs
+}
+
+fn unmfz_ingress_outputs() -> Vec<PortSpec> {
+	let mut outputs = binary_ingress_outputs();
+	outputs.push(PortSpec::output("unmf", "UNMF", SocketType::Unmf));
+	outputs.push(PortSpec::output("key_expr", "Key Expr", SocketType::String));
+	outputs
+}
+
+fn file_watch_inputs() -> Vec<PortSpec> {
+	vec![
+		PortSpec::exec_input("__trigger__", "(internal trigger)"),
+		PortSpec::input("__path__", "(internal) path", SocketType::String).with_default(SocketValue::String(String::new())),
+		PortSpec::input("__event_kind__", "(internal) event kind", SocketType::String).with_default(SocketValue::String(String::new())),
+		PortSpec::input("__source_actor__", "(internal) actor", SocketType::String).with_default(SocketValue::String(String::new())),
+		PortSpec::input("__source_kind__", "(internal) kind", SocketType::String).with_default(SocketValue::String(String::new())),
+		PortSpec::input("__meta__", "(internal) meta", SocketType::Json).with_default(SocketValue::Json(JsonValue::Null)),
+	]
+}
+
+fn file_watch_outputs() -> Vec<PortSpec> {
+	vec![
+		PortSpec::exec_output("exec_out", "Exec Out"),
+		PortSpec::output("path", "Path", SocketType::String),
+		PortSpec::output("event_kind", "Event Kind", SocketType::String),
+		PortSpec::output("source_actor", "Source Actor", SocketType::String),
+		PortSpec::output("source_kind", "Source Kind", SocketType::String),
+		PortSpec::output("meta", "Meta", SocketType::Json),
+	]
 }
 
 async fn ingress_compute(inputs: &InputMap, fired_exec: &ExecFireSet) -> Result<NodeOutput, NodeExecError> {
@@ -77,11 +120,13 @@ async fn ingress_compute(inputs: &InputMap, fired_exec: &ExecFireSet) -> Result<
 		.cloned()
 		.unwrap_or(SocketValue::String(String::new()));
 	let kind = inputs.get("__source_kind__").cloned().unwrap_or(SocketValue::String(String::new()));
+	let trace_id = inputs.get("__trace_id__").cloned().unwrap_or(SocketValue::String(String::new()));
 	let meta = inputs.get("__meta__").cloned().unwrap_or(SocketValue::Json(JsonValue::Null));
 	Ok(NodeOutput::new()
 		.set_data("content", content)
 		.set_data("source_actor", actor)
 		.set_data("source_kind", kind)
+		.set_data("trace_id", trace_id)
 		.set_data("meta", meta)
 		.fire_exec("exec_out"))
 }
@@ -96,6 +141,41 @@ async fn binary_ingress_compute(inputs: &InputMap, fired_exec: &ExecFireSet) -> 
 	Ok(out)
 }
 
+async fn unmfz_ingress_compute(inputs: &InputMap, fired_exec: &ExecFireSet) -> Result<NodeOutput, NodeExecError> {
+	let mut out = binary_ingress_compute(inputs, fired_exec).await?;
+	if !fired_exec.contains("__trigger__") {
+		return Ok(out);
+	}
+	let unmf = inputs
+		.get("__unmf__")
+		.cloned()
+		.unwrap_or_else(|| SocketValue::Unmf(vac_motion::unmf::UnMotionFrame::new(0)));
+	let key_expr = inputs.get("__key_expr__").cloned().unwrap_or(SocketValue::String(String::new()));
+	out = out.set_data("unmf", unmf).set_data("key_expr", key_expr);
+	Ok(out)
+}
+
+async fn file_watch_compute(inputs: &InputMap, fired_exec: &ExecFireSet) -> Result<NodeOutput, NodeExecError> {
+	if !fired_exec.contains("__trigger__") {
+		return Ok(NodeOutput::new());
+	}
+	let path = inputs.get("__path__").cloned().unwrap_or(SocketValue::String(String::new()));
+	let event_kind = inputs.get("__event_kind__").cloned().unwrap_or(SocketValue::String(String::new()));
+	let actor = inputs
+		.get("__source_actor__")
+		.cloned()
+		.unwrap_or(SocketValue::String(String::new()));
+	let kind = inputs.get("__source_kind__").cloned().unwrap_or(SocketValue::String(String::new()));
+	let meta = inputs.get("__meta__").cloned().unwrap_or(SocketValue::Json(JsonValue::Null));
+	Ok(NodeOutput::new()
+		.set_data("path", path)
+		.set_data("event_kind", event_kind)
+		.set_data("source_actor", actor)
+		.set_data("source_kind", kind)
+		.set_data("meta", meta)
+		.fire_exec("exec_out"))
+}
+
 // ---------------------------------------------------------------------
 // ingress.web_input
 // ---------------------------------------------------------------------
@@ -103,6 +183,7 @@ async fn binary_ingress_compute(inputs: &InputMap, fired_exec: &ExecFireSet) -> 
 pub struct WebInputIngressNode;
 
 impl NodeDescriptor for WebInputIngressNode {
+	fn control_triggerable(&self) -> bool { true }
 	fn describe(&self) -> NodeSpec {
 		NodeSpec {
    feature: "flowgraph.ingress.web_input".into(),
@@ -122,7 +203,7 @@ impl NodeDescriptor for WebInputIngressNode {
      SocketType::String,
      SocketValue::String("plain".into()),
     )
-    .description("リクエストボディの解釈。\"plain\"（本文をそのまま content）/\"json\"（`content` フィールド）/\"form\"（`content` パラメータ）。"),
+    .description("リクエストボディの解釈。\"plain\"（本文をそのまま content）/\"json\"（`content` フィールド）/\"form\"（`content` パラメータ）/\"toml\"・\"msgpack\"（`content` フィールド）。"),
     PropertySpec::new(
      "fixed_channel",
      "Fixed Channel",
@@ -149,6 +230,53 @@ impl PureNode for WebInputIngressNode {
 }
 
 // ---------------------------------------------------------------------
+// ingress.file_watch
+// ---------------------------------------------------------------------
+
+pub struct FileWatchIngressNode;
+
+impl NodeDescriptor for FileWatchIngressNode {
+	fn describe(&self) -> NodeSpec {
+		NodeSpec {
+			feature: "flowgraph.ingress.file_watch".into(),
+			title: "File Watch Ingress".into(),
+			category: "ingress".into(),
+			description: Some("ファイルまたはディレクトリ更新を polling bridge から受け取る ingress。".into()),
+			inputs: file_watch_inputs(),
+			outputs: file_watch_outputs(),
+			properties: vec![
+				PropertySpec::new("path", "Path", SocketType::String, SocketValue::String(String::new()))
+					.description("監視対象ファイルまたはディレクトリ。空なら bridge は起動しない。"),
+				PropertySpec::new("recursive", "Recursive", SocketType::Bool, SocketValue::Bool(false))
+					.description("ディレクトリ監視時にサブディレクトリも走査する。"),
+				PropertySpec::new("poll_ms", "Poll ms", SocketType::Int, SocketValue::Int(500))
+					.description("polling 間隔。100ms 未満は 100ms に丸める。"),
+				PropertySpec::new(
+					"fixed_channel",
+					"Fixed Channel",
+					SocketType::String,
+					SocketValue::String("file_watch".into()),
+				)
+				.description("ingress が echo で出す `source_kind`。空なら `file_watch`。"),
+			],
+		}
+	}
+}
+
+#[async_trait]
+impl PureNode for FileWatchIngressNode {
+	async fn compute(
+		&self,
+		_host: &crate::flowgraph::node::PureEvalHost,
+		_props: &InputMap,
+		inputs: &InputMap,
+		fired_exec: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		file_watch_compute(inputs, fired_exec).await
+	}
+}
+
+// ---------------------------------------------------------------------
 // ingress.voice
 // ---------------------------------------------------------------------
 
@@ -164,16 +292,39 @@ impl NodeDescriptor for VoiceIngressNode {
 			inputs: ingress_inputs(),
 			outputs: ingress_outputs(),
 			properties: vec![
+				PropertySpec::new("label", "Label", SocketType::String, SocketValue::String(String::new()))
+					.description("GUIへ表示する音声入力名。空ならFlowgraphノードIDを表示する。"),
 				PropertySpec::new("engine", "Engine", SocketType::String, SocketValue::String("vosk".into()))
-					.description("\"vosk\" か \"whisper\"。"),
-				PropertySpec::new("model_path", "Model Path", SocketType::String, SocketValue::String(String::new()))
-					.description("Vosk/Whisper のモデル格納ディレクトリ。bridge 起動時にロードする。"),
+					.required()
+					.description("\"vosk\"または\"whisper\"。1ノードにつき1エンジンだけを起動する。"),
+				PropertySpec::new(
+					"model_path",
+					"Model Path",
+					SocketType::String,
+					SocketValue::String("vosk-model-small-ja-0.22".into()),
+				)
+				.required()
+				.description("VoskのモデルID/ディレクトリ、またはWhisper GGMLモデルのパス。Voskの既定値は初回に取得する。"),
 				PropertySpec::new("source", "Audio Source", SocketType::String, SocketValue::String(String::new()))
-					.description("入力音声ソース（マイクデバイス名 / ファイルパス / 空＝既定デバイス）。"),
+					.description("Whisperの入力デバイス名（部分一致 / 空＝既定デバイス）。Voskは現在、既定入力を使う。"),
 				PropertySpec::new("sample_rate", "Sample Rate", SocketType::Int, SocketValue::Int(16000))
 					.description("サンプリングレート（Hz）。vosk は通常 16000、whisper は任意。"),
 				PropertySpec::new("language_code", "Language", SocketType::String, SocketValue::String("ja".into()))
 					.description("言語コード（whisper で使用）。例 \"ja\" / \"en\"。"),
+				PropertySpec::new(
+					"whisper_backend",
+					"Whisper Backend",
+					SocketType::String,
+					SocketValue::String("auto".into()),
+				)
+				.description("Whisper workerを auto / vulkan / cpu から選択。autoはVulkan、CPUの順に試す。"),
+				PropertySpec::new(
+					"whisper_gpu_device",
+					"Whisper GPU Device",
+					SocketType::String,
+					SocketValue::String(String::new()),
+				)
+				.description("VulkanのGPU index。空なら単一dGPUを優先して自動選択する。"),
 				PropertySpec::new(
 					"grammar_json",
 					"Grammar (JSON)",
@@ -188,6 +339,49 @@ impl NodeDescriptor for VoiceIngressNode {
 					SocketValue::String(String::new()),
 				)
 				.description("ingress が echo で出す `source_kind`。空なら `voice`。"),
+				PropertySpec::new(
+					"partial_channel",
+					"Partial Subtitle Channel",
+					SocketType::String,
+					SocketValue::String(String::new()),
+				)
+				.description("途中認識をquiet datumとして更新する字幕チャンネル。空なら途中字幕を保存しない。"),
+				PropertySpec::new(
+					"partial_interval_ms",
+					"Whisper Partial Interval",
+					SocketType::Int,
+					SocketValue::Int(800),
+				)
+				.description("Whisper発話中に途中認識を更新する間隔（ms）。0でWhisper途中認識を無効化。"),
+				PropertySpec::new(
+					"partial_min_audio_ms",
+					"Whisper Partial Minimum Audio",
+					SocketType::Int,
+					SocketValue::Int(1300),
+				)
+				.description("Whisper途中認識へ渡す最小音声長（ms）。短すぎるprefixによる遅延と誤認識を抑える。"),
+				PropertySpec::new(
+					"speech_floor_key",
+					"Speech Floor Key",
+					SocketType::String,
+					SocketValue::String(String::new()),
+				)
+				.description("発話開始からfinal後の猶予まで占有する発話権キー。AIのrespect_speech_floorと対応させる。"),
+				PropertySpec::new(
+					"speech_floor_release_delay_ms",
+					"Speech Floor Release Delay",
+					SocketType::Int,
+					SocketValue::Int(700),
+				)
+				.description("final 後も発話権を保持する時間（ms）。続く文を別の AI 応答へ分割しにくくする。"),
+				PropertySpec::new("vad_threshold_db", "VAD Threshold", SocketType::Int, SocketValue::Int(-45))
+					.description("Whisperが発話とみなすRMS閾値（dBFS）。"),
+				PropertySpec::new("vad_endpoint_ms", "VAD Endpoint", SocketType::Int, SocketValue::Int(600))
+					.description("Whisperが発話終了とみなす連続無音時間（ms）。"),
+				PropertySpec::new("vad_pre_roll_ms", "VAD Pre-roll", SocketType::Int, SocketValue::Int(400))
+					.description("発話冒頭を欠落させないため Whisper に含める先行音声（ms）。"),
+				PropertySpec::new("vad_min_speech_ms", "VAD Min Speech", SocketType::Int, SocketValue::Int(100))
+					.description("ノイズを発話開始と誤認しないために必要な連続音声時間（ms）。"),
 			],
 		}
 	}
@@ -212,6 +406,35 @@ impl PureNode for VoiceIngressNode {
 
 pub struct TwitchIngressNode;
 
+pub struct TwitchStreamStateIngressNode;
+
+impl NodeDescriptor for TwitchStreamStateIngressNode {
+	fn describe(&self) -> NodeSpec {
+		NodeSpec {
+			feature: "flowgraph.ingress.twitch_stream_state".into(),
+			title: "Twitch Stream State".into(),
+			category: "twitch".into(),
+			description: Some("Helix/EventSubで維持する宣言済み配信状態を明示edgeへ公開する。".into()),
+			inputs: ingress_inputs(),
+			outputs: ingress_outputs(),
+			properties: Vec::new(),
+		}
+	}
+}
+
+#[async_trait]
+impl PureNode for TwitchStreamStateIngressNode {
+	async fn compute(
+		&self,
+		_host: &crate::flowgraph::node::PureEvalHost,
+		_props: &InputMap,
+		inputs: &InputMap,
+		fired_exec: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		ingress_compute(inputs, fired_exec).await
+	}
+}
+
 impl NodeDescriptor for TwitchIngressNode {
 	fn describe(&self) -> NodeSpec {
 		NodeSpec {
@@ -220,8 +443,14 @@ impl NodeDescriptor for TwitchIngressNode {
 			category: "ingress".into(),
 			description: Some("Twitch チャット / EventSub 経由の入力".into()),
 			inputs: ingress_inputs(),
-			outputs: ingress_outputs(),
+			outputs: {
+				let mut outputs = ingress_outputs();
+				outputs.push(PortSpec::output("message_text", "Message Text", SocketType::String));
+				outputs
+			},
 			properties: vec![
+				PropertySpec::new("label", "Label", SocketType::String, SocketValue::String(String::new()))
+					.description("GUIへ表示するTwitch入力名。空ならFlowgraphノードIDを表示する。"),
 				PropertySpec::new("mode", "Mode", SocketType::String, SocketValue::String("irc".into()))
 					.description("\"irc\"（チャット受信）か \"eventsub\"（Helix/EventSub）。"),
 				PropertySpec::new(
@@ -272,7 +501,15 @@ impl PureNode for TwitchIngressNode {
 		inputs: &InputMap,
 		fired_exec: &ExecFireSet,
 	) -> Result<NodeOutput, NodeExecError> {
-		ingress_compute(inputs, fired_exec).await
+		let mut output = ingress_compute(inputs, fired_exec).await?;
+		if fired_exec.contains("__trigger__") {
+			let text = inputs.get("__meta__").and_then(|v| match v {
+				SocketValue::Json(meta) => meta.get("message_text").and_then(|v| v.as_str()),
+				_ => None,
+			}).unwrap_or("");
+			output = output.set_data("message_text", SocketValue::String(text.into()));
+		}
+		Ok(output)
 	}
 }
 
@@ -412,135 +649,138 @@ impl PureNode for TwitchEventsubIngressNode {
 }
 
 // ---------------------------------------------------------------------
-// ingress.channel_subscribe (δ-9 Part E)
+// AI output ingress
 // ---------------------------------------------------------------------
-//
-// V1 `State.channel_data` に push された `ChannelDatum` を **Flowgraph 側で再消費**するための ingress。
-// 既存の web_input / voice / twitch と同じ「外部 trigger + echo compute」パターンに従うが、
-// ポート構成が channel datum に特化している。Bridge 実装は `src/bridges/channel_subscribe.rs`。
-//
-// 出力:
-//   - exec_out: trigger で発火
-//   - channel / content / source_actor / is_final / meta:各 datum の該当フィールドを echo
-//
-// プロパティ（bridge が読む）:
-//   - channels: List<String> — 監視対象のチャンネル名（空リスト = 全 channel）
-//   - require_final: Bool = true — `is_final=true` のみ発火
-//   - ignore_source_actors: List<String> — この actor 由来の datum を drop
-//   - ignore_flowgraph_echo: Bool = true — `source_actor` が `flowgraph:` で始まる datum を drop
-//   - require_flags: List<String> — 指定フラグを全部持つ datum のみ発火（空 = 無制限）
-//   - drop_flags: List<String> — 指定フラグを 1 つでも持つ datum は drop
 
-pub struct ChannelSubscribeIngressNode;
+pub struct AiResponseIngressNode;
+pub struct AiSpeechIngressNode;
+pub struct AiAvatarIntentIngressNode;
+pub struct AiAvatarPoseIngressNode;
 
-impl NodeDescriptor for ChannelSubscribeIngressNode {
-	fn describe(&self) -> NodeSpec {
-		NodeSpec {
-			feature: "flowgraph.ingress.channel_subscribe".into(),
-			title: "Channel Subscribe Ingress".into(),
-			category: "ingress".into(),
-			description: Some(
-				"V1 `State.channel_data` への push を監視し、channels / is_final / source_actor フィルタを通過した \
-     ChannelDatum を TriggerEvent として流し込む。channel.emit の対称入口で、既存 Processor 時代の \
-     channel_from 駆動パイプラインを Flowgraph で再現する基盤。"
-					.into(),
-			),
-			inputs: vec![
-				PortSpec::exec_input("__trigger__", "(internal trigger)"),
-				PortSpec::input("__channel__", "(internal) channel", SocketType::String).with_default(SocketValue::String(String::new())),
-				PortSpec::input("__content__", "(internal) content", SocketType::String).with_default(SocketValue::String(String::new())),
-				PortSpec::input("__source_actor__", "(internal) source_actor", SocketType::String)
-					.with_default(SocketValue::String(String::new())),
-				PortSpec::input("__is_final__", "(internal) is_final", SocketType::Bool).with_default(SocketValue::Bool(true)),
-				PortSpec::input("__meta__", "(internal) meta", SocketType::Json).with_default(SocketValue::Json(JsonValue::Null)),
-			],
-			outputs: vec![
-				PortSpec::exec_output("exec_out", "Exec Out"),
-				PortSpec::output("channel", "Channel", SocketType::String),
-				PortSpec::output("content", "Content", SocketType::String),
-				PortSpec::output("source_actor", "Source Actor", SocketType::String),
-				PortSpec::output("is_final", "Is Final", SocketType::Bool),
-				PortSpec::output("meta", "Meta", SocketType::Json),
-			],
-			properties: vec![
-				PropertySpec::new(
-					"channels",
-					"Channels",
-					SocketType::List(Box::new(SocketType::String)),
-					SocketValue::List(Vec::new()),
-				)
-				.description("購読対象のチャンネル名リスト。空なら全チャンネルを受ける。"),
-				PropertySpec::new("require_final", "Require is_final", SocketType::Bool, SocketValue::Bool(true))
-					.description("true なら `is_final` フラグが立っている datum のみ発火。ストリーミング中間を無視する。"),
-				PropertySpec::new(
-					"ignore_source_actors",
-					"Ignore Source Actors",
-					SocketType::List(Box::new(SocketType::String)),
-					SocketValue::List(Vec::new()),
-				)
-				.description("meta.source_actor がこの一覧に含まれる datum は drop。自 bot 由来のエコーを遮断する用途。"),
-				PropertySpec::new(
-					"ignore_flowgraph_echo",
-					"Ignore Flowgraph Echo",
-					SocketType::Bool,
-					SocketValue::Bool(true),
-				)
-				.description(
-					"true なら meta.source_actor が `flowgraph:` / `flowgraph` で始まる datum を drop。`channel.emit` \
-      による自グラフ押し返しを防ぐ既定動作。",
-				),
-				PropertySpec::new(
-					"require_flags",
-					"Require Flags",
-					SocketType::List(Box::new(SocketType::String)),
-					SocketValue::List(Vec::new()),
-				)
-				.description("指定フラグをすべて持つ datum のみ発火。例: `[\"is_final\"]`。"),
-				PropertySpec::new(
-					"drop_flags",
-					"Drop Flags",
-					SocketType::List(Box::new(SocketType::String)),
-					SocketValue::List(Vec::new()),
-				)
-				.description("指定フラグを 1 つでも持つ datum を drop。例: voice_vosk 由来を遮断する等。"),
-			],
-		}
+fn ai_output_spec(feature: &str, title: &str, description: &str, exposes_utterance_content: bool) -> NodeSpec {
+	let mut inputs = vec![
+		PortSpec::exec_input("__trigger__", "(internal trigger)"),
+		PortSpec::input("__content__", "(internal) content", SocketType::String).with_default(SocketValue::String(String::new())),
+		PortSpec::input("__persona_id__", "(internal) persona", SocketType::String).with_default(SocketValue::String(String::new())),
+		PortSpec::input("__utterance_id__", "(internal) utterance", SocketType::String).with_default(SocketValue::String(String::new())),
+	];
+	let mut outputs = vec![
+		PortSpec::exec_output("exec_out", "Exec Out"),
+		PortSpec::output("content", "Content", SocketType::String),
+		PortSpec::output("persona_id", "Persona", SocketType::String),
+		PortSpec::output("utterance_id", "Utterance", SocketType::String),
+	];
+	if exposes_utterance_content {
+		inputs.push(
+			PortSpec::input("__utterance_content__", "(internal) utterance content", SocketType::String)
+				.with_default(SocketValue::String(String::new())),
+		);
+		outputs.push(PortSpec::output("utterance_content", "Utterance Content", SocketType::String));
+	}
+	inputs.push(PortSpec::input("__meta__", "(internal) meta", SocketType::Json).with_default(SocketValue::Json(JsonValue::Null)));
+	outputs.push(PortSpec::output("meta", "Meta", SocketType::Json));
+	NodeSpec {
+		feature: feature.into(),
+		title: title.into(),
+		category: "ai".into(),
+		description: Some(description.into()),
+		inputs,
+		outputs,
+		properties: vec![
+			PropertySpec::new("persona_id", "Persona", SocketType::String, SocketValue::String(String::new()))
+				.description("空なら全persona。AIサービス境界の識別子であり、公開channel名ではない。"),
+		],
 	}
 }
 
-async fn channel_subscribe_compute(inputs: &InputMap, fired_exec: &ExecFireSet) -> Result<NodeOutput, NodeExecError> {
+fn ai_output_compute(inputs: &InputMap, fired_exec: &ExecFireSet, exposes_utterance_content: bool) -> NodeOutput {
 	if !fired_exec.contains("__trigger__") {
-		return Ok(NodeOutput::new());
+		return NodeOutput::new();
 	}
-	let channel = inputs.get("__channel__").cloned().unwrap_or(SocketValue::String(String::new()));
-	let content = inputs.get("__content__").cloned().unwrap_or(SocketValue::String(String::new()));
-	let actor = inputs
-		.get("__source_actor__")
-		.cloned()
-		.unwrap_or(SocketValue::String(String::new()));
-	let is_final = inputs.get("__is_final__").cloned().unwrap_or(SocketValue::Bool(true));
-	let meta = inputs.get("__meta__").cloned().unwrap_or(SocketValue::Json(JsonValue::Null));
-	Ok(NodeOutput::new()
-		.set_data("channel", channel)
-		.set_data("content", content)
-		.set_data("source_actor", actor)
-		.set_data("is_final", is_final)
-		.set_data("meta", meta)
-		.fire_exec("exec_out"))
+	let mut output = NodeOutput::new()
+		.set_data(
+			"content",
+			inputs.get("__content__").cloned().unwrap_or(SocketValue::String(String::new())),
+		)
+		.set_data(
+			"persona_id",
+			inputs.get("__persona_id__").cloned().unwrap_or(SocketValue::String(String::new())),
+		)
+		.set_data(
+			"utterance_id",
+			inputs
+				.get("__utterance_id__")
+				.cloned()
+				.unwrap_or(SocketValue::String(String::new())),
+		)
+		.set_data(
+			"meta",
+			inputs.get("__meta__").cloned().unwrap_or(SocketValue::Json(JsonValue::Null)),
+		)
+		.fire_exec("exec_out");
+	if exposes_utterance_content {
+		output = output.set_data(
+			"utterance_content",
+			inputs
+				.get("__utterance_content__")
+				.cloned()
+				.unwrap_or(SocketValue::String(String::new())),
+		);
+	}
+	output
 }
 
-#[async_trait]
-impl PureNode for ChannelSubscribeIngressNode {
-	async fn compute(
-		&self,
-		_host: &crate::flowgraph::node::PureEvalHost,
-		_props: &InputMap,
-		inputs: &InputMap,
-		fired_exec: &ExecFireSet,
-	) -> Result<NodeOutput, NodeExecError> {
-		channel_subscribe_compute(inputs, fired_exec).await
-	}
+macro_rules! impl_ai_output_ingress {
+	($ty:ty, $feature:literal, $title:literal, $description:literal, $exposes_utterance_content:literal $(,)?) => {
+		impl NodeDescriptor for $ty {
+			fn describe(&self) -> NodeSpec {
+				ai_output_spec($feature, $title, $description, $exposes_utterance_content)
+			}
+		}
+
+		#[async_trait]
+		impl PureNode for $ty {
+			async fn compute(
+				&self,
+				_host: &crate::flowgraph::node::PureEvalHost,
+				_props: &InputMap,
+				inputs: &InputMap,
+				fired_exec: &ExecFireSet,
+			) -> Result<NodeOutput, NodeExecError> {
+				Ok(ai_output_compute(inputs, fired_exec, $exposes_utterance_content))
+			}
+		}
+	};
 }
+
+impl_ai_output_ingress!(
+	AiResponseIngressNode,
+	"flowgraph.ingress.ai_response",
+	"AI Response",
+	"AI personaの確定応答全文を明示edgeへ公開する。",
+	false
+);
+impl_ai_output_ingress!(
+	AiAvatarIntentIngressNode,
+	"flowgraph.ingress.ai_avatar_intent",
+	"AI Avatar Intent",
+	"AIが確定したAvatarIntent JSONを明示edgeへ公開する。",
+	false
+);
+impl_ai_output_ingress!(
+	AiAvatarPoseIngressNode,
+	"flowgraph.ingress.ai_avatar_pose",
+	"AI Avatar Pose",
+	"AIが確定した名前付きAvatarPoseを明示edgeへ公開する。",
+	false
+);
+impl_ai_output_ingress!(
+	AiSpeechIngressNode,
+	"flowgraph.ingress.ai_speech",
+	"AI Speech",
+	"AI personaが読み上げ対象として確定した発話segmentと、その時点までの累積発話を明示edgeへ公開する。",
+	true
+);
 
 // ---------------------------------------------------------------------
 // ingress.vmc_udp（Phase M1）
@@ -639,6 +879,66 @@ impl PureNode for OscUdpIngressNode {
 }
 
 // ---------------------------------------------------------------------
+// ingress.unmfz（Phase M7）
+// ---------------------------------------------------------------------
+//
+// UNMF/Z を Zenoh から常時購読する motion data plane の入口。
+// `flowgraph.unmfz.subscribe` は exec ごとの一回受信、こちらは bridge が常駐して
+// frame ごとに `TriggerEvent` を投入する。
+
+pub struct UnmfzIngressNode;
+
+impl NodeDescriptor for UnmfzIngressNode {
+	fn describe(&self) -> NodeSpec {
+		NodeSpec {
+			feature: "flowgraph.ingress.unmfz".into(),
+			title: "UNMF/Z Ingress".into(),
+			category: "ingress".into(),
+			description: Some(
+				"UNMF/Z Zenoh topic を常時購読し、受信 frame ごとに `unmf` / `content_bytes` / `key_expr` を出力する。".into(),
+			),
+			inputs: unmfz_ingress_inputs(),
+			outputs: unmfz_ingress_outputs(),
+			properties: vec![
+				PropertySpec::new(
+					"base_key_expr",
+					"Base Key",
+					SocketType::String,
+					SocketValue::String("un-motion/frame".into()),
+				)
+				.description("UNMF/Z の base key。末尾 `/` は取り除かれる。"),
+				PropertySpec::new("topic_mode", "Topic Mode", SocketType::String, SocketValue::String("frame".into()))
+					.description("\"frame\" / \"primary_source\" / \"stream_id\"。"),
+				PropertySpec::new("schema_major", "Schema Major", SocketType::Int, SocketValue::Int(1))
+					.description("購読する UNMF/Z schema major。key の `/vN` に使う。"),
+				PropertySpec::new("poll_ms", "Poll ms", SocketType::Int, SocketValue::Int(10))
+					.description("bridge が receiver を確認する間隔。1..1000ms に丸める。"),
+				PropertySpec::new(
+					"fixed_channel",
+					"Source Kind Override",
+					SocketType::String,
+					SocketValue::String(String::new()),
+				)
+				.description("空なら `source_kind` は `unmfz`。任意のラベルに上書き可能。"),
+			],
+		}
+	}
+}
+
+#[async_trait]
+impl PureNode for UnmfzIngressNode {
+	async fn compute(
+		&self,
+		_host: &crate::flowgraph::node::PureEvalHost,
+		_props: &InputMap,
+		inputs: &InputMap,
+		fired_exec: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		unmfz_ingress_compute(inputs, fired_exec).await
+	}
+}
+
+// ---------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------
 
@@ -650,6 +950,17 @@ mod tests {
 	use crate::flowgraph::nodes::log::LogNode;
 	use std::sync::Arc;
 	use std::time::Duration;
+
+	#[test]
+	fn voice_ingress_has_usable_vosk_defaults() {
+		let spec = VoiceIngressNode.describe();
+		let engine = spec.properties.iter().find(|property| property.name == "engine").unwrap();
+		let model = spec.properties.iter().find(|property| property.name == "model_path").unwrap();
+		assert!(engine.required);
+		assert_eq!(engine.default.0, serde_json::json!("vosk"));
+		assert!(model.required);
+		assert_eq!(model.default.0, serde_json::json!("vosk-model-small-ja-0.22"));
+	}
 
 	#[tokio::test]
 	async fn web_input_ingress_forwards_content_to_log_via_external_trigger() {
@@ -722,58 +1033,51 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn ingress_without_trigger_is_noop() {
-		let node = VoiceIngressNode;
-		let out = node
-			.compute(
-				&crate::flowgraph::node::PureEvalHost::default(),
-				&InputMap::new(),
-				&InputMap::new(),
-				&ExecFireSet::new(),
-			)
-			.await
-			.unwrap();
-		assert!(out.fired_exec.is_empty());
-		assert!(out.data.is_empty());
-	}
-
-	#[tokio::test]
-	async fn channel_subscribe_forwards_all_fields() {
+	async fn twitch_ingress_accepts_json_meta_without_stopping_worker() {
 		let mut b = FlowgraphBuilder::new();
-		b.add_node("sub", NodeImpl::pure(Arc::new(ChannelSubscribeIngressNode)), InputMap::new());
+		b.add_node("in", NodeImpl::pure(Arc::new(TwitchIngressNode)), InputMap::new());
 		b.add_node("log", NodeImpl::effectful(Arc::new(LogNode)), InputMap::new());
-		b.connect_exec(PortRef::new("sub", "exec_out"), PortRef::new("log", "exec_in"));
-		b.connect(PortRef::new("sub", "content"), PortRef::new("log", "value"));
+		b.connect_exec(PortRef::new("in", "exec_out"), PortRef::new("log", "exec_in"));
+		b.connect(PortRef::new("in", "content"), PortRef::new("log", "value"));
 		let mut prog = b.build().expect("build");
 
 		let (handle, rx) = create_trigger_bus();
 		let external = handle.clone();
 		let mut ctx = ExecCtx::default();
-
 		let sender = tokio::spawn(async move {
 			tokio::time::sleep(Duration::from_millis(30)).await;
-			let _ = external.send(
-				TriggerEvent::new("sub")
-					.with_exec("__trigger__")
-					.with_override("__channel__", SocketValue::String("user".into()))
-					.with_override("__content__", SocketValue::String("subscribed text".into()))
-					.with_override("__source_actor__", SocketValue::String("alice".into()))
-					.with_override("__is_final__", SocketValue::Bool(true)),
-			);
+			external
+				.send(
+					TriggerEvent::new("in")
+						.with_exec("__trigger__")
+						.with_override("__content__", SocketValue::String("first".into()))
+						.with_override("__meta__", SocketValue::Json(serde_json::json!({ "channel_login": "mychan" }))),
+				)
+				.expect("first trigger");
+			tokio::time::sleep(Duration::from_millis(30)).await;
+			external
+				.send(
+					TriggerEvent::new("in")
+						.with_exec("__trigger__")
+						.with_override("__content__", SocketValue::String("second".into()))
+						.with_override("__meta__", SocketValue::Json(serde_json::json!({ "channel_login": "mychan" }))),
+				)
+				.expect("second trigger");
 		});
 		let shutdown = tokio::time::sleep(Duration::from_millis(150));
 		prog.run_forever_with_bus(&mut ctx, handle, rx, shutdown, None)
 			.await
-			.expect("run_forever_with_bus");
+			.expect("worker remains healthy");
 		sender.await.unwrap();
 
-		assert_eq!(ctx.trace.len(), 1);
-		assert!(ctx.trace[0].contains("subscribed text"), "trace: {:?}", ctx.trace);
+		assert_eq!(ctx.trace.len(), 2);
+		assert!(ctx.trace[0].contains("first"));
+		assert!(ctx.trace[1].contains("second"));
 	}
 
 	#[tokio::test]
-	async fn channel_subscribe_without_trigger_is_noop() {
-		let node = ChannelSubscribeIngressNode;
+	async fn ingress_without_trigger_is_noop() {
+		let node = VoiceIngressNode;
 		let out = node
 			.compute(
 				&crate::flowgraph::node::PureEvalHost::default(),
@@ -834,5 +1138,25 @@ mod tests {
 			.unwrap();
 		assert_eq!(out.data.get("content"), Some(&SocketValue::String("QUJD".into())));
 		assert_eq!(out.data.get("content_bytes"), Some(&SocketValue::Bytes(vec![65, 66, 67])));
+	}
+
+	#[tokio::test]
+	async fn unmfz_ingress_echoes_unmf_and_key() {
+		let mut frame = vac_motion::unmf::UnMotionFrame::new(42);
+		frame.header.sequence = 42;
+		let mut inputs = InputMap::new();
+		inputs.insert("__unmf__".into(), SocketValue::Unmf(frame.clone()));
+		inputs.insert("__content__".into(), SocketValue::String("{}".into()));
+		inputs.insert("__content_bytes__".into(), SocketValue::Bytes(vec![1, 2, 3]));
+		inputs.insert("__key_expr__".into(), SocketValue::String("un-motion/frame/v1".into()));
+		let mut fired = ExecFireSet::new();
+		fired.insert("__trigger__");
+		let out = UnmfzIngressNode
+			.compute(&crate::flowgraph::node::PureEvalHost::default(), &InputMap::new(), &inputs, &fired)
+			.await
+			.unwrap();
+		assert_eq!(out.data.get("unmf"), Some(&SocketValue::Unmf(frame)));
+		assert_eq!(out.data.get("key_expr"), Some(&SocketValue::String("un-motion/frame/v1".into())));
+		assert_eq!(out.data.get("content_bytes"), Some(&SocketValue::Bytes(vec![1, 2, 3])));
 	}
 }

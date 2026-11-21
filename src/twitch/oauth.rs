@@ -14,8 +14,11 @@
 use crate::conf::{TwitchEventSubConfig, TwitchModeratorConfig, TwitchTokenKeySpec};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 const DEVICE_URL: &str = "https://id.twitch.tv/oauth2/device";
 const TOKEN_URL: &str = "https://id.twitch.tv/oauth2/token";
@@ -44,6 +47,7 @@ pub(crate) fn resolve_twitch_client_id(es: &TwitchEventSubConfig) -> String {
 
 /// **配信者**の EventSub / Helix 購読と、`vac_twitch_set_category` 等のカテゴリ変更用の既定スコープ。
 pub(crate) const DEFAULT_BROADCASTER_OAUTH_SCOPES: &str = concat!(
+	"chat:read ",
 	"channel:read:redemptions ",
 	"bits:read ",
 	"channel:read:subscriptions ",
@@ -282,20 +286,135 @@ pub(crate) fn launch_browser(ident: &OAuthIdent, url: &str) -> bool {
 	webbrowser::open(url).is_ok()
 }
 
-/// `GET https://id.twitch.tv/oauth2/validate` が成功すればトークンは有効とみなす。
-pub(crate) async fn validate_user_access_token(token: &str) -> Result<()> {
+#[derive(Debug, Clone, Deserialize)]
+struct TokenValidation {
+	client_id: String,
+	#[serde(default)]
+	scopes: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedTokenValidation {
+	validation: TokenValidation,
+	cached_at: Instant,
+}
+
+/// Twitch access tokenの失効を長時間プロセスでも検出するため、validate成功結果を無期限には保持しない。
+const TOKEN_VALIDATION_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
+
+static TOKEN_VALIDATION_CACHE: OnceLock<Mutex<HashMap<u64, CachedTokenValidation>>> = OnceLock::new();
+
+fn token_cache_key(token: &str) -> u64 {
+	let mut hasher = DefaultHasher::new();
+	token.trim().hash(&mut hasher);
+	hasher.finish()
+}
+
+fn cached_token_validation(token: &str) -> Option<TokenValidation> {
+	let cache = TOKEN_VALIDATION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+	let key = token_cache_key(token);
+	let mut cache = cache.lock().ok()?;
+	let entry = cache.get(&key)?;
+	if entry.cached_at.elapsed() <= TOKEN_VALIDATION_CACHE_TTL {
+		return Some(entry.validation.clone());
+	}
+	cache.remove(&key);
+	None
+}
+
+fn cache_token_validation(token: &str, validation: TokenValidation) {
+	cache_token_validation_at(token, validation, Instant::now());
+}
+
+fn cache_token_validation_at(token: &str, validation: TokenValidation, cached_at: Instant) {
+	let cache = TOKEN_VALIDATION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+	if let Ok(mut cache) = cache.lock() {
+		cache.insert(token_cache_key(token), CachedTokenValidation { validation, cached_at });
+	}
+}
+
+fn invalidate_token_validation(token: &str) {
+	if let Some(cache) = TOKEN_VALIDATION_CACHE.get() {
+		if let Ok(mut cache) = cache.lock() {
+			cache.remove(&token_cache_key(token));
+		}
+	}
+}
+
+/// Helixが401を返したアクセストークンの成功キャッシュを破棄し、保存refresh tokenから再取得する。
+/// DCFは起動せず、refresh不能なら`None`を返す。
+pub(crate) async fn refresh_stored_token_after_unauthorized(ident: &OAuthIdent, rejected_token: &str) -> Option<String> {
+	invalidate_token_validation(rejected_token);
+	try_load_valid_token_for(ident).await
+}
+
+pub(crate) fn cache_issued_token(token: &str, client_id: &str, scopes: Option<&[String]>) {
+	let Some(scopes) = scopes else { return };
+	cache_token_validation(
+		token,
+		TokenValidation {
+			client_id: client_id.to_string(),
+			scopes: scopes.to_vec(),
+		},
+	);
+}
+
+async fn fetch_token_validation(token: &str) -> Result<TokenValidation> {
+	if let Some(validation) = cached_token_validation(token) {
+		return Ok(validation);
+	}
 	let client = reqwest::Client::new();
 	let res = client
 		.get(VALIDATE_URL)
 		.header("Authorization", format!("Bearer {}", token.trim()))
 		.send()
 		.await?;
-	if res.status().is_success() {
-		return Ok(());
+	if !res.status().is_success() {
+		let status = res.status();
+		let body = res.text().await.unwrap_or_default();
+		return Err(anyhow!("OAuth validate が失敗しました: {} {}", status, body));
 	}
-	let status = res.status();
-	let body = res.text().await.unwrap_or_default();
-	Err(anyhow!("OAuth validate が失敗しました: {} {}", status, body))
+	let validation = res
+		.json::<TokenValidation>()
+		.await
+		.context("OAuth validate レスポンスの JSON 解析に失敗しました")?;
+	cache_token_validation(token, validation.clone());
+	Ok(validation)
+}
+
+fn missing_scopes<'a>(granted: &[String], required: &'a str) -> Vec<&'a str> {
+	required
+		.split_whitespace()
+		.filter(|scope| !granted.iter().any(|granted_scope| granted_scope == scope))
+		.collect()
+}
+
+/// `GET https://id.twitch.tv/oauth2/validate` が成功すればトークンは有効とみなす。
+pub(crate) async fn validate_user_access_token(token: &str) -> Result<()> {
+	fetch_token_validation(token).await.map(|_| ())
+}
+
+/// トークンの有効性に加え、Client ID と必要スコープを検証する。
+async fn validate_token_for_ident(token: &str, ident: &OAuthIdent) -> Result<()> {
+	let validation = fetch_token_validation(token).await?;
+	if validation.client_id != ident.client_id {
+		return Err(anyhow!("OAuth token の Client ID が現在の Client ID と一致しません"));
+	}
+	let missing = missing_scopes(&validation.scopes, &ident.scopes);
+	if !missing.is_empty() {
+		return Err(anyhow!("OAuth token に必要な scope がありません: {}", missing.join(" ")));
+	}
+	Ok(())
+}
+
+/// IRC など機能固有の必要スコープを検証する。
+pub(crate) async fn validate_user_access_token_scopes(token: &str, required_scopes: &str) -> Result<()> {
+	let validation = fetch_token_validation(token).await?;
+	let missing = missing_scopes(&validation.scopes, required_scopes);
+	if !missing.is_empty() {
+		return Err(anyhow!("OAuth token に必要な scope がありません: {}", missing.join(" ")));
+	}
+	Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -404,11 +523,15 @@ pub(crate) fn save_stored_tokens(ident: &OAuthIdent, tokens: &StoredTokens) -> R
 /// ため、結果として再認可が必要になる。即時反映が欲しければ VAC 再起動、あるいは本削除と
 /// 併せて Device Code Flow を再実行してください。
 pub(crate) fn delete_stored_tokens(ident: &OAuthIdent) -> Result<Option<PathBuf>> {
+	let cached_token = load_stored_tokens(ident).map(|tokens| tokens.access_token);
 	let path = token_file_path(ident)?;
 	if !path.exists() {
 		return Ok(None);
 	}
 	std::fs::remove_file(&path).with_context(|| format!("トークン削除に失敗: {}", path.display()))?;
+	if let Some(token) = cached_token {
+		invalidate_token_validation(&token);
+	}
 	log::info!(
 		"《Twitch》 OAuth[{}]: トークンファイル {} を削除しました。",
 		ident.label,
@@ -574,18 +697,18 @@ async fn obtain_user_access_token_interactive(ident: &OAuthIdent) -> Result<Stri
 		scope: tr.scope,
 		client_id: Some(ident.client_id.clone()),
 	};
-	if let Err(e) = save_stored_tokens(ident, &stored) {
+	match save_stored_tokens(ident, &stored) { Err(e) => {
 		log::warn!(
 			"《Twitch》 OAuth[{}]: トークン保存に失敗しました（次回起動時に再認可が必要になります）: {}",
 			ident.label,
 			e
 		);
-	} else {
+	} _ => {
 		log::info!(
    "《Twitch》 OAuth[{}] 完了: ユーザーアクセストークンを保存しました。次回からは保存ファイルから自動読込・自動リフレッシュします（トークン全文はログに出しません）。",
    ident.label
   );
-	}
+	}}
 
 	Ok(stored.access_token)
 }
@@ -635,7 +758,17 @@ pub(crate) async fn try_load_valid_token_for(ident: &OAuthIdent) -> Option<Strin
 		return None;
 	}
 	if validate_user_access_token(&stored.access_token).await.is_ok() {
-		return Some(stored.access_token);
+		return match validate_token_for_ident(&stored.access_token, ident).await {
+			Ok(()) => Some(stored.access_token),
+			Err(e) => {
+				log::warn!(
+					"《Twitch》 OAuth[{}]: 保存トークンは有効ですが現在の必要権限を満たしません。GUI の連携画面から再認可してください: {}",
+					ident.label,
+					e
+				);
+				None
+			}
+		};
 	}
 	let rt = stored.refresh_token.as_deref().filter(|s| !s.trim().is_empty())?;
 	log::info!(
@@ -653,7 +786,17 @@ pub(crate) async fn try_load_valid_token_for(ident: &OAuthIdent) -> Option<Strin
 			if let Err(e) = save_stored_tokens(ident, &new_stored) {
 				log::warn!("《Twitch》 OAuth[{}]: 更新後のトークン保存に失敗: {}", ident.label, e);
 			}
-			Some(new_stored.access_token)
+			match validate_token_for_ident(&new_stored.access_token, ident).await {
+				Ok(()) => Some(new_stored.access_token),
+				Err(e) => {
+					log::warn!(
+						"《Twitch》 OAuth[{}]: 更新後のトークンも現在の必要権限を満たしません。再認可が必要です: {}",
+						ident.label,
+						e
+					);
+					None
+				}
+			}
 		}
 		Err(e) => {
 			log::warn!(
@@ -671,7 +814,14 @@ async fn ensure_token_for(ident: &OAuthIdent) -> Result<String> {
 		let same_client = stored.client_id.as_deref().map(|c| c == ident.client_id).unwrap_or(true);
 		if same_client {
 			if validate_user_access_token(&stored.access_token).await.is_ok() {
-				return Ok(stored.access_token);
+				if validate_token_for_ident(&stored.access_token, ident).await.is_ok() {
+					return Ok(stored.access_token);
+				}
+				log::info!(
+					"《Twitch》 OAuth[{}]: 保存トークンに現在の必要権限がないため Device Code Flow をやり直します。",
+					ident.label
+				);
+				return obtain_user_access_token_interactive(ident).await;
 			}
 			if let Some(rt) = stored.refresh_token.as_deref().filter(|s| !s.trim().is_empty()) {
 				log::info!(
@@ -686,12 +836,19 @@ async fn ensure_token_for(ident: &OAuthIdent) -> Result<String> {
 							scope: tr.scope.or(stored.scope),
 							client_id: Some(ident.client_id.clone()),
 						};
-						if let Err(e) = save_stored_tokens(ident, &new_stored) {
+						match save_stored_tokens(ident, &new_stored) { Err(e) => {
 							log::warn!("《Twitch》 OAuth[{}]: 更新後のトークン保存に失敗: {}", ident.label, e);
-						} else {
+						} _ => {
 							log::info!("《Twitch》 OAuth[{}]: refresh によりアクセストークンを更新しました。", ident.label);
+						}}
+						if validate_token_for_ident(&new_stored.access_token, ident).await.is_ok() {
+							return Ok(new_stored.access_token);
 						}
-						return Ok(new_stored.access_token);
+						log::info!(
+							"《Twitch》 OAuth[{}]: 更新後のトークンにも現在の必要権限がないため再認可します。",
+							ident.label
+						);
+						return obtain_user_access_token_interactive(ident).await;
 					}
 					Err(e) => {
 						log::warn!(
@@ -770,4 +927,53 @@ pub(crate) async fn ensure_moderator_access_token(es: &TwitchEventSubConfig, mc:
 	}
 
 	ensure_token_for(&OAuthIdent::for_moderator(es, mc)).await
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn missing_scopes_reports_only_ungranted_scopes() {
+		let granted = vec!["chat:read".to_string(), "bits:read".to_string()];
+		assert_eq!(
+			missing_scopes(&granted, "chat:read channel:read:redemptions bits:read"),
+			vec!["channel:read:redemptions"]
+		);
+	}
+
+	#[test]
+	fn broadcaster_defaults_include_irc_read_scope() {
+		assert!(DEFAULT_BROADCASTER_OAUTH_SCOPES
+			.split_whitespace()
+			.any(|scope| scope == "chat:read"));
+	}
+
+	#[test]
+	fn issued_token_validation_is_available_from_session_cache() {
+		let token = "unit-test-issued-token";
+		cache_issued_token(token, "client-a", Some(&["chat:read".to_string()]));
+		let cached = cached_token_validation(token).expect("issued token should be cached");
+		assert_eq!(cached.client_id, "client-a");
+		assert_eq!(cached.scopes, vec!["chat:read"]);
+		invalidate_token_validation(token);
+		assert!(cached_token_validation(token).is_none());
+	}
+
+	#[test]
+	fn expired_token_validation_cache_entry_is_discarded() {
+		let token = "unit-test-expired-validation";
+		let expired_at = Instant::now()
+			.checked_sub(TOKEN_VALIDATION_CACHE_TTL + Duration::from_secs(1))
+			.expect("test instant");
+		cache_token_validation_at(
+			token,
+			TokenValidation {
+				client_id: "client-a".into(),
+				scopes: vec!["chat:read".into()],
+			},
+			expired_at,
+		);
+		assert!(cached_token_validation(token).is_none());
+	}
 }

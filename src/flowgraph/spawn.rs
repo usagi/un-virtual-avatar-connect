@@ -12,10 +12,10 @@
 use crate::flowgraph::activation::TriggerGate;
 use crate::flowgraph::engine::{create_program_command_bus, create_trigger_bus, FlowgraphProgram, ProgramCommandHandle};
 use crate::flowgraph::loader::{Diagnostic, LoadedNodeMeta, Severity};
-use crate::flowgraph::node::{ExecCtx, PureEvalHost, TriggerHandle};
+use crate::flowgraph::node::{ExecCtx, PureEvalHost, RuntimeTraceBuffer, TriggerHandle};
 use crate::state::State;
 use crate::SharedAudioSink;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use tokio::sync::{broadcast, RwLock};
@@ -66,13 +66,34 @@ impl SpawnedRuntime {
 /// 呼び出し直後に返る `(trigger, shutdown_tx, join)` のうち `trigger` は clone 可能で、
 /// HTTP / voice / twitch 等の外部ブリッジに配ってイベントを投げ込んでもらう。
 pub fn spawn_program(
+	program: FlowgraphProgram,
+	state: Weak<RwLock<State>>,
+	audio_sink: Option<SharedAudioSink>,
+	trigger_gate: Option<Arc<TriggerGate>>,
+	pure_host: PureEvalHost,
+	runtime_provenance: HashMap<String, (String, String)>,
+) -> (TriggerHandle, ProgramCommandHandle, broadcast::Sender<()>, JoinHandle<()>, RuntimeTraceBuffer) {
+	spawn_program_with_root(program, state, audio_sink, trigger_gate, pure_host, runtime_provenance, None)
+}
+
+pub fn spawn_program_with_root(
 	mut program: FlowgraphProgram,
 	state: Weak<RwLock<State>>,
 	audio_sink: Option<SharedAudioSink>,
 	trigger_gate: Option<Arc<TriggerGate>>,
 	pure_host: PureEvalHost,
-) -> (TriggerHandle, ProgramCommandHandle, broadcast::Sender<()>, JoinHandle<()>) {
+	runtime_provenance: HashMap<String, (String, String)>,
+	graph_root: Option<PathBuf>,
+) -> (
+	TriggerHandle,
+	ProgramCommandHandle,
+	broadcast::Sender<()>,
+	JoinHandle<()>,
+	RuntimeTraceBuffer,
+) {
 	program.pure_host = pure_host;
+	let runtime_trace: RuntimeTraceBuffer = Arc::new(std::sync::RwLock::new(VecDeque::new()));
+	let trace_for_ctx = runtime_trace.clone();
 	let (trigger, rx) = create_trigger_bus();
 	let (command, command_rx) = create_program_command_bus();
 	let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(1);
@@ -87,6 +108,9 @@ pub fn spawn_program(
 			audio_sink,
 			state_handle: Some(state),
 			effect_mocks: None,
+			runtime_trace: Some(trace_for_ctx),
+			runtime_provenance,
+			graph_root,
 		};
 		let shutdown = async move {
 			let _ = shutdown_rx.recv().await;
@@ -103,5 +127,5 @@ pub fn spawn_program(
 			Err(e) => log::error!("《Flowgraph》 ランタイムワーカー異常終了: {e:?}"),
 		}
 	});
-	(trigger, command, shutdown_tx, join)
+	(trigger, command, shutdown_tx, join, runtime_trace)
 }

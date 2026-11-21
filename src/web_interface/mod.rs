@@ -4,6 +4,7 @@ pub mod gui;
 mod gui_embedded;
 mod gui_path;
 pub mod input;
+pub mod obs_template;
 pub mod output;
 pub use output::OutputPaths;
 pub mod status;

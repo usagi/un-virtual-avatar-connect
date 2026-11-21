@@ -1,0 +1,165 @@
+[meta]
+title = "Twitchイベント通知（チャット・画面）"
+description = "個人名や報酬IDを持たない通知構成。OAuthは保存済みtoken keyから取得。"
+
+[[nodes]]
+id = "eventsub"
+feature = "flowgraph.ingress.twitch_eventsub"
+position = [80, 80]
+[nodes.properties]
+token_key = "broadcaster"
+event_types = ["channel.channel_points_custom_reward_redemption.add", "channel.follow", "channel.subscribe", "channel.subscription.message", "channel.subscription.gift", "channel.raid"]
+
+[[nodes]]
+id = "notice"
+feature = "flowgraph.twitch.event_notice"
+position = [500, 80]
+
+[[nodes]]
+id = "notice_destination"
+feature = "flowgraph.literal.string"
+position = [80, 319]
+[nodes.properties]
+value = "stream-alerts"
+
+[[nodes]]
+id = "notice_overlay"
+feature = "flowgraph.bos.output"
+position = [920, 80]
+
+[[nodes]]
+id = "notice_token_key"
+feature = "flowgraph.literal.string"
+position = [80, 485]
+[nodes.properties]
+value = "moderator"
+
+[[nodes]]
+id = "notice_token"
+feature = "flowgraph.twitch.get_token"
+position = [920, 319]
+
+[[nodes]]
+id = "notice_identity"
+feature = "flowgraph.twitch.validate_token"
+position = [1340, 80]
+
+[[nodes]]
+id = "notice_chat"
+feature = "flowgraph.twitch.chat_send"
+position = [1760, 246]
+
+[[edges]]
+from = "eventsub:exec_out"
+to = "notice:exec_in"
+
+[[edges]]
+from = "eventsub:event_type"
+to = "notice:event_type"
+
+[[edges]]
+from = "eventsub:payload"
+to = "notice:payload"
+
+[[edges]]
+from = "eventsub:meta"
+to = "notice:meta"
+
+[[edges]]
+from = "notice:on_notice"
+to = "notice_overlay:exec_in"
+
+[[edges]]
+from = "notice:content"
+to = "notice_overlay:content"
+
+[[edges]]
+from = "notice:meta"
+to = "notice_overlay:meta"
+
+[[edges]]
+from = "notice:flags"
+to = "notice_overlay:flags"
+
+[[edges]]
+from = "notice_destination:value"
+to = "notice_overlay:destination"
+
+[[edges]]
+from = "notice:on_notice"
+to = "notice_token:exec_in"
+
+[[edges]]
+from = "notice_token_key:value"
+to = "notice_token:token_key"
+
+[[edges]]
+from = "notice_token:on_success"
+to = "notice_identity:exec_in"
+
+[[edges]]
+from = "notice_token:access_token"
+to = "notice_identity:access_token"
+
+[[edges]]
+from = "notice_identity:on_success"
+to = "notice_chat:exec_in"
+
+[[edges]]
+from = "notice_identity:user_id"
+to = "notice_chat:sender_user_id"
+
+[[edges]]
+from = "notice_token:access_token"
+to = "notice_chat:access_token"
+
+[[edges]]
+from = "notice_token:client_id"
+to = "notice_chat:client_id"
+
+[[edges]]
+from = "notice:broadcaster_id"
+to = "notice_chat:broadcaster_id"
+
+[[edges]]
+from = "notice:content"
+to = "notice_chat:text"
+
+[[nodes]]
+id = "notice_token_error"
+feature = "flowgraph.util.log"
+position = [1340, 319]
+
+[[edges]]
+from = "notice_token:on_failure"
+to = "notice_token_error:exec_in"
+
+[[edges]]
+from = "notice_token:error"
+to = "notice_token_error:value"
+
+[[nodes]]
+id = "notice_identity_error"
+feature = "flowgraph.util.log"
+position = [1760, 80]
+
+[[edges]]
+from = "notice_identity:on_error"
+to = "notice_identity_error:exec_in"
+
+[[edges]]
+from = "notice_identity:error"
+to = "notice_identity_error:value"
+
+[[nodes]]
+id = "notice_chat_error"
+feature = "flowgraph.util.log"
+position = [2180, 80]
+
+[[edges]]
+from = "notice_chat:on_error"
+to = "notice_chat_error:exec_in"
+
+[[edges]]
+from = "notice_chat:error"
+to = "notice_chat_error:value"

@@ -1,0 +1,183 @@
+{
+  "header": {
+    "magic": [
+      85,
+      78,
+      77,
+      70
+    ],
+    "version_major": 1,
+    "version_minor": 1,
+    "sequence": 15,
+    "timestamp_basis": "SourceLocal",
+    "capture_timestamp_ns": 1785693729960051400,
+    "frame_timestamp_ns": 1785693729960051400,
+    "processed_timestamp_ns": 1785693729991514100,
+    "coordinate_space": "UNMotion",
+    "handedness": "Unknown",
+    "length_unit": "Normalized",
+    "stream_id": "unvac-still-poc",
+    "expected_dt_ns": 201032400
+  },
+  "sources": [
+    {
+      "source_id": "file-image:mediapipe-main",
+      "source_kind": "WebcamPose",
+      "display_name": "MediaPipe Native File Image",
+      "confidence": 0.9816998,
+      "latency_ns": 31462700,
+      "state": "Valid"
+    }
+  ],
+  "body": {
+    "tracking_state": "Valid",
+    "confidence": 1.0,
+    "humanoid": {
+      "root": null,
+      "bones": [
+        {
+          "bone": "Head",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0055539887,
+              "y": 0.17050907,
+              "z": 0.13146164,
+              "w": 0.97653145
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "LeftUpperArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0,
+              "y": 0.14009197,
+              "z": 0.5174787,
+              "w": 0.84415054
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "LeftLowerArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.060199305,
+              "y": 0.4511313,
+              "z": -0.57937324,
+              "w": 0.6761533
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "LeftHand",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": -0.19106776,
+              "y": 0.22726497,
+              "z": -0.44438025,
+              "w": 0.8452042
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "RightUpperArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.0,
+              "y": -0.20684828,
+              "z": -0.46772256,
+              "w": 0.8593308
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "RightLowerArm",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": 0.067905195,
+              "y": -0.3411195,
+              "z": 0.5868057,
+              "w": 0.731222
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        },
+        {
+          "bone": "RightHand",
+          "transform": {
+            "translation": null,
+            "rotation": {
+              "x": -0.19215742,
+              "y": -0.1670304,
+              "z": 0.38634795,
+              "w": 0.88651663
+            },
+            "scale": null,
+            "linear_velocity": null,
+            "angular_velocity": null
+          },
+          "confidence": 1.0,
+          "source_index": 0,
+          "state": "Valid"
+        }
+      ]
+    }
+  },
+  "face": null,
+  "eyes": null,
+  "left_hand": null,
+  "right_hand": null,
+  "signals": [],
+  "metadata": {
+    "schema_name": "UNMotionFrame",
+    "schema_version": "1.1.0",
+    "producer": "un-motion-core",
+    "notes": [
+      "mediapipe.quality head=1.000(face_landmarks) arms=0.944(pose_chain) left_hand=1.000(landmark_geometry) right_hand=1.000(landmark_geometry)",
+      "mediapipe.pose_head_calibration samples=16 yaw=0.002/-0.401 pitch=-0.045/0.056 roll=-0.182/-0.513",
+      "mediapipe.face_metrics noseDropEyeMouth=0.601956 yaw=-0.401233 roll=-0.497899 confidence=1.000000"
+    ],
+    "extensions": []
+  }
+}

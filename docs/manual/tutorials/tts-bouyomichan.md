@@ -2,7 +2,7 @@
 
 棒読みちゃん（Bouyomichan）で読み上げる。
 
-> ソース: [`flowgraph.example/tts-bouyomichan/main.flowgraph.toml`](../../../flowgraph.example/tts-bouyomichan/main.flowgraph.toml) + [`conf.example-tts.toml`](../../../conf.example-tts.toml)
+> ソース: [`flowgraph.example/tts-bouyomichan/main.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/tts-bouyomichan/main.flowgraph.toml) + [`conf.example-tts.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/conf.example-tts.toml)
 
 ## ねらい
 

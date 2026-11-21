@@ -1,4 +1,4 @@
-#[actix_web::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> virtual_avatar_connect::Result<()> {
 	virtual_avatar_connect::run_cli().await
 }

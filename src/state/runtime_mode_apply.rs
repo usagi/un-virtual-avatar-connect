@@ -54,11 +54,14 @@ pub async fn apply_runtime_mode_change(
 	};
 
 	{
-		let slot = {
+		let (slot, generation) = {
 			let s = state.read().await;
-			s.runtime_mode_id.clone()
+			(s.runtime_mode_id.clone(), s.runtime_mode_generation.clone())
 		};
 		let mut w = slot.write().unwrap_or_else(|e| e.into_inner());
+		if *w != normalized {
+			generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+		}
 		*w = normalized;
 	}
 

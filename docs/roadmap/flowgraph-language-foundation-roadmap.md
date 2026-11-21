@@ -78,6 +78,12 @@ v1 signature は明示 export 構文をまだ導入せず、既存 TOML / `NodeS
 `GET /flowgraph/diagnostics` に含まれる同一 metadata を軽量 endpoint として切り出すことで、GUI / package tooling / CI script が診断全体を走査せず graph boundary contract を読める。
 GUI API client にも `flowgraphSignature()` を追加したが、UI は LF-1b の compact diagnostics 表示に留め、専用画面や validation enforcement は LF-4 の manifest / export 設計後に接続する。
 
+### LF-1d Schema / Contract foundation closure ✅
+
+LF-1 の現スコープを、node catalog contract metadata、graph signature extraction、signature Control API、fixture report への graph signature 投影までで完了扱いにする。
+後続 LF-4 / LF-5 により `[package]` manifest、package exports、`[[types]]` record schema catalog、type schema metadata、schema dependency summary も同じ diagnostics / signature surface へ合流済み。
+graph-as-node の実行、explicit export 構文、structural record validation、table schema enforcement、schema migration / compatibility rule は LF-1 の外へ出し、package / standard library / UNMF schema の実需要が固まった段階で後続設計にする。
+
 ## 3. LF-2 Capability / Effect
 
 Pure / Stateful / Effectful の大分類に加えて、具体的な権限と effect kind を扱う。
@@ -162,6 +168,12 @@ Node Palette と Flowgraph Node Card に `effect_class` と capability summary �
 `POST /modes/plan` と `POST /modes/transit` の `ModeTransitionPlan` は、ロード済み Flowgraph の `capability_summary.capabilities` と遷移先 mode の policy を突き合わせ、`capability_denied_by_target` / `capability_unlisted_by_target` を返す。
 GUI の Modes タブでも preview を表示する。
 現段階では hard deny ではなく、mode 設計と graph 設計のずれを見える化する read-only preview。
+
+### LF-2e Capability / Effect foundation closure ✅
+
+LF-2 の現スコープを、node catalog effect metadata、graph capability summary、GUI effect visibility、Runtime Mode capability policy preview までで完了扱いにする。
+Flowgraph は node / graph / fixture / generated manual catalog の各面から required capabilities を観測でき、Runtime Mode は allow / deny の差分を preview できる。
+hard deny enforcement、user approval UI、capability scope inheritance、credential access policy、UNAA/Z command capability policy、WASM host import policy は LF-2 の外へ出し、具体的な外部 I/O と配布モデルが固まった段階で後続設計にする。
 
 ## 4. LF-3 Testing / Debugger
 
@@ -463,6 +475,12 @@ Table / JSON の出力全体を固定すると fixture が重くなるため、�
 `FixtureRunReport` に LF-1b の `graph_signature` を追加し、`[tests.expect]` から graph signature の file / edge / external trigger / boundary port 件数と required capability を検証できるようにした。
 `flowgraph.example/twitch-echo` は signature file / edge / trigger count を fixture で固定し、ingress graph の公開面が意図せず変わる regression を検知できる。
 詳細な port-by-port assertion は explicit export 構文が入る LF-4 以降に送るが、現段階でも graph-as-node / library boundary の粗い contract を fixture で pin できる。
+
+### LF-3r Testing / Debugger foundation closure ✅
+
+LF-3 の現スコープを、CLI fixture runner、suite runner、trigger sequence、mock HTTP / file read / file write、recorded effects、stored value / JSON pointer / trace / trigger history assertions、capability summary、graph signature assertions、manual までで完了扱いにする。
+Flowgraph runtime / language の回帰は GUI E2E から分離され、`flowgraph.example` suite を headless に一括検証できる。
+GUI watch panel、step debugger、data pull tree、runtime trace bundle、mock OBS / Twitch / db、deterministic time / random seed は LF-3 の外へ出し、開発 UX と外部 I/O 実装の需要に合わせて後続設計にする。
 
 ## 5. 追加計画項目
 
@@ -768,6 +786,29 @@ field 単位の `field_record_refs` と schema 単位の `record_refs` を併せ
 `record_refs` と同じ dependency graph から生成し、schema docs generator や package tooling が依存先 schema を先に処理できる。
 cycle がある場合も loader warning と併用し、metadata は重複なし deterministic order として返す。
 
+### LF-5w Record schema reverse dependency metadata ✅
+
+`type_schemas[]` に `referenced_by` を追加し、各 schema を参照している schema id の一覧を read-only 公開するようにした。
+`record_refs` が outgoing edge、`referenced_by` が incoming edge になり、GUI / docs generator は schema details で usage を表示するために全 schema を走査し直さずに済む。
+未定義参照は `referenced_by` には含めず、従来の warning diagnostic として観測する。
+
+### LF-5x Record schema graph summary metadata ✅
+
+`type_schema_graph_summary` を LoadReport / diagnostics API / graph signature / GUI DTO に追加し、schema 数、既知 dependency edge 数、未定義参照数、root / leaf schema 数を read-only 公開した。
+GUI / docs generator は schema graph 全体の規模と未解決参照の有無を、`type_schemas[]` 全走査なしで summary 表示できる。
+詳細 graph は `type_schemas[].record_refs` / `referenced_by` と `type_schema_dependency_order[]` に残し、summary は overview 用の軽量 metadata に留める。
+
+### LF-5y Record schema external reference metadata ✅
+
+`type_schemas[].external_record_refs` を追加し、schema fields が参照しているが `[[types]]` には未定義の `record<schema_id>` を schema 単位で read-only 公開した。
+missing ref は引き続き warning diagnostic だが、GUI / docs generator は diagnostic message を parse せずに、未解決参照を schema details に直接表示できる。
+
+### LF-5z Generic / Type Parameter foundation closure ✅
+
+LF-5 の現スコープを、Flowgraph の generic 型語彙と schema read model の基盤完了として閉じる。
+`bytes` / `option<T>` / `result<T>` / `record<schema_id>`、`dictionary<string,T>` / `collection<T>` alias、`SocketTypeExpr`、parser / compatibility Control API、GUI edge validation、`[[types]]` record schema catalog、schema dependency / reverse dependency / graph summary / external refs は diagnostics / signature / GUI DTO から観測可能になった。
+`dictionary<K,V>` の非 string key、structural record validation、schema migration、generic inference、custom node authoring UI は LF-5 の外へ出し、具体的な標準ライブラリー / package / UNMF schema の要求が固まった段階で後続設計にする。
+
 ### LF-6 Error Model
 
 `result<T>`, `on_error`, fatal diagnostics, retry policy, fallback を統一する。
@@ -880,6 +921,13 @@ Channel 終端ノードの失敗も downstream が result contract で扱える�
 Twitch 個別契約ノードの `get_token` / `validate_token` / `user_id_by_login` / `chat_send` / `ban` / `timeout` に `result` 出力を追加した。
 既存の `on_success` / `on_failure` / `on_error` / `on_skipped` と個別 data port は維持し、token/validate は `result<json>`、user_id/chat/ban/timeout は `result<string>` を返す。
 失敗時は `twitch.get_token` / `twitch.validate_token` / `twitch.user_id_by_login` / `twitch.chat_send` / `twitch.ban` / `twitch.timeout` の recoverable error として downstream に流せるようにした。
+
+### LF-6s Error Model foundation closure ✅
+
+LF-6 の現スコープを、fatal `NodeExecError` と recoverable `result<T>` の分離、および主要 Effectful / I/O ノードの result contract 付与までで完了扱いにする。
+HTTP / OBS / Twitch / OSC / VMC / VRChat / translate / TTS / OCR / screenshot / Table I/O / channel / process / window は、既存 exec 分岐と互換 data port を維持しつつ `result<T>` を返せる。
+Pure validation 系では JSON / DateTime / Quantity の `try_parse` を用意し、外部入力や GUI 入力を halt させず downstream fallback へ流せるようにした。
+retry policy、typed error enum、result combinator 標準ノード、global fallback strategy は LF-6 の外へ出し、Resident I/O / SQLite / UNAA/Z command bridge などの具体的な失敗モデルが固まった段階で追加する。
 
 ### LF-7 Persistence / State Model
 
@@ -1185,6 +1233,13 @@ Flowgraph Studio の `Reload keeping live state` command と toolbar button は 
 Playwright の Flowgraph Studio layout spec に state-preserving reload の toolbar / command palette coverage を追加し、fixture runtime で `Reload + state` と `Reload keeping live state` が明示操作として有効になることを固定した。
 これにより通常 reload と state-preserving reload を分けた Studio 導線が、Svelte の UI reflow や command palette 変更で消えないことを E2E から検知できる。
 
+### LF-7az Persistence / State Model foundation closure ✅
+
+LF-7 の現スコープを、state model metadata、snapshot / restore contract、profile-local snapshot file、明示 save / restore / state-preserving reload、GUI affordance、fixture / unit / E2E coverage までで完了扱いにする。
+標準 state node は bool / int_counter / latch / accumulator / rate_limit が JSON snapshot / restore に対応し、runtime summary、diagnostics、fixture report、generated catalog から snapshot / restore support を観測できる。
+通常 reload は引き続き state を保持しない explicit reload として残し、state-preserving reload は別 API / 別 GUI command として明示操作にした。
+終了時自動保存、起動時自動 restore、定期 autosave、snapshot migration registry、profile-global persistence、credential / external subscription state は LF-7 の外へ出し、実運用上の保存ポリシーが固まった段階で後続設計にする。
+
 ### LF-8 Documentation Generation
 
 node signature / library signature / schema から manual と GUI catalog を生成する。
@@ -1220,10 +1275,10 @@ escaping helper は unit test で固定し、今後 node description / JSON defa
 `docs/manual/node-catalog.md` の Index / Metadata Index が参照する feature-derived anchor について、現行 registry 全体で衝突しないことを unit test で固定した。
 今後 feature 名の追加や alias 整理で GitHub-style anchor が衝突した場合、manual link が壊れる前に docs test で検知できる。
 
-### LF-8g Node catalog bless script ✅
+### LF-8g Node catalog bless command ✅
 
-`scripts/bless-node-catalog.ps1` を追加し、`BLESS_NODE_CATALOG=1 cargo test --lib node_catalog_md_up_to_date` の定型操作を repository 内の明示 script として実行できるようにした。
-生成済み `docs/manual/node-catalog.md` の再生成手順にも同 script を出力し、manual / generator / 開発者操作の入口を揃えた。
+`cargo xtask docs bless-node-catalog` を追加し、`BLESS_NODE_CATALOG=1 cargo test --lib node_catalog_md_up_to_date` の定型操作を repository 内の明示 command として実行できるようにした。
+生成済み `docs/manual/node-catalog.md` の再生成手順にも同 command を出力し、manual / generator / 開発者操作の入口を揃えた。
 
 ### LF-8h Manual node catalog entrypoints ✅
 
@@ -1232,13 +1287,13 @@ Manual index と quickstart の Node Catalog 導線を更新し、従来の port
 
 ### LF-8i Contributor generated catalog guidance ✅
 
-`CONTRIBUTING.md` に `docs/manual/node-catalog.md` が自動生成ファイルであることと、node spec / metadata 変更時に `./scripts/bless-node-catalog.ps1` を実行して生成差分を含めることを追記した。
-既存 manual 内の古い `BLESS_NODE_CATALOG=1 cargo test` 参照も bless script に寄せ、開発者向けの再生成導線を統一した。
+`CONTRIBUTING.md` に `docs/manual/node-catalog.md` が自動生成ファイルであることと、node spec / metadata 変更時に `cargo xtask docs bless-node-catalog` を実行して生成差分を含めることを追記した。
+既存 manual 内の古い `BLESS_NODE_CATALOG=1 cargo test` 参照も xtask command に寄せ、開発者向けの再生成導線を統一した。
 
 ### LF-8j Catalog generation failure hints ✅
 
-`node_catalog_md_up_to_date` の missing / mismatch panic hint を `./scripts/bless-node-catalog.ps1` 優先に更新し、失敗時に開発者が repository-local script へ直行できるようにした。
-PowerShell script 本体も LF / trailing newline を固定し、Windows 作業コピーでも repository の LF 方針と再生成 workflow がずれないようにした。
+`node_catalog_md_up_to_date` の missing / mismatch panic hint を `cargo xtask docs bless-node-catalog` 優先に更新し、失敗時に開発者が repository-local command へ直行できるようにした。
+生成 orchestration を Rust xtask に置き、shell、実行ポリシー、暗黙文字コードへ依存しない再生成 workflow とした。
 
 ### LF-8k Generated summary count guard ✅
 
@@ -1348,11 +1403,11 @@ node signature 由来の contract、effect / capability、control trigger、stat
 
 ## 6. 実装順序
 
-- [~] LF-1 Schema / Contract
-- [~] LF-2 Capability / Effect
-- [~] LF-3 Testing / Debugger
+- [x] LF-1 Schema / Contract
+- [x] LF-2 Capability / Effect
+- [x] LF-3 Testing / Debugger
 - [x] LF-4 Module / Package System
-- [~] LF-5 Generic / Type Parameter
-- [~] LF-6 Error Model
-- [~] LF-7 Persistence / State Model
+- [x] LF-5 Generic / Type Parameter
+- [x] LF-6 Error Model
+- [x] LF-7 Persistence / State Model
 - [x] LF-8 Documentation Generation

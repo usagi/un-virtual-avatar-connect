@@ -1,0 +1,63 @@
+UNシリーズ 配信者向けβテスト版
+
+UNAvatar 2.4.0-beta.1 / UNMotion 1.4.0-beta.1 / UNVAC 2.0.0-beta.1
+
+■ まず起動するもの
+ZIPをすべて展開してください。ZIP内やEXEだけを取り出した状態では起動しないでください。
+・UNAvatar/un-avatar-supervisor.exe：アバターの表示と管理
+・UNMotion/un-motion-supervisor.exe：カメラなどからのモーション取得と送信
+・UNVAC/virtual-avatar-connect-desktop.exe：配信支援、通知、チャット、AI共演者、Flowgraph
+必要なアプリだけ使えます。3つ同時に起動する必要はありません。
+Renderer/Capturerは各Supervisorから起動します。
+
+■ 必要なもの
+Windows x64向けです。設定画面にはMicrosoft Edge WebView2 Runtimeが必要です。
+不足時の導入先：https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+MSVCP140.dllやVCRUNTIME140.dll不足時はMicrosoft Visual C++再頒布可能パッケージのx64版が必要です。
+https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/
+Rust、Node.js、開発環境は不要です。
+アバターモデル、Twitch認証、APIキー、音声合成ソフトなどは同梱していません。
+使う機能に応じて自分のモデル・アカウント・デバイスを設定してください。
+
+■ 試し方
+アバター：UNAでプロファイルを選び、自分のモデルを設定してRendererを起動。
+モーション：UNMで入力カメラなどを選び、出力先を設定してCapturerを起動。
+連携：UNMの送信先とUNAの受信設定を合わせます。接続できない場合は両方の方式と宛先を確認してください。
+配信支援：UNVACの初回画面から用途別に構成を作成し、自分のTwitchアカウントを設定。
+AIなしでも通知・チャット・クリップ紹介などを使えます。
+AIを使う場合のみAIパートナーの接続先・モデル・役割などを設定してください。
+まず配信外で表示・入力・送信先・音声を確認してから実配信で試してください。
+
+■ プロファイルと稼働中の個体
+プロファイルは保存する設定、Renderer/Capturerはその設定で動く個体です。
+編集対象を選んだだけでは稼働中の個体は切り替わりません。
+保存・反映・再起動待ちの表示と対象名を確認してください。
+同じプロファイルで動く複数個体へ設定が反映される場合があります。
+
+■ 以前の版を使っている場合
+このZIPを別フォルダーに置いても、通常起動では以前と同じ設定保存先を使います。
+更新前にアプリを終了し、旧配布フォルダーと次の設定フォルダーを丸ごとコピーして退避してください。
+UNA：%APPDATA%\UN Avatar
+UNM：%APPDATA%\UN Motion
+UNVAC：%APPDATA%\UN Virtual Avatar Connect
+独自の保存先を指定している場合はそちらと、外部のモデル・素材も退避してください。
+戻す場合は新しい版を終了し、旧配布物と旧設定を組にして戻します。
+アプリを置いたフォルダーは設定の完全なバックアップにはなりません。
+
+■ β版で確認してほしいこと
+普段使いたい機能を試し、迷った場所や期待と違う挙動を教えてください。
+特に、起動直後の表示、プロファイルの作成・編集・再起動後の保持、入力からアバターまでの動き、配信中の通知など。
+全機能の網羅や長い動画提出は不要です。
+問題報告は「アプリと版番号」「何をしたか」「期待したこと」「実際の結果」「発生時刻」があると助かります。
+必要に応じて短い動画・スクリーンショットを添えてください。ログや画像に認証情報・私的な内容がないか確認してください。
+
+■ この版の位置づけ
+一般公開前のβ版です。さまざまなカメラ・GPU・モデル・配信環境での確認は継続中です。
+AIの身体表現の自然さ、画面理解と会話の適切さ、実イベントからチャット・画面演出までの挙動も評価対象です。
+βテストを頼んだ配布元へ結果を知らせてください。
+
+■ 詳しい説明
+UNA：UNAvatar/SUPERVISOR-UI.txt、UNAvatar/docs/v2-getting-started.md
+UNM：UNMotion/SUPERVISOR-UI.txt、UNMotion/README.md
+UNVAC：UNVAC/START-HERE.txt、UNVAC/manual/quickstart.md
+ライセンスと第三者ソフトの表記は各製品フォルダーに同梱しています。

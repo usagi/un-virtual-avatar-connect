@@ -5,10 +5,10 @@
 //! - **exec DAG**: eager strict。trigger（ingress / self-ingress / 明示発火）から始まり、
 //!   `EffectfulNode` / `StatefulNode` / `PureNode`（flow 制御系）が順に発火する。
 //! - **data DAG**: pull-demand lazy。副作用ノードが発火したとき、必要な data 入力を
-//!   逆向きに `pull_port()` で評価し、結果は generation 内で memoize。
+//!   逆向きに評価し、結果はイベントの入力コンテキスト内で memoize。
 //! - **Generation**: 外部/内部 trigger が発火するたびに `generation += 1`。
-//!   Pure のキャッシュは generation ごとにクリア。Stateful の state は保持、
-//!   cache key に state version を含めて staleness を防ぐ。
+//!   Stateful の state は保持する。実行結果はイベントとともに配送し、
+//!   後続イベントの更新で待機中イベントの値が置き換わることを防ぐ。
 
 use crate::flowgraph::node::{
 	ExecCtx, ExecFireSet, InputMap, NodeExecError, NodeImpl, PortDirection, PortSpec, PureEvalHost, StatefulCtx, TriggerEvent,
@@ -24,6 +24,41 @@ use tokio::sync::{mpsc, oneshot};
 
 pub type NodeId = String;
 pub type PortName = String;
+
+/// Topology only: no cached values, credentials, execution or state mutation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ResolvedInputConnection {
+	pub from_node: NodeId,
+	pub from_port: PortName,
+	pub to_port: PortName,
+	pub exec: bool,
+}
+
+/// Execution outputs travel with their event; pure memoization is local to its evaluation.
+#[derive(Default)]
+struct EventContext {
+	receipt: Option<std::sync::Arc<super::trigger_receipt::TriggerReceipt>>,
+	values: std::sync::Arc<HashMap<PortRef, SocketValue>>,
+	memo: HashMap<PortRef, SocketValue>,
+}
+impl EventContext {
+	fn fork(&self) -> Self {
+		Self {
+			values: self.values.clone(),
+			receipt: self.receipt.clone(),
+			memo: HashMap::new(),
+		}
+	}
+	fn publish(&mut self, node: &str, data: &InputMap) {
+		let values = std::sync::Arc::make_mut(&mut self.values);
+		values.retain(|port, _| port.node != node);
+		for (port, value) in data {
+			values.insert(PortRef::new(node, port), value.clone());
+		}
+		self.memo.clear();
+	}
+}
+type ExecQueue = VecDeque<(NodeId, ExecFireSet, InputMap, EventContext)>;
 
 /// 外部から `run_forever_with_bus` に渡す trigger bus を生成するヘルパ。
 pub fn create_trigger_bus() -> (TriggerHandle, mpsc::UnboundedReceiver<TriggerEvent>) {
@@ -198,6 +233,35 @@ pub struct FlowgraphProgram {
 }
 
 impl FlowgraphProgram {
+	/// Inspect the connections after loader alias/composition resolution. None is
+	/// an unknown runtime node, whereas an empty list is a known unconnected node.
+	/// These links alone do not prove event pairing or authorize a source rewrite.
+	pub fn incoming_connections(&self, node: &str) -> Option<Vec<ResolvedInputConnection>> {
+		if !self.nodes.contains_key(node) { return None; }
+		let mut result = Vec::new();
+		for (target, source) in &self.data_sources {
+			if target.node == node {
+				result.push(ResolvedInputConnection {from_node:source.node.clone(),from_port:source.port.clone(),to_port:target.port.clone(),exec:false});
+			}
+		}
+		for (target, sources) in &self.data_sources_multi {
+			if target.node == node {
+				for source in sources {
+					result.push(ResolvedInputConnection {from_node:source.node.clone(),from_port:source.port.clone(),to_port:target.port.clone(),exec:false});
+				}
+			}
+		}
+		for (source, targets) in &self.exec_succ {
+			for target in targets {
+				if target.node == node {
+					result.push(ResolvedInputConnection {from_node:source.node.clone(),from_port:source.port.clone(),to_port:target.port.clone(),exec:true});
+				}
+			}
+		}
+		result.sort();
+		Some(result)
+	}
+
 	pub fn node_ids(&self) -> impl Iterator<Item = &NodeId> {
 		self.nodes.keys()
 	}
@@ -324,13 +388,13 @@ impl FlowgraphProgram {
 		let generation = self.generation_seed;
 		run.generation = generation;
 
-		let mut queue: VecDeque<(NodeId, ExecFireSet, InputMap)> = VecDeque::new();
+		let mut queue: ExecQueue = VecDeque::new();
 		for src in self.sources.clone() {
-			queue.push_back((src, ExecFireSet::new(), InputMap::new()));
+			queue.push_back((src, ExecFireSet::new(), InputMap::new(), EventContext::default()));
 		}
 
-		while let Some((node_id, fired, overrides)) = queue.pop_front() {
-			self.fire_node(&node_id, fired, overrides, generation, ctx, &mut run, &mut queue)
+		while let Some((node_id, fired, overrides, mut event)) = queue.pop_front() {
+			self.fire_node(&node_id, fired, overrides, generation, ctx, &mut run, &mut queue, &mut event)
 				.await?;
 		}
 
@@ -423,6 +487,13 @@ impl FlowgraphProgram {
 
 	/// 1 つの `TriggerEvent` を処理する。新しい generation を振り、対象ノードを発火。
 	async fn handle_trigger(&mut self, event: TriggerEvent, ctx: &mut ExecCtx, run: &mut ProgramRun) -> Result<(), NodeExecError> {
+		let receipt=event.receipt.clone();
+		let outcome=self.handle_trigger_observed(event, ctx, run).await;
+		if let Some(receipt)=receipt { receipt.finish(outcome.is_err()); }
+		outcome
+	}
+
+	async fn handle_trigger_observed(&mut self, event: TriggerEvent, ctx: &mut ExecCtx, run: &mut ProgramRun) -> Result<(), NodeExecError> {
 		if !self.nodes.contains_key(&event.node_id) {
 			return Err(NodeExecError::Generic(anyhow::anyhow!(
 				"TriggerEvent references unknown node '{}'",
@@ -431,17 +502,19 @@ impl FlowgraphProgram {
 		}
 		self.generation_seed = self.generation_seed.wrapping_add(1);
 		let generation = self.generation_seed;
+		if let Some(receipt)=&event.receipt { receipt.begin(generation); }
 
 		let mut fired = ExecFireSet::new();
 		for port in event.fired_exec {
 			fired.insert(port);
 		}
 
-		let mut queue: VecDeque<(NodeId, ExecFireSet, InputMap)> = VecDeque::new();
-		queue.push_back((event.node_id, fired, event.data_overrides));
+		let mut queue: ExecQueue = VecDeque::new();
+		queue.push_back((event.node_id, fired, event.data_overrides, EventContext { receipt: event.receipt, ..Default::default() }));
 
-		while let Some((node_id, fired, overrides)) = queue.pop_front() {
-			self.fire_node(&node_id, fired, overrides, generation, ctx, run, &mut queue).await?;
+		while let Some((node_id, fired, overrides, mut event)) = queue.pop_front() {
+			self.fire_node(&node_id, fired, overrides, generation, ctx, run, &mut queue, &mut event)
+				.await?;
 		}
 		Ok(())
 	}
@@ -458,13 +531,34 @@ impl FlowgraphProgram {
 		generation: u64,
 		ctx: &mut ExecCtx,
 		run: &mut ProgramRun,
-		queue: &mut VecDeque<(NodeId, ExecFireSet, InputMap)>,
+		queue: &mut ExecQueue,
+		event: &mut EventContext,
 	) -> Result<(), NodeExecError> {
 		if let Some(g) = ctx.trigger_gate.as_ref() {
 			if !g.is_exec_active(node_id) {
+				for port in &fired_exec {
+					ctx.record_runtime_event(
+						generation,
+						node_id,
+						port,
+						crate::flowgraph::RuntimeTracePhase::ExecSuppressed,
+						"exec",
+						false,
+					);
+				}
 				log::debug!("《Flowgraph》 exec 抑止 (RM-3 inactive): node={node_id}");
 				return Ok(());
 			}
+		}
+		for port in &fired_exec {
+			ctx.record_runtime_event(
+				generation,
+				node_id,
+				port,
+				crate::flowgraph::RuntimeTracePhase::ExecInput,
+				"exec",
+				true,
+			);
 		}
 
 		let spec = self.nodes[node_id].impl_.describe();
@@ -475,12 +569,15 @@ impl FlowgraphProgram {
 			if port.is_exec {
 				continue;
 			}
+			if !self.nodes[node_id].impl_.input_is_active(&port.name, &fired_exec)? {
+				continue;
+			}
 			if let Some(v) = data_overrides.get(&port.name) {
 				let coerced = coerce_input(node_id, &port.name, &port.ty, v.clone())?;
 				inputs.insert(port.name.clone(), coerced);
 				continue;
 			}
-			match self.pull_input(node_id, &port.name, generation, ctx, run).await? {
+			match self.pull_input(node_id, &port.name, generation, ctx, run, event).await? {
 				Some(v) => {
 					let coerced = coerce_input(node_id, &port.name, &port.ty, v)?;
 					inputs.insert(port.name.clone(), coerced);
@@ -512,7 +609,7 @@ impl FlowgraphProgram {
 					trigger: trigger_handle_opt.as_ref(),
 				};
 				let before = node.state_version;
-				let out = sn.compute(state.as_mut(), &props, &inputs, &fired_exec, &sctx).await?;
+				let out = sn.compute_with_host(state.as_mut(), &props, &inputs, &fired_exec, &sctx, ctx).await?;
 				node.state_version = before.wrapping_add(1);
 				run.state_versions.insert(node_id.clone(), node.state_version);
 				out
@@ -520,12 +617,34 @@ impl FlowgraphProgram {
 			NodeImpl::Effectful(en) => en.execute(ctx, &props, &inputs, &fired_exec).await?,
 		};
 		ctx.node_id = prev_node_id;
+		if let Some(receipt)=&event.receipt {
+			for port in &result.fired_exec { receipt.observe(node_id,port); }
+		}
+		// Only an explicit Log node publishes its value. Ordinary data output
+		// traces remain type-only. Bound text as well as the trace event count.
+		if spec.feature == "flowgraph.util.log" && fired_exec.contains("exec_in") {
+			let message = inputs.get("value").and_then(|value| value.as_str().ok()).unwrap_or("");
+			let mut summary: String = message.chars().take(4096).collect();
+			if message.chars().count() > 4096 {
+				summary.push_str("… [truncated]");
+			}
+			ctx.record_runtime_event(
+				generation,
+				node_id,
+				"value",
+				crate::flowgraph::RuntimeTracePhase::Log,
+				summary,
+				true,
+			);
+		}
 
 		// 統計
 		run.exec_count.entry(node_id.clone()).and_modify(|n| *n += 1).or_insert(1);
 
 		// 出力を cache
+		event.publish(node_id, &result.data);
 		let node = self.nodes.get_mut(node_id).unwrap();
+		node.cache.clear();
 		for (port, value) in result.data.iter() {
 			node.cache.insert((generation, port.clone()), value.clone());
 		}
@@ -536,16 +655,32 @@ impl FlowgraphProgram {
 		// 診断用: 全出力値を run に蓄積（memoize ではなく、テスト可視性のため）
 		for (port, value) in result.data.iter() {
 			run.stored_values.insert(PortRef::new(node_id, port), value.clone());
+			ctx.record_runtime_event(
+				generation,
+				node_id,
+				port,
+				crate::flowgraph::RuntimeTracePhase::DataOutput,
+				format!("type={}", value.type_of()),
+				true,
+			);
 		}
 
 		// exec 出力を下流に配送（下流は overrides なし）
 		for fired_port in result.fired_exec.iter() {
+			ctx.record_runtime_event(
+				generation,
+				node_id,
+				fired_port,
+				crate::flowgraph::RuntimeTracePhase::ExecOutput,
+				"exec",
+				true,
+			);
 			let src = PortRef::new(node_id, fired_port);
 			if let Some(dst_list) = self.exec_succ.get(&src) {
 				for dst in dst_list {
 					let mut set = ExecFireSet::new();
 					set.insert(dst.port.clone());
-					queue.push_back((dst.node.clone(), set, InputMap::new()));
+					queue.push_back((dst.node.clone(), set, InputMap::new(), event.fork()));
 				}
 			}
 		}
@@ -565,19 +700,22 @@ impl FlowgraphProgram {
 		generation: u64,
 		ctx: &mut ExecCtx,
 		run: &mut ProgramRun,
+		event: &mut EventContext,
 	) -> Result<Option<SocketValue>, NodeExecError> {
 		let pref = PortRef::new(dst_node, dst_port);
 		// multi=true の場合（未実装、δ-2 以降で追加）
 		if let Some(list) = self.data_sources_multi.get(&pref).cloned() {
 			let mut out = Vec::with_capacity(list.len());
 			for src in list {
-				out.push(self.pull_node_output(&src.node, &src.port, generation, ctx, run).await?);
+				out.push(self.pull_node_output(&src.node, &src.port, generation, ctx, run, event).await?);
 			}
 			return Ok(Some(SocketValue::List(out)));
 		}
 		// single source
 		if let Some(src) = self.data_sources.get(&pref).cloned() {
-			return Ok(Some(self.pull_node_output(&src.node, &src.port, generation, ctx, run).await?));
+			return Ok(Some(
+				self.pull_node_output(&src.node, &src.port, generation, ctx, run, event).await?,
+			));
 		}
 		Ok(None)
 	}
@@ -591,39 +729,39 @@ impl FlowgraphProgram {
 		generation: u64,
 		ctx: &mut ExecCtx,
 		run: &mut ProgramRun,
+		event: &mut EventContext,
 	) -> Result<SocketValue, NodeExecError> {
-		// 1. cache ヒット?
-		if let Some(v) = self.nodes[src_node].cache.get(&(generation, src_port.to_string())) {
+		let key = PortRef::new(src_node, src_port);
+		if let Some(value) = event.values.get(&key).or_else(|| event.memo.get(&key)) {
 			run.cache_hits += 1;
-			return Ok(v.clone());
+			return Ok(value.clone());
+		}
+		// Input-free pure constants are safe to share across sibling events.
+		let node = &self.nodes[src_node];
+		if node.impl_.is_pure() && node.impl_.describe().inputs.is_empty() {
+			if let Some(value) = node.cache.get(&(generation, src_port.to_string())) {
+				run.cache_hits += 1;
+				return Ok(value.clone());
+			}
 		}
 		run.cache_misses += 1;
-
-		// 2. ノード種別で分岐
-		match &self.nodes[src_node].impl_ {
-			NodeImpl::Effectful(_) => {
-				// 直近発火で値があれば返す（世代またぎでも last fire を返す、spec 通り）
-				if let Some(v) = self.nodes[src_node]
-					.cache
-					.iter()
-					.find_map(|((_g, p), v)| if p == src_port { Some(v.clone()) } else { None })
-				{
-					Ok(v)
-				} else {
-					Err(NodeExecError::EffectfulPulledBeforeFiring(format!("{src_node}:{src_port}")))
-				}
-			}
-			NodeImpl::Pure(_) | NodeImpl::Stateful { .. } => {
-				// 3. 再帰的に入力を pull して評価
-				self.evaluate_pure_or_stateful(src_node, generation, ctx, run).await?;
-				// 4. 再度 cache からポート値を取得
-				self.nodes[src_node]
-					.cache
-					.get(&(generation, src_port.to_string()))
-					.cloned()
-					.ok_or_else(|| NodeExecError::MissingRequiredInput(format!("{src_node}:{src_port} (no output after compute)")))
-			}
+		if self.nodes[src_node].impl_.is_effectful() {
+			let node = &self.nodes[src_node];
+			let value = node
+				.effectful_last_fired
+				.and_then(|last| node.cache.get(&(last, src_port.to_string())))
+				.cloned()
+				.ok_or_else(|| NodeExecError::EffectfulPulledBeforeFiring(format!("{src_node}:{src_port}")))?;
+			std::sync::Arc::make_mut(&mut event.values).insert(key, value.clone());
+			return Ok(value);
 		}
+		self.evaluate_pure_or_stateful(src_node, generation, ctx, run, event).await?;
+		event
+			.values
+			.get(&key)
+			.or_else(|| event.memo.get(&key))
+			.cloned()
+			.ok_or_else(|| NodeExecError::MissingRequiredInput(format!("{src_node}:{src_port} (no output after compute)")))
 	}
 
 	/// Pure / Stateful ノードを pull コンテキストで評価。exec 発火は無効（data だけ取得）。
@@ -633,6 +771,7 @@ impl FlowgraphProgram {
 		generation: u64,
 		ctx: &mut ExecCtx,
 		run: &mut ProgramRun,
+		event: &mut EventContext,
 	) -> Result<(), NodeExecError> {
 		let spec = self.nodes[node_id].impl_.describe();
 		let mut inputs: InputMap = HashMap::new();
@@ -640,7 +779,7 @@ impl FlowgraphProgram {
 			if port.is_exec {
 				continue;
 			}
-			match Box::pin(self.pull_input(node_id, &port.name, generation, ctx, run)).await? {
+			match Box::pin(self.pull_input(node_id, &port.name, generation, ctx, run, event)).await? {
 				Some(v) => {
 					let coerced = coerce_input(node_id, &port.name, &port.ty, v)?;
 					inputs.insert(port.name.clone(), coerced);
@@ -671,7 +810,7 @@ impl FlowgraphProgram {
 					node_id,
 					trigger: trigger_handle_opt.as_ref(),
 				};
-				let out = sn.compute(state.as_mut(), &props, &inputs, &empty_fired, &sctx).await?;
+				let out = sn.compute_with_host(state.as_mut(), &props, &inputs, &empty_fired, &sctx, ctx).await?;
 				node.state_version = node.state_version.wrapping_add(1);
 				run.state_versions.insert(node_id.clone(), node.state_version);
 				out
@@ -681,8 +820,16 @@ impl FlowgraphProgram {
 
 		run.pure_evaluations.entry(node_id.clone()).and_modify(|n| *n += 1).or_insert(1);
 
+		if self.nodes[node_id].impl_.is_stateful() {
+			event.publish(node_id, &result.data);
+		} else {
+			for (port, value) in &result.data {
+				event.memo.insert(PortRef::new(node_id, port), value.clone());
+			}
+		}
 		// 全 data 出力を cache
 		let node = self.nodes.get_mut(node_id).unwrap();
+		node.cache.clear();
 		for (port, value) in result.data.iter() {
 			node.cache.insert((generation, port.clone()), value.clone());
 		}
@@ -1066,6 +1213,7 @@ mod tests {
 	use crate::flowgraph::nodes::state::IntCounterNode;
 	use crate::flowgraph::socket::SocketValue;
 	use async_trait::async_trait;
+	use std::collections::VecDeque;
 	use std::sync::atomic::{AtomicUsize, Ordering};
 	use std::sync::Arc;
 
@@ -1074,6 +1222,141 @@ mod tests {
 			Ok(_) => panic!("expected Err"),
 			Err(e) => e,
 		}
+	}
+
+	#[test]
+	fn incoming_connections_resolve_cross_file_speech_without_execution() {
+		let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("flowgraph.example/chat-echo");
+		let loaded=crate::flowgraph::load_flowgraph_dir(&root).unwrap();
+		let before=loaded.program.export_state_snapshot();
+		let connections=loaded.program.incoming_connections("tts::speaker").unwrap();
+		assert_eq!(connections,vec![
+			ResolvedInputConnection{from_node:"main::in".into(),from_port:"content".into(),to_port:"text".into(),exec:false},
+			ResolvedInputConnection{from_node:"main::in".into(),from_port:"exec_out".into(),to_port:"exec_in".into(),exec:true},
+			ResolvedInputConnection{from_node:"tts::engine_literal".into(),from_port:"value".into(),to_port:"engine".into(),exec:false},
+		]);
+		assert_eq!(loaded.program.incoming_connections("tts::engine_literal"),Some(vec![]));
+		assert_eq!(loaded.program.incoming_connections("main::speaker"),None);
+		assert_eq!(serde_json::to_value(before).unwrap(),serde_json::to_value(loaded.program.export_state_snapshot()).unwrap());
+		let json=serde_json::to_string(&connections).unwrap();
+		assert!(!json.contains("voicevox"),"Topology must not expose literal values");
+	}
+
+	#[tokio::test]
+	async fn trigger_receipt_tracks_only_its_own_exec_chain() {
+		use crate::flowgraph::trigger_receipt::{TriggerReceipt, ReceiptPhase};
+		let mut builder=FlowgraphBuilder::new();
+		builder.add_node("branch", NodeImpl::pure(Arc::new(BranchNode)), InputMap::new());
+		let mut program=builder.build().unwrap();
+		let mut ctx=ExecCtx::default();
+		let mut run=ProgramRun::default();
+		let watch=vec![("branch".into(),"then".into()),("branch".into(),"else".into())];
+		let a=Arc::new(TriggerReceipt::new(watch.clone()).unwrap());
+		let b=Arc::new(TriggerReceipt::new(watch.clone()).unwrap());
+		for (receipt,condition) in [(a.clone(),true),(b.clone(),false)] {
+			let mut event=TriggerEvent::new("branch").with_exec("exec_in").with_override("cond",SocketValue::Bool(condition));
+			event.receipt=Some(receipt);
+			program.handle_trigger(event,&mut ctx,&mut run).await.unwrap();
+		}
+		let first=a.snapshot().unwrap(); let second=b.snapshot().unwrap();
+		assert_eq!(first.phase,ReceiptPhase::Finished);
+		assert_eq!(first.outputs.into_iter().collect::<Vec<_>>(),vec![("branch".into(),"then".into())]);
+		assert_eq!(second.outputs.into_iter().collect::<Vec<_>>(),vec![("branch".into(),"else".into())]);
+		assert_ne!(first.generation,second.generation);
+		let missing=Arc::new(TriggerReceipt::new(watch).unwrap());
+		let mut event=TriggerEvent::new("missing");event.receipt=Some(missing.clone());
+		assert!(program.handle_trigger(event,&mut ctx,&mut run).await.is_err());
+		assert_eq!(missing.snapshot().unwrap().phase,ReceiptPhase::Failed);
+	}
+
+	/// Acceptance gate for event-value preservation before adding event merging.
+	#[tokio::test]
+	async fn successive_exec_events_keep_their_own_state_value() {
+		use crate::flowgraph::nodes::convert::IntToStringNode;
+		let mut builder = FlowgraphBuilder::new();
+		builder.add_node("start", NodeImpl::pure(Arc::new(SequenceNode::new(2))), InputMap::new());
+		builder.add_node("counter", NodeImpl::stateful(Arc::new(IntCounterNode)), InputMap::new());
+		builder.add_node("text", NodeImpl::pure(Arc::new(IntToStringNode)), InputMap::new());
+		builder.add_node("log", NodeImpl::effectful(Arc::new(LogNode)), InputMap::new());
+		builder.connect(PortRef::new("start", "exec_1"), PortRef::new("counter", "increment"));
+		builder.connect(PortRef::new("start", "exec_2"), PortRef::new("counter", "increment"));
+		builder.connect(PortRef::new("counter", "value"), PortRef::new("text", "value"));
+		builder.connect(PortRef::new("text", "result"), PortRef::new("log", "value"));
+		builder.connect(PortRef::new("counter", "changed"), PortRef::new("log", "exec_in"));
+		let mut program = builder.build().unwrap();
+		let mut ctx = ExecCtx::default();
+		for generation in 0..32 {
+			ctx.trace.clear();
+			program.execute(&mut ctx).await.unwrap();
+			assert_eq!(
+				ctx.trace,
+				[format!("log: {}", generation * 2 + 1), format!("log: {}", generation * 2 + 2)],
+				"each changed event must retain its own value"
+			);
+			for node in program.nodes.values() {
+				assert!(
+					node.cache
+						.keys()
+						.all(|(cached_generation, _)| *cached_generation == program.generation_seed),
+					"old generations must not accumulate"
+				);
+			}
+		}
+	}
+
+	#[tokio::test]
+	async fn runtime_trace_records_instance_provenance_and_phases() {
+		let mut builder = FlowgraphBuilder::new();
+		builder.add_node("main/@speaker::log", NodeImpl::effectful(Arc::new(LogNode)), InputMap::new());
+		builder.add_node(
+			"private-data",
+			NodeImpl::pure(Arc::new(StringLiteralNode)),
+			[("value".into(), SocketValue::String("unlogged secret".into()))]
+				.into_iter()
+				.collect(),
+		);
+		let mut program = builder.build().unwrap();
+		let (handle, rx) = create_trigger_bus();
+		let external = handle.clone();
+		let trace = Arc::new(std::sync::RwLock::new(VecDeque::new()));
+		let mut ctx = ExecCtx {
+			runtime_trace: Some(trace.clone()),
+			runtime_provenance: HashMap::from([("main/@speaker".into(), ("tts/module".into(), "speaker".into()))]),
+			..Default::default()
+		};
+		let sender = tokio::spawn(async move {
+			let _ = external.send(TriggerEvent::new("private-data"));
+			let _ = external.send(
+				TriggerEvent::new("main/@speaker::log")
+					.with_exec("exec_in")
+					.with_override("value", SocketValue::String("secret payload".into())),
+			);
+		});
+		program
+			.run_forever_with_bus(&mut ctx, handle, rx, tokio::time::sleep(std::time::Duration::from_millis(30)), None)
+			.await
+			.unwrap();
+		sender.await.unwrap();
+		let events = trace.read().unwrap();
+		assert!(events.iter().any(|event| {
+			event.runtime_node_id == "main/@speaker::log"
+				&& event.source_fq == "tts/module"
+				&& event.instance_path == "speaker"
+				&& event.phase == crate::flowgraph::RuntimeTracePhase::ExecInput
+				&& event.active
+		}));
+		use crate::flowgraph::RuntimeTracePhase;
+		assert!(events
+			.iter()
+			.any(|event| event.runtime_node_id == "private-data" && event.phase == RuntimeTracePhase::DataOutput));
+		assert!(events.iter().all(|event| !event.value_summary.contains("unlogged secret")));
+		let explicit_logs: Vec<_> = events.iter().filter(|event| event.phase == RuntimeTracePhase::Log).collect();
+		assert_eq!(explicit_logs.len(), 1);
+		assert_eq!(explicit_logs[0].value_summary, "secret payload");
+		assert!(events
+			.iter()
+			.filter(|event| event.phase != RuntimeTracePhase::Log)
+			.all(|event| !event.value_summary.contains("secret payload")));
 	}
 
 	// ----- 構築時検証テスト -------------------------------------------------

@@ -1,0 +1,17 @@
+{
+  "schema": "unvac.avatar_pose_catalog.v1",
+  "presets": {
+    "greeting_hand": {
+      "pose": "greeting-hand.unmf.json",
+      "release": "neutral.unmf.json",
+      "owned_bones": [
+        "LeftUpperArm",
+        "LeftLowerArm",
+        "LeftHand"
+      ],
+      "attack_ms": 400,
+      "hold_ms": 900,
+      "release_ms": 400
+    }
+  }
+}

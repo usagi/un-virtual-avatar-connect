@@ -22,8 +22,8 @@ log_level = "Debug"
 # Port deliberately offset from the dev defaults:
 #   57000 = normal dev run
 #   5173  = vite dev server
-#   57098 = E2E fixture (this file)
-web_ui_address = "127.0.0.1:57098"
+#   46098 = E2E fixture (this file; Windows dynamic/excluded rangeより下)
+web_ui_address = "127.0.0.1:46098"
 
 # GUI build output. `npm run build` in gui/ must have been run at least
 # once (the Playwright run script reminds developers of this).

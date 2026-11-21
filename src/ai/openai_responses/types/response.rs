@@ -180,6 +180,8 @@ pub struct Usage {
 pub struct UsageInputDetails {
 	#[serde(default)]
 	pub cached_tokens: u32,
+	#[serde(default)]
+	pub cache_write_tokens: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

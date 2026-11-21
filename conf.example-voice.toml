@@ -4,14 +4,9 @@
 # 音声入力（Vosk / Whisper）の **リファレンス**。
 #
 # v2 移行状況（重要）:
-#   現時点では Voice サービスは v1 時代の `[[processors]] feature = "voice"` の
-#   ままで残っており、専用の `[voice]` サービスセクションへの **刷新は δ-9 で実施予定**。
-#   voice を使いたい場合は、下の `[[processors]]` 例を conf.toml に貼って下さい。
-#   （v2 配布 `conf.toml` からは `[[processors]]` を除去していますが、voice に限っては
-#   ここだけ例外として一時的に併記が必要です。）
-#
-# v2 側には `flowgraph.ingress.voice` ノードが既に用意されており、voice サービスが
-# 認識したテキストをトリガーバス経由で受け取れます（δ-9 で完全統合予定）。
+#   Voice は Flowgraph 側の `flowgraph.ingress.voice` ノードから起動します。
+#   v1 時代の `[[processors]] feature = "voice"` は廃止済みで、残っていても警告のみです。
+#   engine / model_path / language_code などは `flowgraph.ingress.voice` の properties に書きます。
 #
 # 対応する Flowgraph サンプル:
 #   flowgraph.example/voice-input/   ← ingress.voice → TTS echo の最小サンプル
@@ -29,38 +24,38 @@
 #     MinGW 同梱 DLL を `target/{debug|release}/` と `deps/` にコピー
 #   - バージョン変更: 環境変数 `VOSK_WIN64_VERSION`（既定 0.3.45）
 #   - 手動配置に切り替え: `VOSK_LIB_PATH` = `libvosk.lib` があるディレクトリ
-# - Whisper（オプション）: `cargo build --features voice-whisper`（CMake・LLVM・C++）
-# - Vosk + Whisper 両方: `cargo build --features voice-whisper`（既定で Vosk も入る）
+# - Whisper: portable releaseに同梱する外部Vulkan workerを使用し、初期化失敗時はCPU workerへ逐次fallbackする
+# - Vosk / Whisperを選択可能な一般配布: `cargo xtask release-build --variant portable`
+# - 1個のingressでは指定したengineだけを起動する。VoskとWhisperの同時認識は行わない
 
 
 # -------------------------------------------------------------------------
-# 2. Voice プロセッサー設定（**暫定**・v2 でも `[[processors]]` のまま）
+# 2. Voice ingress 設定（Flowgraph）
 # -------------------------------------------------------------------------
-# [[processors]]
-# feature = "voice"
-# channel_to = "user"
-# # voice_engine = "vosk"                 # 省略時と同じ
-# voice_vosk_model_path = "vosk-model-small-ja-0.22"
-# # または手動展開したディレクトリ:
-# # voice_vosk_model_path = "C:/path/to/vosk-model-small-ja-0.22"
-# voice_language = "ja"
+# `flowgraph.example/voice-input/main.flowgraph.toml` の `flowgraph.ingress.voice`
+# ノードを参照してください。代表的な properties:
+#
+# [[nodes]]
+# id = "in"
+# feature = "flowgraph.ingress.voice"
+# properties.engine = "vosk"
+# properties.model_path = "vosk-model-small-ja-0.22"
+# properties.language_code = "ja"
+# properties.fixed_channel = "voice"
 #
 # --- Whisper を使う例 ---
-# # voice_engine = "whisper"
-# # voice_whisper_model_path = "small"
-# # voice_chunk_seconds = 5.0
-#
-# --- 発話中は下流の処理（AI / TTS / Twitch）を「待たせる」---
-# # speech_floor_key = "mic"
-# # 各下流側に同じ文字列を `respect_speech_floor` で指定する。
+# # properties.engine = "whisper"
+# # properties.model_path = "small"
+# # properties.language_code = "ja"
+# # properties.whisper_backend = "auto" # auto / vulkan / cpu
+# # properties.whisper_gpu_device = ""   # 空ならdGPU優先。明示時はVulkan device index
 
 
 # -------------------------------------------------------------------------
 # 3. `flowgraph.ingress.voice` ノード（v2 Flowgraph 側の受け口）
 # -------------------------------------------------------------------------
-# 特別な設定は不要。voice サービスが認識したテキスト（`is_final`）が
-# トリガーバス経由で ingress.voice に届き、`content` / `source_actor` / `source_kind`
-# ポートから下流へ流れる。
+# このノードを含む Flowgraph がロードされると、VAC はノードごとに voice worker を起動します。
+# 認識した確定テキストが `content` / `source_kind` ポートから下流へ流れます。
 
 
 # -------------------------------------------------------------------------
@@ -72,7 +67,7 @@
 #
 # Whisper（https://huggingface.co/ggerganov/whisper.cpp/tree/main）:
 #   - `tiny` / `base` / `small` / `medium` / `large-v3` ...
-#   - `voice_whisper_model_path` にプリセット名を書くと ggml-{name}.bin を自動取得。
+#   - `properties.model_path` にプリセット名を書くと ggml-{name}.bin を自動取得。
 #   - 絶対パスで手元に置いた ggml ファイルを指すことも可能。
 
 

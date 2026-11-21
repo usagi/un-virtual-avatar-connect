@@ -42,6 +42,9 @@ pub(crate) fn dto_to_value(dto: &RunWithDto) -> Value {
 			if let Some(v) = &t.if_not_running {
 				it.insert("if_not_running", Value::from(v.as_str()));
 			}
+			if let Some(v) = t.start_on_launch {
+				it.insert("start_on_launch", Value::from(v));
+			}
 			if let Some(v) = t.run_as_admin {
 				it.insert("run_as_admin", Value::from(v));
 			}
@@ -56,6 +59,47 @@ pub(crate) fn dto_to_value(dto: &RunWithDto) -> Value {
 			}
 			if let Some(v) = &t.label {
 				it.insert("label", Value::from(v.as_str()));
+			}
+			if let Some(v) = &t.unaa_z_app_id {
+				it.insert("unaa_z_app_id", Value::from(v.as_str()));
+			}
+			if let Some(v) = &t.unaa_z_instance_id {
+				it.insert("unaa_z_instance_id", Value::from(v.as_str()));
+			}
+			if let Some(v) = &t.shutdown {
+				let mut shutdown = InlineTable::new();
+                if let Some(scope) = v.scope {
+                    shutdown.insert("scope", Value::from(match scope {
+                        crate::conf::RunWithShutdownScope::ProcessTree => "process_tree",
+                        crate::conf::RunWithShutdownScope::MatchedProcesses => "matched_processes",
+                    }));
+                }
+				if let Some(action) = v.on_vac_exit {
+					shutdown.insert("on_vac_exit", Value::from(match action { crate::conf::RunWithShutdownAction::CloseAndWait => "close_and_wait", crate::conf::RunWithShutdownAction::CloseOnly => "close_only", crate::conf::RunWithShutdownAction::LeaveRunning => "leave_running" }));
+				}
+				if let Some(action) = v.action {
+					let value = match action {
+						crate::conf::RunWithShutdownAction::CloseAndWait => "close_and_wait",
+						crate::conf::RunWithShutdownAction::CloseOnly => "close_only",
+						crate::conf::RunWithShutdownAction::LeaveRunning => "leave_running",
+					};
+					shutdown.insert("action", Value::from(value));
+				}
+				if let Some(method) = v.method {
+					let value = match method {
+						crate::conf::RunWithShutdownMethod::Syscommand => "syscommand",
+						crate::conf::RunWithShutdownMethod::WmClose => "wm_close",
+						crate::conf::RunWithShutdownMethod::Both => "both",
+					};
+					shutdown.insert("method", Value::from(value));
+				}
+				if let Some(grace_ms) = v.grace_ms {
+					shutdown.insert("grace_ms", Value::from(grace_ms as i64));
+				}
+				if let Some(app_specific) = &v.app_specific {
+					shutdown.insert("app_specific", Value::from(app_specific.as_str()));
+				}
+				it.insert("shutdown", Value::InlineTable(shutdown));
 			}
 			Value::InlineTable(it)
 		}
@@ -129,21 +173,49 @@ command = "notepad"
 	#[test]
 	fn dto_to_inline_table_only_emits_present_fields() {
 		let v = dto_to_value(&RunWithDto::Table(RunWithTableDto {
+			mode_actions: None,
 			command: "foo.exe".into(),
 			if_not_running: Some("foo".into()),
+			start_on_launch: Some(false),
 			run_as_admin: None,
 			working_dir: None,
 			minimized: Some(true),
 			id: Some("foo-app".into()),
 			label: None,
+			unaa_z_app_id: Some("un-avatar".into()),
+			unaa_z_instance_id: Some("main".into()),
+			shutdown: None,
 		}));
 		let rendered = v.to_string();
 		assert!(rendered.contains("command = \"foo.exe\""));
 		assert!(rendered.contains("if_not_running = \"foo\""));
+		assert!(rendered.contains("start_on_launch = false"));
 		assert!(rendered.contains("minimized = true"));
 		assert!(rendered.contains("id = \"foo-app\""));
+		assert!(rendered.contains("unaa_z_app_id = \"un-avatar\""));
+		assert!(rendered.contains("unaa_z_instance_id = \"main\""));
 		assert!(!rendered.contains("run_as_admin"));
 		assert!(!rendered.contains("working_dir"));
 		assert!(!rendered.contains("label"));
 	}
+    #[test]
+    fn shutdown_scope_survives_dto_toml_roundtrip() {
+        for scope in ["process_tree", "matched_processes"] {
+            let dto: RunWithDto = serde_json::from_value(serde_json::json!({
+                "command":"supervisor.exe", "shutdown": {
+                    "scope": scope, "action":"close_only", "on_vac_exit":"leave_running",
+                    "grace_ms": 1234, "method":"wm_close"
+                }
+            })).unwrap();
+            let text = format!("entry = {}", dto_to_value(&dto));
+            #[derive(serde::Deserialize)]
+            struct Saved { entry: RunWithDto }
+            let saved: Saved = toml::from_str(&text).unwrap();
+            let actual = serde_json::to_value(saved.entry).unwrap();
+            assert_eq!(actual["shutdown"]["scope"], scope);
+            assert_eq!(actual["shutdown"]["on_vac_exit"], "leave_running");
+            assert_eq!(actual["shutdown"]["grace_ms"], 1234);
+        }
+    }
+
 }

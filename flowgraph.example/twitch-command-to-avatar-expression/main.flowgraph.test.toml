@@ -1,0 +1,48 @@
+[[triggers]]
+node = "main::twitch_in"
+
+[[triggers.overrides]]
+port = "__content__"
+ty = "string"
+value = "/avatar"
+
+[[triggers.overrides]]
+port = "__source_actor__"
+ty = "string"
+value = "viewer1"
+
+[[triggers.overrides]]
+port = "__source_kind__"
+ty = "string"
+value = "chat"
+
+[[tests]]
+name = "twitch avatar command emits avatar intent and publishes unmfz dry-run"
+
+[tests.expect]
+node_count = 13
+trigger_count = 1
+trace_contains = [
+  "unmfz.publish dry-run: un-motion/frame/kaltsit-ai/v1",
+  "log: un-motion/frame/kaltsit-ai/v1",
+]
+
+[[tests.expect.exec_count]]
+node = "main::publish_unmfz"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::log_key"
+count = 1
+
+[[tests.expect.stored_values]]
+node = "main::to_unmf"
+port = "target_link_id"
+ty = "string"
+value = "kaltsit_ai"
+
+[[tests.expect.stored_values]]
+node = "main::publish_unmfz"
+port = "key_expr"
+ty = "string"
+value = "un-motion/frame/kaltsit-ai/v1"

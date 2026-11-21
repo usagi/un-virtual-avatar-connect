@@ -37,6 +37,16 @@ pub struct TtsOutcome {
 	pub audio_path: String,
 }
 
+/// TTS エンジンによる合成結果。
+///
+/// `Wav` は VAC の共有再生経路へ投入できるため、先行合成と順序制御が可能。
+/// `SelfPlayed` はエンジン自身が再生するため、Speech Scheduler の制御対象外となる。
+#[derive(Debug)]
+pub enum TtsSynthesis {
+	Wav(Vec<u8>),
+	SelfPlayed,
+}
+
 /// TTS ドライバ一般化エラー。ノード側で `on_error` + `error: String` に落とし込む。
 #[derive(Debug, thiserror::Error)]
 pub enum TtsError {
@@ -70,10 +80,19 @@ pub struct AudioContext<'a> {
 impl<'a> AudioContext<'a> {
 	/// WAV bytes を再生キューに追加。`audio_sink` が `None` のときは `Ok(false)`。
 	pub async fn play_wav(&self, wav: Vec<u8>) -> Result<bool, TtsError> {
+		self.play_wav_if(wav, || true).await
+	}
+
+	pub(crate) async fn play_wav_if(&self, wav: Vec<u8>, accept: impl FnOnce() -> bool) -> Result<bool, TtsError> {
 		let Some(sink) = self.sink else { return Ok(false) };
 		let cursor = std::io::Cursor::new(wav);
 		let decoded = rodio::Decoder::new(cursor).map_err(|e| TtsError::Playback(format!("WAV decode: {e}")))?;
-		sink.lock().await.player.append(decoded);
+		let mut locked = sink.lock().await;
+		locked.ensure_device().map_err(|error| TtsError::Playback(format!("audio output: {error}")))?;
+		if !accept() {
+			return Ok(false);
+		}
+		locked.player.append(decoded);
 		Ok(true)
 	}
 }
@@ -91,7 +110,36 @@ pub trait TtsDriver: Send + Sync {
 		TtsParamSchema::default()
 	}
 
-	async fn speak(&self, req: TtsRequest, audio: &AudioContext<'_>) -> Result<TtsOutcome, TtsError>;
+	/// WAVを返してVAC側で再生順序を制御できるか。
+	fn supports_deferred_playback(&self) -> bool {
+		true
+	}
+
+	/// 音声を合成する。可能なドライバは再生せず WAV bytes を返す。
+	async fn synthesize(&self, req: &TtsRequest) -> Result<TtsSynthesis, TtsError>;
+
+	/// 従来の一括合成・再生経路。Flowgraph ノード向けの互換動作。
+	async fn speak(&self, req: TtsRequest, audio: &AudioContext<'_>) -> Result<TtsOutcome, TtsError> {
+		match self.synthesize(&req).await? {
+			TtsSynthesis::Wav(wav) => {
+				let played = audio.play_wav(wav.clone()).await?;
+				let audio_path = maybe_save_wav(&wav, &req.save_path).await?;
+				Ok(TtsOutcome { played, audio_path })
+			}
+			TtsSynthesis::SelfPlayed => {
+				if !req.save_path.is_empty() {
+					log::warn!(
+						"[tts.{}] save_path は合成音声を返さないエンジンでは利用できません。無視します。",
+						self.name()
+					);
+				}
+				Ok(TtsOutcome {
+					played: true,
+					audio_path: String::new(),
+				})
+			}
+		}
+	}
 }
 
 /// ドライバが宣言する `extra` の許容 key と簡易型情報。δ-6 GUI バリデーション用。
@@ -173,6 +221,25 @@ pub async fn maybe_save_wav(wav: &[u8], save_path: &str) -> Result<String, TtsEr
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[tokio::test]
+	async fn unavailable_output_does_not_commit_playback() {
+		let mut wav = b"RIFF".to_vec();
+		wav.extend_from_slice(&38u32.to_le_bytes());
+		wav.extend_from_slice(b"WAVEfmt ");
+		wav.extend_from_slice(&16u32.to_le_bytes());
+		for value in [1u16, 1] { wav.extend_from_slice(&value.to_le_bytes()); }
+		for value in [16000u32, 32000] { wav.extend_from_slice(&value.to_le_bytes()); }
+		for value in [2u16, 16] { wav.extend_from_slice(&value.to_le_bytes()); }
+		wav.extend_from_slice(b"data");
+		wav.extend_from_slice(&2u32.to_le_bytes());
+		wav.extend_from_slice(&0i16.to_le_bytes());
+		let sink = std::sync::Arc::new(tokio::sync::Mutex::new(crate::AudioSink::disconnected_for_test()));
+		let audio = AudioContext { sink: Some(&sink) };
+		let result = audio.play_wav_if(wav, || panic!("failed output must not commit speech")).await;
+		assert!(matches!(result, Err(TtsError::Playback(message)) if message.contains("audio output")));
+		assert!(sink.lock().await.player.empty());
+	}
 
 	#[test]
 	fn resolve_save_path_replaces_template() {

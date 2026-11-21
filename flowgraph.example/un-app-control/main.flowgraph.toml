@@ -1,0 +1,169 @@
+# UNAA/Z app control helper node demo.
+#
+# `flowgraph.un.app.status` / `command` / `event` を実 app なしで確認する dry-run 例。
+# UNAA/Z は U.N. app の control plane。motion frame は UNMF/Z data plane で扱う。
+
+[meta]
+title = "un app control demo"
+description = "UNAA/Z snapshot -> app status -> safe command dry-run -> event key dry-run"
+tags = ["example", "unaa_z", "un_app", "control", "dry-run"]
+
+[[nodes]]
+id = "trigger"
+feature = "flowgraph.ingress.web_input"
+position = [80, 120]
+properties.path = "/input/un-app-control"
+properties.method = "POST"
+properties.body_format = "plain"
+properties.fixed_channel = "un_app_control_demo"
+
+[[nodes]]
+id = "snapshot"
+feature = "flowgraph.literal.json"
+position = [80, 360]
+properties.value = { apps = [
+  { app_id = "un-avatar", instance_id = "main", display_name = "UN Avatar Renderer", running = true, ready = true, capabilities = ["renderer", "motion_input"], commands = ["focus", "open_gui", "reload.preview"], endpoints = [
+    { protocol = "unmfz", endpoint_id = "motion-in", label = "Renderer Motion In", direction = "input", base_key_expr = "un-motion/frame/un-avatar", topic_mode = "frame", schema_major = 1 },
+  ] },
+] }
+
+[[nodes]]
+id = "app_id"
+feature = "flowgraph.literal.string"
+position = [360, 360]
+properties.value = "un-avatar"
+
+[[nodes]]
+id = "instance_id"
+feature = "flowgraph.literal.string"
+position = [360, 440]
+properties.value = "main"
+
+[[nodes]]
+id = "status"
+feature = "flowgraph.un.app.status"
+position = [640, 220]
+
+[[nodes]]
+id = "command_name"
+feature = "flowgraph.literal.string"
+position = [640, 440]
+properties.value = "open_gui"
+
+[[nodes]]
+id = "command_args"
+feature = "flowgraph.literal.json"
+position = [640, 520]
+properties.value = {}
+
+[[nodes]]
+id = "wait_response_ms"
+feature = "flowgraph.literal.int"
+position = [640, 600]
+properties.value = 50
+
+[[nodes]]
+id = "dry_run"
+feature = "flowgraph.literal.bool"
+position = [640, 680]
+properties.value = true
+
+[[nodes]]
+id = "send_command"
+feature = "flowgraph.un.app.command"
+position = [920, 360]
+
+[[nodes]]
+id = "wait_event"
+feature = "flowgraph.un.app.event"
+position = [1200, 360]
+
+[[nodes]]
+id = "log_status"
+feature = "flowgraph.util.log"
+position = [920, 160]
+
+[[nodes]]
+id = "log_command_key"
+feature = "flowgraph.util.log"
+position = [1200, 240]
+
+[[nodes]]
+id = "log_event_key"
+feature = "flowgraph.util.log"
+position = [1480, 420]
+
+[[edges]]
+from = "trigger:exec_out"
+to = "log_status:exec_in"
+
+[[edges]]
+from = "snapshot:value"
+to = "status:snapshot"
+[[edges]]
+from = "app_id:value"
+to = "status:app_id"
+[[edges]]
+from = "instance_id:value"
+to = "status:instance_id"
+[[edges]]
+from = "status:display_name"
+to = "log_status:value"
+
+[[edges]]
+from = "trigger:exec_out"
+to = "send_command:exec_in"
+[[edges]]
+from = "snapshot:value"
+to = "send_command:snapshot"
+[[edges]]
+from = "app_id:value"
+to = "send_command:app_id"
+[[edges]]
+from = "instance_id:value"
+to = "send_command:instance_id"
+[[edges]]
+from = "command_name:value"
+to = "send_command:command"
+[[edges]]
+from = "command_args:value"
+to = "send_command:args"
+[[edges]]
+from = "wait_response_ms:value"
+to = "send_command:wait_response_ms"
+[[edges]]
+from = "dry_run:value"
+to = "send_command:dry_run"
+
+[[edges]]
+from = "send_command:on_accepted"
+to = "log_command_key:exec_in"
+[[edges]]
+from = "send_command:key_expr"
+to = "log_command_key:value"
+
+[[edges]]
+from = "send_command:on_accepted"
+to = "wait_event:exec_in"
+[[edges]]
+from = "app_id:value"
+to = "wait_event:app_id"
+[[edges]]
+from = "instance_id:value"
+to = "wait_event:instance_id"
+[[edges]]
+from = "send_command:request_id"
+to = "wait_event:request_id"
+[[edges]]
+from = "wait_response_ms:value"
+to = "wait_event:wait_response_ms"
+[[edges]]
+from = "dry_run:value"
+to = "wait_event:dry_run"
+
+[[edges]]
+from = "wait_event:on_timeout"
+to = "log_event_key:exec_in"
+[[edges]]
+from = "wait_event:response_key_expr"
+to = "log_event_key:value"

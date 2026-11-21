@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "apps": [
+    {
+      "app_id": "un-avatar",
+      "instance_id": "renderer-main",
+      "display_name": "UN Avatar Renderer",
+      "ready": true,
+      "capabilities": ["motion_input", "app_control"],
+      "commands": ["focus", { "command": "open_gui" }],
+      "reported_at": "2026-05-30T00:00:00Z",
+      "endpoints": [
+        {
+          "protocol": "unmfz",
+          "endpoint_id": "motion-in",
+          "label": "Renderer Motion In",
+          "direction": "input",
+          "base_key_expr": "un-motion/frame/renderer-main",
+          "topic_mode": "frame",
+          "schema_major": 1
+        }
+      ]
+    },
+    {
+      "app_id": "un-motion",
+      "instance_id": "tracker-main",
+      "display_name": "UN Motion",
+      "ready": true,
+      "capabilities": ["motion_output"],
+      "commands": ["focus"],
+      "endpoints": [
+        {
+          "protocol": "unmfz",
+          "endpoint_id": "motion-out",
+          "label": "Tracker Motion Out",
+          "direction": "sideways",
+          "topic_mode": "frame"
+        }
+      ]
+    }
+  ],
+  "endpoints": [
+    {
+      "protocol": "unmfz",
+      "endpoint_id": "global-motion",
+      "label": "Global Motion",
+      "direction": "both",
+      "base_key_expr": "un-motion/frame/global",
+      "topic_mode": "frame",
+      "schema_major": 1
+    }
+  ]
+}

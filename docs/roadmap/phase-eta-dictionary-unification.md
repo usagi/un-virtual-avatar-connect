@@ -40,7 +40,7 @@
 - **TSV 統一フォーマット**（headerful、値内タブは `\t` エスケープ、UTF-8）
 - V1 loose 2 列フォーマット（`from to` / `from\tto`）との **後方互換**
 - 辞書以外にも **再利用可能な汎用 Table 型**（scene registry、credential store、Twitch user list、moderation log 等の将来ユースケースを下支え）
-- 11 カラム辞書スキーマの全機能（期限切れ、優先度、ロック、タグ、note）を動作させる
+- Google IME 先頭 4 列と列順互換な 11 カラム辞書スキーマの全機能（期限切れ、優先度、ロック、タグ、comment）を動作させる
 - Aho-Corasick / RegexSet によるマッチ高速化。辞書不変時は **O(1) キャッシュ再利用**
 
 ### 2.2 Non-Goals（η では扱わない）
@@ -58,27 +58,27 @@
 
 | # | 列名 | 型 | null 可 | 説明 |
 |---|---|---|---|---|
-| 1 | `source` | string | × | 検索パターン。`kind=literal` なら検索文字列、`kind=regex` なら正規表現 |
-| 2 | `replacement` | string | × | 置換先文字列 / Match 時のラベル。regex の場合 `$1` `$2` などキャプチャ参照可 |
-| 3 | `kind` | string | × | `literal` / `regex` / (将来: `aho_corasick_group`)。デフォルト `literal` |
-| 4 | `priority` | int | × | 高いほど先にマッチ/置換。デフォルト `0` |
-| 5 | `is_locked` | bool | × | `true` は Forget で削除不可（arknights 固定辞書など）。デフォルト `false` |
-| 6 | `enabled` | bool | × | `false` は Replace/Match で無視。デフォルト `true` |
-| 7 | `by` | string | × | 登録者 ID（Twitch username / `system` / `arknights` / `user:<name>` など）。デフォルト `""` |
-| 8 | `created_at` | string (RFC3339 UTC) | × | 追加/更新時刻。Learn 時は現在時刻、TSV ロード時はファイルの値を尊重 |
-| 9 | `expires_at` | string? (RFC3339 UTC) | ◯ | 期限。`null` なら無期限。過ぎたエントリは Replace/Match の compile 時点で除外 |
-| 10 | `tags` | string | × | 自由タグ（CSV 記法 `nsfw,meme,arknights`）。デフォルト `""` |
-| 11 | `note` | string | × | 自由メモ。UI の tooltip で表示。デフォルト `""` |
+| 1 | `reading` | string | × | 読み。Google IME 第1列。置換結果 / Match 時のラベル。正規表現では `$1` 等を使用可 |
+| 2 | `surface` | string | × | 単語・表記。Google IME 第2列。通常は検索文字列、`part_of_speech=正規表現` ならpattern |
+| 3 | `part_of_speech` | string | × | 品詞。Google IME 第3列。省略時 `名詞`。UNVAC拡張値 `正規表現` を許可 |
+| 4 | `comment` | string | × | コメント。Google IME 第4列。省略時 `""` |
+| 5 | `priority` | int | × | 高いほど先にマッチ/置換。デフォルト `0` |
+| 6 | `is_locked` | bool | × | `true` は Forget で削除不可（arknights 固定辞書など）。デフォルト `false` |
+| 7 | `enabled` | bool | × | `false` は Replace/Match で無視。デフォルト `true` |
+| 8 | `by` | string | × | 登録者 ID（Twitch username / `system` / `arknights` / `user:<name>` など）。デフォルト `""` |
+| 9 | `created_at` | string (RFC3339 UTC) | × | 追加/更新時刻。Learn 時は現在時刻、TSV ロード時はファイルの値を尊重 |
+| 10 | `expires_at` | string? (RFC3339 UTC) | ◯ | 期限。`null` なら無期限。過ぎたエントリは Replace/Match の compile 時点で除外 |
+| 11 | `tags` | string | × | 自由タグ（CSV 記法 `nsfw,meme,arknights`）。デフォルト `""` |
 
 ### 3.2 動作ルール
 
-- **重複許容**: 同一 `source` の重複エントリを**許容**。Learn は常に append（既存を書き換えない）。
+- **重複許容**: 同一 `surface` の重複エントリを**許容**。Learn は常に append（既存を書き換えない）。
 - **1 件選出**: Replace/Match が 1 件だけ選ぶときは以下の順でソート:
   1. `priority desc`
   2. `created_at desc`（**新しいほうが勝つ** → 学習が古い登録を上書きしたように見える）
   3. 配列順（安定ソート）
-- **UNDO 動作**: Forget (mode=`latest`) は `source` 一致の最新 1 件のみ削除 → 以前の登録が自動復活。
-- **全削除**: Forget (mode=`all`) は `source` 一致を全削除。
+- **UNDO 動作**: Forget (mode=`latest`) は `surface` 一致の最新 1 件のみ削除 → 以前の登録が自動復活。
+- **全削除**: Forget (mode=`all`) は `surface` 一致を全削除。
 - **ロック尊重**: `is_locked=true` のエントリは Forget から除外。削除対象に含まれていた場合は feedback で件数を報告。
 - **期限切れ**: `expires_at` が現在時刻より過去なら `enabled=false` と同様に扱う（compile 時点で除外）。境界は inclusive（`expires_at` ちょうどは expired）。
 - **無効化**: `enabled=false` は compile 時点で除外（Replace/Match 対象にならないが Table 上は残る）。
@@ -86,7 +86,7 @@
 
 ### 3.3 行の論理 ID
 
-DB 的な主キーは持たないが、UNDO / runtime 編集の identity として `(source, replacement, kind, created_at)` の 4 つ組を「論理 ID」とする。Forget (mode=`exact`) はこれで完全一致削除。
+DB 的な主キーは持たないが、UNDO / runtime 編集の identity として `(reading, surface, part_of_speech, created_at)` の 4 つ組を「論理 ID」とする。Forget (mode=`exact`) はこれで完全一致削除。
 
 ---
 
@@ -95,10 +95,10 @@ DB 的な主キーは持たないが、UNDO / runtime 編集の identity とし�
 ### 4.1 プライマリ: TSV (`.dict.tsv`)
 
 ```
-source	replacement	kind	priority	is_locked	enabled	by	created_at	expires_at	tags	note
-いかく	異格	literal	0	true	true	arknights	2024-01-01T00:00:00Z		arknights	
-テスト	test	literal	10	false	true	user:sample	2026-04-23T12:00:00Z	2026-05-01T00:00:00Z	tmp	1週間限定
-^(\d+)円$	$1yen	regex	50	false	true	system	2026-04-23T12:00:00Z			通貨正規化
+reading	surface	part_of_speech	comment	priority	is_locked	enabled	by	created_at	expires_at	tags
+いかく	異格	名詞		0	true	true	arknights	2024-01-01T00:00:00Z		arknights
+てすと	test	名詞	1週間限定	10	false	true	user:sample	2026-04-23T12:00:00Z	2026-05-01T00:00:00Z	tmp
+$1yen	^(\d+)円$	正規表現	通貨正規化	50	false	true	system	2026-04-23T12:00:00Z		currency
 ```
 
 - タブ区切り、UTF-8、1 行目はヘッダ（11 カラム固定名）
@@ -106,17 +106,18 @@ source	replacement	kind	priority	is_locked	enabled	by	created_at	expires_at	tags
 - 空 `expires_at` は空文字列（`null` 扱い）
 - 空行は無視、`#` 始まりコメントは無視
 
-### 4.2 V1 loose 互換（`load_tsv` の `mode=legacy_loose` ）
+### 4.2 Google IME互換とV1 loose互換
 
-- ヘッダ行なし。先頭 2 トークン（空白でも TAB でも可）を `(source, replacement)` として採用、残余は無視。
-- デフォルト値: `kind=literal`, `priority=0`, `is_locked=true`（ファイル由来は固定扱い）, `enabled=true`, `by=<ファイル名ベース>`, `created_at=<ファイルの mtime>`, `expires_at=null`, `tags=""`, `note=""`
-- `dictionary.arknights.txt` / `dictionary.pre-coeiroink.txt` / `dictionary.chat.txt` / `dictionary.local.txt` はこのモードで既存のまま読める
+- `mode=google_ime`: ヘッダなしTAB区切り2〜4列を `(reading, surface, part_of_speech?, comment?)` として保持する。
+- `mode=legacy_loose`: V1の空白区切り2列を `(reading, surface)` として読む。
+- 省略値: `part_of_speech=名詞`, `comment=""`, `priority=0`, `is_locked=true`, `enabled=true`, `expires_at=null`, `tags=""`。
+- `mode=auto` は正本11列、Google IME 2〜4列、V1 loose、誤実装だった旧V2 `source/replacement/kind/.../note` 11列を判別する。旧V2は読込時に正本11列へ移行する。旧CLIが `migrated from ...` を付けた literal 行は、実データが既に Google IME 順だったため先頭2列を維持する。それ以外の旧V2行と regex 行はヘッダの意味どおり `source → replacement` から `surface → reading` へ写像する。
 
 ### 4.3 JSONL（auxiliary: `.dict.jsonl`）
 
 1 行 1 JSON object、全 11 カラム必須。エクスポート専用。GUI 編集・外部ツール連携用途。
 ```json
-{"source":"いかく","replacement":"異格","kind":"literal","priority":0,"is_locked":true,"enabled":true,"by":"arknights","created_at":"2024-01-01T00:00:00Z","expires_at":null,"tags":"arknights","note":""}
+{"reading":"いかく","surface":"異格","part_of_speech":"名詞","comment":"","priority":0,"is_locked":true,"enabled":true,"by":"arknights","created_at":"2024-01-01T00:00:00Z","expires_at":null,"tags":"arknights"}
 ```
 
 ---
@@ -209,10 +210,10 @@ TOML からの復元は現状用途がない（Table リテラルを TOML で書
 
 #### 6.1.1 `flowgraph.table.load_tsv`
 
-- 入力: `exec_in` (Exec), `path` (String), `mode` (String, default `"auto"`)  — `auto` / `headerful` / `legacy_loose`
+- 入力: `exec_in` (Exec), `path` (String), `mode` (String, default `"auto"`)  — `auto` / `headerful` / `google_ime` / `legacy_loose`
 - 出力: `on_success` / `on_error` (Exec), `table` (Table), `row_count` (Int), `error` (String)
 - Effectful: `tokio::fs::read_to_string` + 自前パース
-- legacy_loose のときは 11 カラム相当にデフォルト補完（§4.2）
+- google_ime / legacy_loose のときは正本11カラムへデフォルト補完（§4.2）
 
 #### 6.1.2 `flowgraph.table.write_tsv`
 
@@ -239,7 +240,7 @@ TOML からの復元は現状用途がない（Table リテラルを TOML で書
 | `flowgraph.dictionary.replace` | Stateful | literal(AC) + regex(Regex) 統合置換 |
 | `flowgraph.dictionary.match` | Stateful | 照合 + captures + exec 分岐 |
 | `flowgraph.dictionary.learn` | Pure | 11 カラム append |
-| `flowgraph.dictionary.forget` | Pure | 論理 ID or source ベースで削除（mode, is_locked 尊重） |
+| `flowgraph.dictionary.forget` | Pure | 論理 ID or surface ベースで削除（mode, is_locked 尊重） |
 
 #### 6.2.1 `flowgraph.dictionary.replace`
 
@@ -256,11 +257,11 @@ TOML からの復元は現状用途がない（Table リテラルを TOML で書
 - アルゴリズム:
   1. `dictionary` の Arc identity → version → content_hash の順でキャッシュ判定
   2. miss なら `(priority desc, created_at desc)` でソートして:
-     - `enabled && !expired && kind=literal` を Aho-Corasick に入れる
-     - `enabled && !expired && kind=regex` を `Regex` 個別コンパイル、`RegexSet` で高速判定
+     - `enabled && !expired && part_of_speech!=正規表現` の `surface` を Aho-Corasick に入れる
+     - `enabled && !expired && part_of_speech=正規表現` の `surface` を `Regex` 個別コンパイル
   3. 実行: AC でマッチ集合を取得 → 位置 conflict があれば priority/長さで解決 → 一括置換
   4. regex は AC 後の結果に対して pass 2 で適用（仕様上 regex は literal の後）
-  5. `kind` 越しの優先は literal-first。同 kind 内は priority/長さで解決。
+  5. literal と正規表現を統合し、同種内は priority/長さで解決。
 
 #### 6.2.2 `flowgraph.dictionary.match`
 
@@ -278,7 +279,7 @@ TOML からの復元は現状用途がない（Table リテラルを TOML で書
   - `matched_entries` (List<Json>) — マッチした行の全カラム（match_policy に応じて件数）
   - `matched_count` (Int)
   - `captures` (List<List<String>>) — `[entry_i][group_j]`、literal は空 Vec
-  - `first_replacement` (String) — match_policy=first 時の便利ショートカット（未マッチなら空）
+  - `first_reading` (String) — match_policy=first 時の便利ショートカット（未マッチなら空）
 - 挙動:
   - `anchor=anywhere`: 普通のマッチング
   - `anchor=prefix`: 入力先頭に位置するマッチのみ
@@ -293,13 +294,13 @@ TOML からの復元は現状用途がない（Table リテラルを TOML で書
 - 入力:
   - `exec_in` (Exec)
   - `dictionary` (Table)
-  - `source` (String)
-  - `replacement` (String)
-  - `kind` (String, default `"literal"`)
+  - `reading` (String)
+  - `surface` (String)
+  - `part_of_speech` (String, default `"名詞"`。正規表現は `"正規表現"`)
+  - `comment` (String, default `""`)
   - `priority` (Int, default `0`)
   - `by` (String, default `""`)
   - `tags` (String, default `""`)
-  - `note` (String, default `""`)
   - `expires_at` (String, default `""`) — 空なら null
 - 出力:
   - `on_learned` (Exec)
@@ -307,7 +308,7 @@ TOML からの復元は現状用途がない（Table リテラルを TOML で書
   - `updated_dictionary` (Table)
   - `added_entry` (Json)
   - `feedback` (String)
-- 動作: `created_at = now_utc()`、`is_locked=false`、`enabled=true` で append。重複検出は `(source, replacement, kind)` が完全一致 **かつ** 既存が not expired かつ enabled な場合のみ no-op。
+- 動作: `created_at = now_utc()`、`is_locked=false`、`enabled=true` で append。重複検出は Google IME 先頭4列が完全一致 **かつ** 既存が not expired かつ enabled な場合のみ no-op。
 
 #### 6.2.4 `flowgraph.dictionary.forget`
 
@@ -315,8 +316,8 @@ TOML からの復元は現状用途がない（Table リテラルを TOML で書
 - 入力:
   - `exec_in` (Exec)
   - `dictionary` (Table)
-  - `source` (String)
-  - `replacement` (String, optional default `""`) — 空なら source のみで削除
+  - `surface` (String)
+  - `reading` (String, optional default `""`) — 空なら surface のみで削除
   - `mode` (String, default `"latest"`) — `latest` / `all` / `exact`
 - 出力:
   - `on_forgotten` (Exec)
@@ -327,9 +328,9 @@ TOML からの復元は現状用途がない（Table リテラルを TOML で書
   - `locked_count` (Int)
   - `feedback` (String)
 - 動作:
-  - `mode=latest`: source 一致 (and 指定があれば replacement 一致) の最新 1 件削除
-  - `mode=all`: source 一致 (and replacement 一致) 全削除
-  - `mode=exact`: `(source, replacement, kind)` 全一致のみ（replacement 必須）
+  - `mode=latest`: surface 一致 (and 指定があれば reading 一致) の最新 1 件削除
+  - `mode=all`: surface 一致 (and reading 一致) 全削除
+  - `mode=exact`: `(surface, reading)` 全一致のみ（reading 必須）
   - `is_locked=true` はすべて除外カウント
 
 ### 6.3 削除するノード
@@ -353,15 +354,15 @@ struct DictionaryCompileState {
 struct CompiledDictionary {
     // literal
     ac: Option<aho_corasick::AhoCorasick>,
-    literal_replacements: Vec<String>,      // ac pattern_id → replacement
+    literal_readings: Vec<String>,          // ac pattern_id → reading
     literal_priorities: Vec<i64>,
-    literal_sources: Vec<String>,           // for captures output (=source itself)
+    literal_surfaces: Vec<String>,          // for captures output (=surface itself)
     // regex
     regex_set: Option<regex::RegexSet>,
     regex_individual: Vec<regex::Regex>,
-    regex_replacements: Vec<String>,
+    regex_readings: Vec<String>,
     regex_priorities: Vec<i64>,
-    regex_sources: Vec<String>,
+    regex_surfaces: Vec<String>,
     // meta
     entries_count: usize,
 }
@@ -434,12 +435,12 @@ virtual-avatar-connect-migrate-dict \
 実装の要点:
 
 - `--input path:kind:tag` で個別指定可能。`kind = auto / literal / regex`。`auto` は `regex.*.csv` / `regex.*.txt` → `regex`、`dictionary.*.txt` → `literal` を推論。
-- `literal` 入力は V1 loose 形式（空白または TAB で `source replacement`、コメント行は `#`）。
+- `literal` 入力はGoogle IME 2〜4列を保持し、V1 loose 2列も受理する。
 - `regex` (space) 入力は `replacement pattern` で、replacement に空白を含むケース（`/set init ^...`）を「空白 + `^` 始まり」のパターンで境界推定して正しく分離。
 - `regex` (csv) 入力は標準 CSV `replacement,pattern`（空 replacement 許容、クォート対応）。
 - 出力は 11 カラム TSV ヘッダあり、エスケープは `\\` / `\t` / `\n` / `\r`、`expires_at` は空欄。`created_at` はコマンド実行時刻（RFC3339 UTC 秒精度）。
 - 既定では既存 output を上書きしない（`--force` で強制）。一時ファイル書き込み → rename で atomic 化。
-- `tags` 列には入力ファイルの stem（`dictionary.chat` 等）を記録し、`note` に `migrated from <path>` を残す。
+- `tags` 列には入力ファイルの stem（`dictionary.chat` 等）を記録し、元コメントが空なら `comment` に `migrated from <path>` を残す。
 - 学習/忘却ログ的な重複排除はせず、そのまま append（Learn/Forget の UNDO 動作を維持するため運用側で validate）。
 
 ### 8.2 既存 conf/flowgraph の更新
@@ -465,7 +466,7 @@ virtual-avatar-connect-migrate-dict \
 
 - 11 カラム表示のテーブル UI（sortable / filterable）
 - `is_locked` は UI でも保護（削除不可、警告トースト）
-- 検索（source 部分一致、tag 絞り込み、kind filter）
+- 検索（reading / surface / part_of_speech / comment 部分一致、tag 絞り込み、literal / regex filter）
 - 期限切れ行はグレーアウト
 - **保留理由**: V2 では辞書 Table はファイル I/O が Flowgraph の `flowgraph.table.load_tsv` /
   `write_tsv` ノード経由で完結している。GUI から直接編集するには Flowgraph worker と別系統の
@@ -477,7 +478,7 @@ virtual-avatar-connect-migrate-dict \
 ### 9.3 Live Quick-Add Widget（保留、別 PR）
 
 - Twitch チャンネルポイント連携用の小型 UI
-- 「学習 (source → replacement)」を 1 クリックで Flowgraph の Learn ノードに trigger 投入
+- 「学習 (surface → reading)」を 1 クリックで Flowgraph の Learn ノードに trigger 投入
 - 過去の Quick-Add 履歴と UNDO（Forget latest）ボタン
 - **保留理由**: V1 の `DictionaryQuickAddWidget.svelte` は `modify` processor 前提で書かれており、
   V2 では dead code 化している。V2 で同等機能を実装するには Flowgraph の `dictionary.learn` /
@@ -499,12 +500,12 @@ virtual-avatar-connect-migrate-dict \
   - content_hash が値同一 Arc でキャッシュされる
 - `flowgraph/nodes/table/*.rs`:
   - `from_json` → `to_json` roundtrip
-  - `load_tsv` headerful / legacy_loose / mixed の 3 モード
+  - `load_tsv` headerful / google_ime / legacy_loose / auto の各モード
   - `write_tsv` 往復
 - `flowgraph/nodes/dictionary/*.rs`:
   - Replace: literal-only、regex-only、mixed、priority 順序、expires_at 除外、enabled=false 除外
   - Match: first / all / longest, anchor= {anywhere, prefix, full}, captures
-  - Learn: duplicate detect, created_at 自動、priority/tags/note 通過
+  - Learn: duplicate detect, created_at 自動、priority/tags/comment 通過
   - Forget: mode=latest で UNDO 復活、mode=all 全消し、is_locked 保護、on_locked 発火
 
 ### 10.2 プロパティベース
@@ -523,10 +524,10 @@ virtual-avatar-connect-migrate-dict \
 
 ## 11. Open Questions / Future Extensions
 
-- **`aho_corasick_group` kind**: 複数 source を 1 エントリにまとめる「グループ辞書」。現状 11 カラムに押し込めにくいので ν 以降で別途。
+- **グループ用語集**: 複数 surface を 1 エントリにまとめる方式は現状11カラムに押し込めにくいため後続。
 - **タグベース subset**: Replace の property `only_tags: "arknights,jp"` で limiting（η では見送り）
 - **辞書の永続化 auto-save**: Learn/Forget の結果を自動 write_tsv で保存するフロー例を `flowgraph.example/dictionary/` に置く（runtime 実装側の追加はなし）
-- **Regex kind の $group 展開**: 現状 `regex::Regex::replace` 内蔵の置換機能に委ねる（η ではシンプルに）
+- **正規表現の $group 展開**: 現状 `regex::Regex::replace` 内蔵の置換機能に委ねる
 - **ν 以降**: Super-Dictionary（辞書の辞書）、Trie ベース辞書、クラウド同期
 
 ---

@@ -30,8 +30,7 @@
 //! → 一時ファイル削除、の順。60 秒で timeout し、`TtsError::Synthesis` に畳む。
 
 use super::super::driver::{
-	extra_i64, extra_str, maybe_save_wav, resolve_save_path, AudioContext, TtsDriver, TtsError, TtsOutcome, TtsParamEntry, TtsParamSchema,
-	TtsParamType, TtsRequest,
+	extra_i64, extra_str, TtsDriver, TtsError, TtsParamEntry, TtsParamSchema, TtsParamType, TtsRequest, TtsSynthesis,
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
@@ -154,7 +153,7 @@ impl TtsDriver for VoicepeakDriver {
 		}
 	}
 
-	async fn speak(&self, req: TtsRequest, audio: &AudioContext<'_>) -> Result<TtsOutcome, TtsError> {
+	async fn synthesize(&self, req: &TtsRequest) -> Result<TtsSynthesis, TtsError> {
 		if (req.volume - 1.0).abs() > f64::EPSILON {
 			log::warn!(
 				"[tts.voicepeak] volume={} が指定されましたが、VoicePeak CLI は音量オプションを持たないため無視します。",
@@ -200,17 +199,7 @@ impl TtsDriver for VoicepeakDriver {
 			return Err(TtsError::Synthesis(format!("'{exe}' produced empty WAV ({} args)", args.len())));
 		}
 
-		let played = audio.play_wav(wav.clone()).await?;
-		let saved = maybe_save_wav(&wav, &req.save_path).await?;
-		let audio_path = if saved.is_empty() {
-			resolve_save_path(&req.save_path)
-		} else {
-			saved
-		};
-		Ok(TtsOutcome {
-			played,
-			audio_path: if req.save_path.is_empty() { String::new() } else { audio_path },
-		})
+		Ok(TtsSynthesis::Wav(wav))
 	}
 }
 
@@ -218,6 +207,7 @@ impl TtsDriver for VoicepeakDriver {
 mod tests {
 	use super::*;
 	use crate::flowgraph::socket::SocketValue;
+	use crate::flowgraph::tts::driver::AudioContext;
 	use std::collections::BTreeMap;
 
 	fn base_req() -> TtsRequest {

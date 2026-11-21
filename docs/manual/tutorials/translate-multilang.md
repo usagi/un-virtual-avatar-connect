@@ -2,7 +2,7 @@
 
 入力 1 本を GAS（Google Apps Script）と LibreTranslate の **2 エンジンで並列翻訳**し、結果を別々にログする。
 
-> ソース: [`flowgraph.example/translate-multilang/main.flowgraph.toml`](../../../flowgraph.example/translate-multilang/main.flowgraph.toml) + [`conf.example-translate.toml`](../../../conf.example-translate.toml)
+> ソース: [`flowgraph.example/translate-multilang/main.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/translate-multilang/main.flowgraph.toml) + [`conf.example-translate.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/conf.example-translate.toml)
 
 ## ねらい
 

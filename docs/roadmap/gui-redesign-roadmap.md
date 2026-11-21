@@ -24,9 +24,10 @@ The current GUI exposes useful surfaces, but its top-level structure still refle
 - Logs
 - Tools
 
-The v2 GUI will use an operational model instead:
+The v2 GUI uses an operational model instead:
 
 - Now
+- Live
 - Modes
 - Flowgraph Studio
 - Resources
@@ -100,11 +101,19 @@ Operational dashboard. Shows current state and recent runtime activity.
 
 Runtime mode management. This is wired to the Runtime Mode roadmap when the backend lands.
 
-### 2.3 Flowgraph Studio
+### 2.3 Live
 
-Flowgraph authoring and debugging. Existing `FlowgraphTab` is renamed conceptually first; deep editor refactors happen in later PRs.
+Live operation surface for AI pause/resume, voice input, and quick effects. Preflight, OBS details, and output inspection are secondary disclosures rather than the first viewport.
 
-### 2.4 Resources
+### 2.4 Flowgraph Studio
+
+Flowgraph authoring and debugging. The navigation opens the Studio directly; a second overview page must not stand between the user and the editor.
+
+### 2.5 AI Partners and Dictionary
+
+Persistent AI role/model/observation settings and glossary maintenance are first-class configuration surfaces. They do not belong to Live or external-service Resources.
+
+### 2.6 Resources
 
 External dependencies and credentials:
 
@@ -115,7 +124,7 @@ External dependencies and credentials:
 
 Existing `SetupTab` content can move here in stages.
 
-### 2.5 Observability
+### 2.7 Observability
 
 Runtime observation:
 
@@ -126,7 +135,7 @@ Runtime observation:
 
 Existing `LogsTab` is the first implementation.
 
-### 2.6 Settings
+### 2.8 Settings
 
 Configuration and dangerous operations:
 
@@ -143,10 +152,11 @@ Existing `ToolsTab` can remain here until split further.
 
 ### GR-1 Shell IA - implemented
 
-- [x] Replace top-level tab list with `Now / Modes / Flowgraph Studio / Resources / Observability / Settings`.
+- [x] Group the rail by user work: `利用`, `構成`, and `接続と管理`.
+- [x] Promote AI Partners, Flowgraph Studio, and Dictionary to direct configuration destinations.
 - [x] Use a responsive navigation shell: horizontal on narrow screens, left rail on desktop.
 - [x] Keep old hash redirects:
-  - `#live` -> `#now`
+  - `#live` remains the current Live operation surface
   - `#setup` -> `#resources`
   - `#logs` -> `#observability`
   - `#tools` -> `#settings`
@@ -179,12 +189,15 @@ Existing `ToolsTab` can remain here until split further.
 - [x] Add a command palette entry point that groups existing Flowgraph operations before deeper editor command modeling lands.
 - [x] Replace the current framed editor shell with user-resizable file / inspector / problems panes.
 - [x] Add searchable node insert backed by command modeling.
+- [x] 低い画面でも Files / Canvas / Inspector を切らない可変高レイアウトと、Problems の折り畳みを追加。
 
 ### GR-5 Editor Operations
 
 - [x] Undo / redo stack for draft node, edge, property, and position edits.
 - [x] Multi-select as a real data model for Flowgraph Studio commands.
 - [x] Group-layout / align / distribute / duplicate / delete commands.
+- [x] 接続トポロジー、循環成分、ノードの推定高を使い、可変高ノードを重ねない全体 Auto layout を追加。保存座標の重複・欠落はファイル表示時にも検出して draft を自動補正する。
+- [x] グループを独立clusterとして配置し、可変高ノードとgraph instanceを含む枠を算出。互いに素なグループの重なりは自動補正し、同一ノードを共有するグループだけは意味のある重なりとして許可する。
 - [x] E2E coverage for command palette operation discovery.
 
 ### GR-6 Runtime Modes UI - implemented backend wiring
@@ -233,4 +246,4 @@ The remaining GUI roadmap is now mostly refinement work: visual polish, deeper d
 - [x] Add a lightweight `data-vac-theme` / localStorage theme engine and expose the initial 4-theme set from Settings.
 - [x] Avoid decorative skin work until the default operational cockpit baseline is stable.
 - [x] Add Playwright screenshot smoke coverage for the initial theme set on key cockpit surfaces.
-- [ ] Promote screenshot smoke to stable `toHaveScreenshot` visual regression baselines once fonts, density, and theme tokens settle.
+- [x] Promote screenshot smoke to stable `toHaveScreenshot` visual regression baselines for the initial 4-theme Settings surface. Broader dynamic surfaces stay out of baseline until fixture state is pinned tightly enough.

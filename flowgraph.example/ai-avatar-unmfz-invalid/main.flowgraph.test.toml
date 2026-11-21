@@ -1,0 +1,66 @@
+[[triggers]]
+node = "main::avatar_intent_in"
+
+[[triggers.overrides]]
+port = "__content__"
+ty = "string"
+value = "{\"target_link_id\":\"kaltsit_ai\",\"intents\":[{\"kind\":\"expression\",\"name\":\"unknown_expression\",\"intensity\":0.5,\"duration_ms\":1000,\"curve\":\"hold\"}]}"
+
+[[triggers.overrides]]
+port = "__channel__"
+ty = "string"
+value = "avatar_intent"
+
+[[triggers.overrides]]
+port = "__source_actor__"
+ty = "string"
+value = "Kaltsit"
+
+[[triggers.overrides]]
+port = "__is_final__"
+ty = "bool"
+value = true
+
+[[tests]]
+name = "malformed avatar intent falls back to neutral unmf dry-run"
+
+[tests.expect]
+node_count = 10
+trigger_count = 1
+trace_count = 2
+trace_contains = [
+  "unmfz.publish dry-run: un-motion/frame/kaltsit-ai/v1",
+  "log: unknown avatar expression: unknown_expression",
+]
+
+[[tests.expect.exec_count]]
+node = "main::publish_unmfz"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::log_error"
+count = 1
+
+[[tests.expect.stored_values]]
+node = "main::to_unmf"
+port = "ok"
+ty = "bool"
+value = false
+
+[[tests.expect.stored_values]]
+node = "main::to_unmf"
+port = "target_link_id"
+ty = "string"
+value = ""
+
+[[tests.expect.stored_values]]
+node = "main::to_unmf"
+port = "error"
+ty = "string"
+value = "unknown avatar expression: unknown_expression"
+
+[[tests.expect.stored_values]]
+node = "main::publish_unmfz"
+port = "key_expr"
+ty = "string"
+value = "un-motion/frame/kaltsit-ai/v1"

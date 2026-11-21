@@ -1,0 +1,25 @@
+[[triggers]]
+node = "counter::in"
+
+[[triggers]]
+node = "counter::in"
+
+[[tests]]
+name = "Starter counter emits a count for each input"
+
+[tests.expect]
+node_count = 4
+trigger_count = 2
+trace_count = 2
+
+[[tests.expect.stored_values]]
+node = "counter::counter"
+port = "value"
+ty = "int"
+value = 2
+
+[[tests.expect.stored_values]]
+node = "counter::text"
+port = "result"
+ty = "string"
+value = "2"

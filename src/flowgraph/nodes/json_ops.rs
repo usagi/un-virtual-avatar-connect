@@ -143,7 +143,14 @@ impl NodeDescriptor for JsonGetNode {
 				PortSpec::input("value", "Value", SocketType::Json),
 				PortSpec::input("path", "Path", SocketType::String),
 			],
-			outputs: vec![PortSpec::output("result", "Result", SocketType::Json)],
+			outputs: vec![
+				PortSpec::output("result", "Result", SocketType::Json),
+				PortSpec::output("exists", "Exists", SocketType::Bool),
+				PortSpec::output("string", "String", SocketType::String),
+				PortSpec::output("int", "Int", SocketType::Int),
+				PortSpec::output("float", "Float", SocketType::Float),
+				PortSpec::output("bool", "Bool", SocketType::Bool),
+			],
 			properties: vec![],
 		}
 	}
@@ -160,7 +167,18 @@ impl PureNode for JsonGetNode {
 		let v = get_required_json(inputs, "value")?;
 		let path = get_required_string(inputs, "path")?;
 		let resolved = walk_dot_path(v, &path);
-		Ok(NodeOutput::new().set_data("result", SocketValue::Json(resolved)))
+		let exists = !resolved.is_null();
+		let string = resolved.as_str().unwrap_or_default().to_string();
+		let int = resolved.as_i64().unwrap_or_default();
+		let float = resolved.as_f64().unwrap_or_default();
+		let boolean = resolved.as_bool().unwrap_or_default();
+		Ok(NodeOutput::new()
+			.set_data("result", SocketValue::Json(resolved))
+			.set_data("exists", SocketValue::Bool(exists))
+			.set_data("string", SocketValue::String(string))
+			.set_data("int", SocketValue::Int(int))
+			.set_data("float", SocketValue::Float(float))
+			.set_data("bool", SocketValue::Bool(boolean)))
 	}
 }
 
@@ -262,6 +280,9 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(out.data.get("result"), Some(&SocketValue::Json(serde_json::json!(20))));
+		assert_eq!(out.data.get("exists"), Some(&SocketValue::Bool(true)));
+		assert_eq!(out.data.get("int"), Some(&SocketValue::Int(20)));
+		assert_eq!(out.data.get("float"), Some(&SocketValue::Float(20.0)));
 
 		let inputs: InputMap = [("value".into(), value.clone()), ("path".into(), SocketValue::String("a.c".into()))]
 			.into_iter()
@@ -276,6 +297,7 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(out.data.get("result"), Some(&SocketValue::Json(serde_json::json!("hi"))));
+		assert_eq!(out.data.get("string"), Some(&SocketValue::String("hi".into())));
 
 		let inputs: InputMap = [("value".into(), value), ("path".into(), SocketValue::String("a.missing".into()))]
 			.into_iter()
@@ -290,6 +312,8 @@ mod tests {
 			.await
 			.unwrap();
 		assert_eq!(out.data.get("result"), Some(&SocketValue::Json(serde_json::Value::Null)));
+		assert_eq!(out.data.get("exists"), Some(&SocketValue::Bool(false)));
+		assert_eq!(out.data.get("string"), Some(&SocketValue::String(String::new())));
 	}
 
 	#[tokio::test]
@@ -341,4 +365,27 @@ mod tests {
 		assert_eq!(result.code.as_deref(), Some("json.parse"));
 		assert!(result.error.as_deref().unwrap().contains("JSON parse error"));
 	}
+}
+
+/// Build structured string fields without concatenating or reparsing JSON text.
+pub struct JsonSetStringNode;
+impl NodeDescriptor for JsonSetStringNode {
+    fn describe(&self) -> NodeSpec {
+        NodeSpec { feature: "flowgraph.json.set_string".into(), title: "JSON Set String".into(), category: "json".into(),
+            description: Some("JSON objectの指定キーへ文字列を設定。キーはパスではなく文字通り扱う。元の他の項目は保持。".into()),
+            inputs: vec![PortSpec::input("object", "Object", SocketType::Json).with_default(SocketValue::Json(serde_json::json!({}))),
+                PortSpec::input("key", "Key", SocketType::String), PortSpec::input("value", "Value", SocketType::String)],
+            outputs: vec![PortSpec::output("result", "Object", SocketType::Json)], properties: vec![] }
+    }
+}
+#[async_trait]
+impl PureNode for JsonSetStringNode {
+    async fn compute(&self, _: &crate::flowgraph::node::PureEvalHost, _: &InputMap, inputs: &InputMap, _: &ExecFireSet) -> Result<NodeOutput, NodeExecError> {
+        let mut object = get_required_json(inputs, "object")?.clone();
+        let key = get_required_string(inputs, "key")?;
+        let value = get_required_string(inputs, "value")?;
+        let map = object.as_object_mut().ok_or_else(|| NodeExecError::Generic(anyhow::anyhow!("json.set_string requires an object")))?;
+        map.insert(key, serde_json::Value::String(value));
+        Ok(NodeOutput::new().set_data("result", SocketValue::Json(object)))
+    }
 }

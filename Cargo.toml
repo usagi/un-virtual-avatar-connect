@@ -1,15 +1,29 @@
 [package]
+rust-version = "1.100"
 name = "virtual-avatar-connect"
-version = "0.10.0"
-edition = "2021"
+version = "2.0.0"
+edition = "2024"
 build = "build.rs"
 autobins = false
 default-run = "virtual-avatar-connect-desktop"
 
 [workspace]
-members = [".", "crates/vac-gui-assets", "crates/vac-motion", "crates/vac-flowgraph", "crates/vac-core"]
+members = [
+ ".",
+ "crates/vac-gui-assets",
+ "crates/vac-motion",
+ "crates/vac-flowgraph",
+ "crates/vac-core",
+ "crates/vac-ocr-paddle-sys",
+ "crates/vac-ocr-paddle-eval",
+ "crates/vac-ocr-onnx-eval",
+ "crates/vac-english2kana-worker",
+ "crates/vac-stt-protocol",
+ "crates/vac-stt-whisper-worker",
+ "xtask",
+]
 default-members = ["."]
-resolver = "2"
+resolver = "3"
 
 [lib]
 name = "virtual_avatar_connect"
@@ -28,6 +42,11 @@ path = "src/bin/desktop.rs"
 name = "virtual-avatar-connect-migrate-dict"
 path = "src/bin/migrate_dict.rs"
 required-features = ["tools"]
+
+[[bin]]
+name = "vac-stt-eval"
+path = "src/bin/stt_eval.rs"
+required-features = ["tools", "voice-vosk"]
 
 [dependencies]
 anyhow = "1.0.102"
@@ -80,7 +99,6 @@ unic-langid = "0.9.6"
 async-tempfile = "0.7.0"
 mime = "0.3.17"
 mime_guess = "2.0.5"
-alkana-rs = "0.1.0"
 whatlang = "0.18.0"
 isolang = { version = "2.4.0", features = ["list_languages"] }
 os_info = "3.14.0"
@@ -95,13 +113,16 @@ twitch-irc = "6.0.0"
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
 futures-util = "0.3"
 csv = "1.4.0"
+feed-rs = "2.3.1"
 rmp-serde = "1.3"
+rusqlite = { version = "0.37", features = ["bundled"] }
 # キャッシュパス・LibreTranslate embed 展開
 dirs = "6.0"
 # LibreTranslate: embeddable Python zip 展開
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
 # 《Voice》: マイク入力（Vosk / Whisper 共通）
 cpal = "0.17"
+hound = { version = "3.5.1", optional = true }
 shlex = "1.3.0"
 # η: 辞書 Table content-hash（Stateful Replace/Match のキャッシュ識別）
 blake3 = "1.8"
@@ -114,29 +135,39 @@ eventsource-stream = "0.2"
 # χ-2: `sse::stream_events` の公開シグネチャで `bytes::Bytes` を名前付きで使うため直接依存を宣言。
 # reqwest / eventsource-stream が推移的に依存しているので追加コストは実質ゼロ。
 bytes = "1"
+calamine = "0.32"
 jiff = { version = "0.2.24", features = ["serde"] }
 vac-motion = { path = "crates/vac-motion" }
+un-motion-frame = "1.1.0"
+un-motion-frame-zenoh = { version = "1.1.0", features = ["zenoh-transport"] }
+zenoh = "1.9.0"
 vac-flowgraph = { path = "crates/vac-flowgraph" }
 vac-core = { path = "crates/vac-core" }
 vac-gui-assets = { path = "crates/vac-gui-assets", optional = true }
+vac-stt-protocol = { path = "crates/vac-stt-protocol", optional = true }
 
 [dependencies.vosk]
 version = "0.3.1"
 optional = true
 
 [features]
-# 《Voice》: 既定で Vosk を含む（プロセッサー `voice` のデフォルトエンジン）。除外する場合は `cargo build --no-default-features`
-default = ["voice-vosk"]
+# Debug-only local desktop callback verification; excluded from normal builds.
+desktop-native-review = []
+# 《Voice》: 通常の開発起動でもVoskと外部Whisper worker IPCを扱える。GPU/native runtimeはworker側に分離されている。
+default = ["voice-vosk", "voice-whisper"]
 # v2 Step 6: `vac-gui-assets` 経由で `gui/dist` を取り込み `/gui/*` をメモリ配信。事前に `cd gui && npm ci && npm run build` が必須。
 embed-gui = ["dep:vac-gui-assets"]
 # 明示ビルド用 tool。通常の `cargo build --release` では CLI / desktop runner だけを作る。
-tools = []
+tools = ["dep:hound"]
 # 《Voice》: Vosk。Windows では build.rs が vosk-win64 の zip を .vendors にキャッシュし DLL を target/{profile}/ へコピー（上書き: VOSK_LIB_PATH）
 voice-vosk = ["dep:vosk"]
-# 《Voice》: Whisper（whisper.cpp）。CMake・LLVM（libclang）・C++ が必要: `cargo build --features voice-whisper`
-voice-whisper = ["dep:whisper-rs"]
+# 《Voice》: 外部Whisper workerとのIPC。whisper.cppやGPU runtimeは本体へlinkしない。
+voice-whisper = ["dep:vac-stt-protocol"]
+# 《Voice》: 本体から分離したWhisper workerを直接評価する開発用feature。
+stt-eval-whisper = ["dep:whisper-rs"]
+stt-eval-whisper-cuda = ["stt-eval-whisper", "whisper-rs/cuda"]
 
-# 《Voice》 Whisper 用（--features voice-whisper）
+# 《Voice》 stt-evalからwhisper.cppを直接評価する開発用途のみ。
 [dependencies.whisper-rs]
 version = "0.16.0"
 optional = true
@@ -145,6 +176,8 @@ features = ["log_backend"]
 # Windows Only
 [target.'cfg(windows)'.dependencies]
 win-screenshot = "4.0.14"
+webview2-com = "0.38.2"
+winrt-notification = "0.5.1"
 tauri = { version = "2.10.3", default-features = true, features = ["tray-icon", "image-png"] }
 windows = { version = "0.62", features = [
  "Media_Ocr",

@@ -176,7 +176,17 @@ impl NodeRegistry {
 }
 
 pub fn infer_capabilities(feature: &str, category: &str, effect_class: &str) -> Vec<&'static str> {
+	// Analysis performs network/credential access even though its lifecycle is stateful.
+	if feature == "flowgraph.ai.analyze" {
+		return vec!["network", "credential_access"];
+	}
 	if effect_class != "effectful" {
+		if feature == "flowgraph.ingress.file_watch" {
+			return vec!["file_watch"];
+		}
+		if feature == "flowgraph.ingress.unmfz" {
+			return vec!["network"];
+		}
 		return Vec::new();
 	}
 	let mut caps = Vec::new();
@@ -186,18 +196,41 @@ pub fn infer_capabilities(feature: &str, category: &str, effect_class: &str) -> 
 		}
 	};
 
-	if feature == "flowgraph.table.load_tsv" {
+	if feature == "flowgraph.table.load_tsv" || feature == "flowgraph.table.load_xlsx" {
 		add("file_read");
+	}
+	if feature == "flowgraph.table.load_google_sheet_public" {
+		add("network");
+	}
+	if feature == "flowgraph.table.load_google_sheet_auth" {
+		add("network");
+		add("credential_access");
 	}
 	if feature == "flowgraph.table.write_tsv" {
 		add("file_write");
 	}
+	if feature.starts_with("flowgraph.file.read_") {
+		add("file_read");
+	}
+	if feature.starts_with("flowgraph.file.write_") {
+		add("file_write");
+	}
+	if feature == "flowgraph.db.sqlite.query" {
+		add("file_read");
+		add("db_read");
+	}
 	if feature.starts_with("flowgraph.http.") || feature.starts_with("flowgraph.translate.") {
+		add("network");
+	}
+	if feature.starts_with("flowgraph.web.") {
 		add("network");
 	}
 	if feature.starts_with("flowgraph.obs.") {
 		add("network");
 		add("obs_control");
+	}
+	if feature.starts_with("flowgraph.notify.") {
+		add("desktop_notification");
 	}
 	if feature.starts_with("flowgraph.twitch.") {
 		add("network");
@@ -208,6 +241,10 @@ pub fn infer_capabilities(feature: &str, category: &str, effect_class: &str) -> 
 	}
 	if feature.starts_with("flowgraph.osc.") || feature.starts_with("flowgraph.vmc.") || feature.starts_with("flowgraph.vrchat.") {
 		add("network");
+	}
+	if feature.starts_with("flowgraph.un.app.command") || feature.starts_with("flowgraph.un.app.event") {
+		add("network");
+		add("app_control");
 	}
 	if feature.starts_with("flowgraph.process.") {
 		add("process_control");
@@ -220,6 +257,10 @@ pub fn infer_capabilities(feature: &str, category: &str, effect_class: &str) -> 
 	}
 	if feature.starts_with("flowgraph.tts.") {
 		add("audio_output");
+	}
+	if feature == "flowgraph.audio.play" {
+		add("audio_output");
+		add("file_read");
 	}
 	if category == "log" || feature == "flowgraph.util.log" {
 		add("trace_write");
@@ -236,12 +277,27 @@ pub fn default_registry() -> NodeRegistry {
 	r.register_pure(Arc::new(nodes::literal::IntLiteralNode));
 	r.register_pure(Arc::new(nodes::literal::FloatLiteralNode));
 	r.register_pure(Arc::new(nodes::literal::StringLiteralNode));
+	r.register_pure(Arc::new(nodes::literal::StringListLiteralNode));
 	// --- library boundary (Phase λ) ---
-	r.register_pure(Arc::new(nodes::library_boundary::LibraryInputNode));
-	r.register_pure(Arc::new(nodes::library_boundary::LibraryOutputNode));
 	r.register_pure(Arc::new(nodes::literal::JsonLiteralNode));
 
 	// --- flow ---
+	for (suffix, ty) in [
+		("string", crate::flowgraph::socket::SocketType::String),
+		("json", crate::flowgraph::socket::SocketType::Json),
+		("int", crate::flowgraph::socket::SocketType::Int),
+		("float", crate::flowgraph::socket::SocketType::Float),
+		("bool", crate::flowgraph::socket::SocketType::Bool),
+		("table", crate::flowgraph::socket::SocketType::Table),
+		("bytes", crate::flowgraph::socket::SocketType::Bytes),
+		("quantity", crate::flowgraph::socket::SocketType::Quantity),
+		("datetime", crate::flowgraph::socket::SocketType::DateTime),
+		("motion_frame", crate::flowgraph::socket::SocketType::MotionFrame),
+		("unmf", crate::flowgraph::socket::SocketType::Unmf),
+	] {
+		r.register_effectful(Arc::new(nodes::event_merge::EventMergeNode::new(suffix, ty)));
+	}
+	r.register_pure(Arc::new(nodes::control_input::ControlInputNode));
 	r.register_pure(Arc::new(nodes::flow::BranchNode));
 	r.register_pure(Arc::new(nodes::flow::GateNode));
 	// --- mode (RM-2 / RM-5) ---
@@ -333,6 +389,10 @@ pub fn default_registry() -> NodeRegistry {
 	r.register_pure(Arc::new(nodes::math::FloatNormalizeAngleRad0To2piNode));
 	r.register_pure(Arc::new(nodes::math::FloatNormalizeAngleRadSignedNode));
 
+	// --- constants (RI-7) ---
+	r.register_pure(Arc::new(nodes::constants::ConstantsMathNode));
+	r.register_pure(Arc::new(nodes::constants::ConstantsPhysicsNode));
+
 	// --- easing (Phase o-2) ---
 	r.register_pure(Arc::new(nodes::easing::EasingApplyNode));
 
@@ -376,6 +436,7 @@ pub fn default_registry() -> NodeRegistry {
 	r.register_pure(Arc::new(nodes::string_ops::StringReplaceNode));
 	r.register_pure(Arc::new(nodes::string_ops::StringSplitNode));
 	r.register_pure(Arc::new(nodes::string_ops::StringJoinNode));
+	r.register_stateful(Arc::new(nodes::english_pronunciation::EnglishToKatakanaNode));
 
 	// --- regex_ops ---
 	r.register_pure(Arc::new(nodes::regex_ops::RegexReplaceNode));
@@ -388,19 +449,30 @@ pub fn default_registry() -> NodeRegistry {
 	r.register_pure(Arc::new(nodes::convert::StringToFloatNode));
 	r.register_pure(Arc::new(nodes::convert::IntToFloatNode));
 	r.register_pure(Arc::new(nodes::convert::FloatToIntNode));
+	r.register_pure(Arc::new(nodes::convert::JsonToTomlNode));
+	r.register_pure(Arc::new(nodes::convert::TomlToJsonNode));
+	r.register_pure(Arc::new(nodes::convert::TomlToRonNode));
+	r.register_pure(Arc::new(nodes::convert::RonToTomlNode));
+	r.register_pure(Arc::new(nodes::convert::JsonToMsgpackNode));
+	r.register_pure(Arc::new(nodes::convert::MsgpackToJsonNode));
 
 	// --- json_ops ---
 	r.register_pure(Arc::new(nodes::json_ops::JsonParseNode));
 	r.register_pure(Arc::new(nodes::json_ops::JsonTryParseNode));
 	r.register_pure(Arc::new(nodes::json_ops::JsonStringifyNode));
 	r.register_pure(Arc::new(nodes::json_ops::JsonGetNode));
+	r.register_pure(Arc::new(nodes::json_ops::JsonSetStringNode));
 
 	// --- bytes_ops ---
 	r.register_pure(Arc::new(nodes::bytes_ops::BytesFromBase64Node));
 	r.register_pure(Arc::new(nodes::bytes_ops::BytesToBase64Node));
 	r.register_pure(Arc::new(nodes::bytes_ops::BytesLenNode));
+	r.register_effectful(Arc::new(nodes::audio::AudioPlayNode));
+	r.register_pure(Arc::new(nodes::audio::AudioEnvelopeNode));
+	r.register_pure(Arc::new(nodes::audio::AudioPitchNode));
 
 	r.register_effectful(Arc::new(nodes::http::HttpRequestNode));
+	r.register_effectful(Arc::new(nodes::web::WebRssFetchNode));
 
 	// --- system ---
 	r.register_effectful(Arc::new(nodes::system::SystemCpuUsageNode));
@@ -425,20 +497,65 @@ pub fn default_registry() -> NodeRegistry {
 	// --- collection ---
 	r.register_pure(Arc::new(nodes::collection::ListLenNode));
 	r.register_pure(Arc::new(nodes::collection::ListGetNode));
+	r.register_pure(Arc::new(nodes::collection::StringListGetNode));
 	r.register_pure(Arc::new(nodes::collection::ListIsEmptyNode));
+	r.register_pure(Arc::new(nodes::collection::ListRangeNode));
+	r.register_pure(Arc::new(nodes::collection::ListSliceNode));
+	r.register_pure(Arc::new(nodes::collection::ListMapJsonGetNode));
+	r.register_pure(Arc::new(nodes::collection::ListFilterJsonEqNode));
+	r.register_pure(Arc::new(nodes::collection::ListWindowNode));
+	r.register_pure(Arc::new(nodes::collection::ListAggregateNumbersNode));
+	r.register_pure(Arc::new(nodes::collection::ListSortJsonNode));
+	r.register_pure(Arc::new(nodes::collection::ListTopKJsonNode));
+	r.register_pure(Arc::new(nodes::collection::ListBinarySearchJsonNode));
 	r.register_pure(Arc::new(nodes::collection::MapGetNode));
 	r.register_pure(Arc::new(nodes::collection::MapKeysNode));
 	r.register_pure(Arc::new(nodes::collection::MapHasNode));
+	r.register_pure(Arc::new(nodes::collection::DictionaryFromEntriesNode));
+	r.register_pure(Arc::new(nodes::collection::DictionaryGetNode));
+	r.register_pure(Arc::new(nodes::collection::DictionarySetNode));
+	r.register_pure(Arc::new(nodes::collection::DictionaryRemoveNode));
+	r.register_pure(Arc::new(nodes::collection::DictionaryKeysNode));
+	r.register_pure(Arc::new(nodes::collection::DictionaryHasNode));
+	r.register_stateful(Arc::new(nodes::collection_buffer::RingBufferNode));
+	r.register_stateful(Arc::new(nodes::collection_buffer::DequeNode));
+	r.register_stateful(Arc::new(nodes::collection_buffer::ReservoirSampleNode));
+	r.register_stateful(Arc::new(nodes::collection_buffer::PriorityQueueNode));
+	r.register_pure(Arc::new(nodes::physics::PhysicsDamperNode));
+	r.register_pure(Arc::new(nodes::physics::PhysicsGravityNode));
+	r.register_stateful(Arc::new(nodes::physics::PhysicsSpringNode));
+	r.register_stateful(Arc::new(nodes::physics::PhysicsIntegratorNode));
 
 	// --- command ---
 	r.register_pure(Arc::new(nodes::command::CommandMatchNode));
+	r.register_pure(Arc::new(nodes::command_authorize::CommandAuthorizeNode));
 	r.register_effectful(Arc::new(nodes::command::CommandSetNode));
 
 	// --- table (η-2) ---
 	r.register_pure(Arc::new(nodes::table_ops::TableFromJsonNode));
 	r.register_pure(Arc::new(nodes::table_ops::TableToJsonNode));
+	r.register_pure(Arc::new(nodes::table_ops::TableConcatNode));
+	r.register_pure(Arc::new(nodes::table_ops::TableDrawNode));
+	r.register_effectful(Arc::new(nodes::table_ops::TableLoadGoogleSheetAuthNode));
+	r.register_effectful(Arc::new(nodes::table_ops::TableLoadGoogleSheetPublicNode));
 	r.register_effectful(Arc::new(nodes::table_ops::TableLoadTsvNode));
+	r.register_effectful(Arc::new(nodes::table_ops::TableLoadXlsxNode));
 	r.register_effectful(Arc::new(nodes::table_ops::TableWriteTsvNode));
+
+	// --- resident file I/O (RI-0 first slice) ---
+	r.register_effectful(Arc::new(nodes::file_io::FileReadStringNode));
+	r.register_effectful(Arc::new(nodes::file_io::FileReadBytesNode));
+	r.register_effectful(Arc::new(nodes::file_io::FileReadJsonNode));
+	r.register_effectful(Arc::new(nodes::file_io::FileReadTomlNode));
+	r.register_effectful(Arc::new(nodes::file_io::FileReadRonNode));
+	r.register_effectful(Arc::new(nodes::file_io::FileWriteStringNode));
+	r.register_effectful(Arc::new(nodes::file_io::FileWriteBytesNode));
+	r.register_effectful(Arc::new(nodes::file_io::FileWriteJsonNode));
+	r.register_effectful(Arc::new(nodes::file_io::FileWriteTomlNode));
+	r.register_effectful(Arc::new(nodes::file_io::FileWriteRonNode));
+
+	// --- database I/O (RI-10 first slice) ---
+	r.register_effectful(Arc::new(nodes::db_sqlite::SqliteQueryNode));
 
 	// --- glossary (η-3 / GRN) ---
 	r.register_stateful(Arc::new(nodes::dictionary::DictionaryReplaceNode));
@@ -450,18 +567,45 @@ pub fn default_registry() -> NodeRegistry {
 	r.register_pure(Arc::new(nodes::ingress::WebInputIngressNode));
 	r.register_pure(Arc::new(nodes::ingress::VoiceIngressNode));
 	r.register_pure(Arc::new(nodes::ingress::TwitchIngressNode));
+	r.register_pure(Arc::new(nodes::ingress::TwitchStreamStateIngressNode));
 	r.register_pure(Arc::new(nodes::ingress::TwitchEventsubIngressNode));
-	r.register_pure(Arc::new(nodes::ingress::ChannelSubscribeIngressNode));
+	r.register_pure(Arc::new(nodes::ingress::AiResponseIngressNode));
+	r.register_pure(Arc::new(nodes::ingress::AiSpeechIngressNode));
+	r.register_pure(Arc::new(nodes::ingress::AiAvatarIntentIngressNode));
+	r.register_pure(Arc::new(nodes::ingress::AiAvatarPoseIngressNode));
+	r.register_pure(Arc::new(nodes::ingress::FileWatchIngressNode));
 	r.register_pure(Arc::new(nodes::ingress::VmcUdpIngressNode));
 	r.register_pure(Arc::new(nodes::ingress::OscUdpIngressNode));
+	r.register_pure(Arc::new(nodes::ingress::UnmfzIngressNode));
+	r.register_pure(Arc::new(nodes::avatar::AvatarIntentToUnmfNode));
+	r.register_pure(Arc::new(nodes::avatar::AvatarPoseCatalogLookupNode));
+	r.register_effectful(Arc::new(nodes::avatar::AvatarIntentPlayUnmfzNode::default()));
+	r.register_effectful(Arc::new(nodes::avatar::AvatarPoseAssetPlayUnmfzNode::default()));
 	r.register_pure(Arc::new(nodes::motion_vmc::VmcParseNode));
 	r.register_pure(Arc::new(nodes::motion_vmc::MotionFilterNode));
 	r.register_pure(Arc::new(nodes::motion_vmc::MotionMapNode));
+	r.register_pure(Arc::new(nodes::un_app::UnAppStatusNode));
+	r.register_effectful(Arc::new(nodes::un_app::UnAppCommandNode));
+	r.register_effectful(Arc::new(nodes::un_app::UnAppEventNode));
+	r.register_effectful(Arc::new(nodes::un_app::UnAvatarCameraEffectNode));
+	r.register_pure(Arc::new(nodes::unmf::UnmfFromVmcNode));
+	r.register_pure(Arc::new(nodes::unmf::UnmfToVmcNode));
+	r.register_pure(Arc::new(nodes::unmf::UnmfzEncodeNode));
+	r.register_pure(Arc::new(nodes::unmf::UnmfzDecodeNode));
+	r.register_pure(Arc::new(nodes::unmf::UnmfzResolveEndpointNode));
+	r.register_pure(Arc::new(nodes::unmf::UnmfExtractBoneNode));
+	r.register_pure(Arc::new(nodes::unmf::UnmfExtractBlendshapeNode));
+	r.register_pure(Arc::new(nodes::unmf::UnmfFilterNode));
+	r.register_pure(Arc::new(nodes::unmf::UnmfMapNode));
+	r.register_effectful(Arc::new(nodes::unmf::UnmfzPublishNode::default()));
+	r.register_effectful(Arc::new(nodes::unmf::UnmfzSubscribeNode));
 	r.register_effectful(Arc::new(nodes::osc_send::OscSendNode));
+	r.register_effectful(Arc::new(nodes::notification::DesktopNotificationNode));
 	r.register_effectful(Arc::new(nodes::obs::ObsRequestNode));
 	r.register_effectful(Arc::new(nodes::obs::ObsSetCurrentProgramSceneNode));
 	r.register_effectful(Arc::new(nodes::obs::ObsGetCurrentProgramSceneNode));
 	r.register_effectful(Arc::new(nodes::obs::ObsSetSceneItemEnabledNode));
+	r.register_effectful(Arc::new(nodes::obs::ObsGetSourceScreenshotNode));
 	r.register_effectful(Arc::new(nodes::obs::ObsStartRecordNode));
 	r.register_effectful(Arc::new(nodes::obs::ObsStopRecordNode));
 	r.register_effectful(Arc::new(nodes::obs::ObsStartStreamNode));
@@ -495,6 +639,13 @@ pub fn default_registry() -> NodeRegistry {
 	r.register_stateful(Arc::new(nodes::signal_util::SampleHoldNode));
 	r.register_stateful(Arc::new(nodes::signal_util::DebounceNode));
 	r.register_stateful(Arc::new(nodes::signal_util::ThrottleNode));
+	r.register_pure(Arc::new(nodes::random_noise::PrngSequenceNode));
+	r.register_pure(Arc::new(nodes::random_noise::PrngUniformIntNode));
+	r.register_pure(Arc::new(nodes::random_noise::PrngUniformFloatNode));
+	r.register_pure(Arc::new(nodes::random_noise::DistNormalNode));
+	r.register_pure(Arc::new(nodes::random_noise::DistExponentialNode));
+	r.register_pure(Arc::new(nodes::random_noise::DistPoissonNode));
+	r.register_pure(Arc::new(nodes::random_noise::DistCategoricalNode));
 	r.register_pure(Arc::new(nodes::random_noise::RandomUniformIntNode));
 	r.register_pure(Arc::new(nodes::random_noise::RandomUniformFloatNode));
 	r.register_pure(Arc::new(nodes::random_noise::RandomNormalNode));
@@ -516,10 +667,15 @@ pub fn default_registry() -> NodeRegistry {
 	r.register_effectful(Arc::new(nodes::tts::TtsSpeakNode));
 
 	// --- twitch (δ-4d, ζ-1) ---
+	r.register_effectful(Arc::new(nodes::ai::AiObserveNode));
+	r.register_stateful(Arc::new(nodes::ai_task::AiAnalyzeNode));
 	r.register_effectful(Arc::new(nodes::twitch::GetTokenNode));
 	r.register_effectful(Arc::new(nodes::twitch::ValidateTokenNode));
 	r.register_effectful(Arc::new(nodes::twitch::UserIdByLoginNode));
 	r.register_effectful(Arc::new(nodes::twitch::ChatSendNode));
+	r.register_stateful(Arc::new(nodes::twitch_notice::TwitchNoticeNode));
+	r.register_stateful(Arc::new(nodes::twitch_clip::ClipCommandNode));
+	r.register_effectful(Arc::new(nodes::twitch_clip::RandomClipNode));
 	r.register_effectful(Arc::new(nodes::twitch::BanNode));
 	r.register_effectful(Arc::new(nodes::twitch::TimeoutNode));
 	r.register_effectful(Arc::new(nodes::twitch::AdRunNode));
@@ -537,8 +693,8 @@ pub fn default_registry() -> NodeRegistry {
 	r.register_effectful(Arc::new(nodes::twitch::PredictionEndNode));
 	r.register_effectful(Arc::new(nodes::twitch::GoalsGetNode));
 
-	// δ-9 Part C: channel.emit (Flowgraph → State.channel_data 終端)
-	r.register_effectful(Arc::new(nodes::channel::ChannelEmitNode));
+	// BOS / WS互換の明示出力終端
+	r.register_effectful(Arc::new(nodes::channel::BosOutputNode));
 
 	r
 }
@@ -594,9 +750,35 @@ mod tests {
 			"flowgraph.list.len",
 			"flowgraph.list.get",
 			"flowgraph.list.is_empty",
+			"flowgraph.list.range",
+			"flowgraph.list.slice",
+			"flowgraph.list.map_json_get",
+			"flowgraph.list.filter_json_eq",
+			"flowgraph.list.window",
+			"flowgraph.list.aggregate_numbers",
+			"flowgraph.list.sort_json",
+			"flowgraph.list.top_k_json",
+			"flowgraph.list.binary_search_json",
 			"flowgraph.map.get",
 			"flowgraph.map.keys",
 			"flowgraph.map.has",
+			"flowgraph.dictionary.from_entries",
+			"flowgraph.dictionary.get",
+			"flowgraph.dictionary.set",
+			"flowgraph.dictionary.remove",
+			"flowgraph.dictionary.keys",
+			"flowgraph.dictionary.has",
+			"flowgraph.collection.ring_buffer",
+			"flowgraph.collection.deque",
+			"flowgraph.collection.reservoir_sample",
+			"flowgraph.collection.priority_queue",
+			"flowgraph.audio.play",
+			"flowgraph.audio.envelope",
+			"flowgraph.audio.pitch",
+			"flowgraph.physics.damper",
+			"flowgraph.physics.gravity",
+			"flowgraph.physics.spring",
+			"flowgraph.physics.integrator",
 			"flowgraph.state.bool",
 			"flowgraph.state.int_counter",
 			"flowgraph.state.latch",
@@ -609,6 +791,13 @@ mod tests {
 			"flowgraph.util.sample_hold",
 			"flowgraph.util.debounce",
 			"flowgraph.util.throttle",
+			"flowgraph.prng.sequence",
+			"flowgraph.prng.uniform_int",
+			"flowgraph.prng.uniform_float",
+			"flowgraph.dist.normal",
+			"flowgraph.dist.exponential",
+			"flowgraph.dist.poisson",
+			"flowgraph.dist.categorical",
 			"flowgraph.random.uniform_int",
 			"flowgraph.random.uniform_float",
 			"flowgraph.random.normal",
@@ -616,8 +805,6 @@ mod tests {
 			"flowgraph.noise.perlin_2d",
 			"flowgraph.util.log",
 			"flowgraph.tts.speak",
-			"flowgraph.library.input",
-			"flowgraph.library.output",
 			"flowgraph.twitch.chat_send",
 			"flowgraph.twitch.get_token",
 			"flowgraph.twitch.validate_token",
@@ -643,10 +830,16 @@ mod tests {
 			"flowgraph.ingress.web_input",
 			"flowgraph.ingress.voice",
 			"flowgraph.ingress.twitch",
+			"flowgraph.ingress.twitch_stream_state",
 			"flowgraph.ingress.twitch_eventsub",
-			"flowgraph.ingress.channel_subscribe",
+			"flowgraph.ingress.ai_response",
+			"flowgraph.ingress.ai_speech",
+			"flowgraph.ingress.ai_avatar_intent",
+			"flowgraph.ingress.ai_avatar_pose",
 			"flowgraph.ingress.vmc_udp",
 			"flowgraph.ingress.osc_udp",
+			"flowgraph.ingress.unmfz",
+			"flowgraph.avatar.intent_to_unmf",
 			"flowgraph.motion.vmc_parse",
 			"flowgraph.motion.filter",
 			"flowgraph.motion.map",
@@ -670,7 +863,8 @@ mod tests {
 			"flowgraph.vrchat.avatar_parameter_bool",
 			"flowgraph.vrchat.chatbox_input",
 			"flowgraph.vrchat.chatbox_typing",
-			"flowgraph.channel.emit",
+			"flowgraph.ai.observe",
+			"flowgraph.bos.output",
 			"flowgraph.unit.assign",
 			"flowgraph.unit.convert",
 			"flowgraph.unit.strip",
@@ -743,6 +937,19 @@ mod tests {
 		let r = registry();
 		assert!(r.make_impl("flowgraph.does.not.exist").is_none());
 		assert!(r.spec("flowgraph.does.not.exist").is_none());
+	}
+
+	#[test]
+	fn removed_implicit_routing_features_are_not_public() {
+		let r = registry();
+		for feature in [
+			"flowgraph.channel.emit",
+			"flowgraph.ingress.channel_subscribe",
+			"flowgraph.library.input",
+			"flowgraph.library.output",
+		] {
+			assert!(!r.contains(feature), "removed feature remained public: {feature}");
+		}
 	}
 
 	#[test]

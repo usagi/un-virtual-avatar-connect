@@ -15,15 +15,21 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::ai::openai_responses::types::{
 	input::InputItem,
-	request::{NamedToolChoice, Tool, ToolChoice, ToolChoiceMode},
+	request::{AllowedToolRef, AllowedToolsChoice, NamedToolChoice, Tool, ToolChoice, ToolChoiceMode},
 	response::FunctionCallView,
 };
 use crate::conf::{TwitchEventSubConfig, TwitchModeratorConfig};
+use crate::control_events::{AiToolCallPhase, ControlEvent};
 use crate::state::{ChannelDatum, DataSource};
 use crate::SharedState;
+use vac_motion::avatar_intent::{avatar_intent_to_unmf, AvatarIntentMapperOptions, AvatarIntentRequest};
+
+const DEFAULT_AVATAR_INTENT_CHANNEL: &str = "avatar_intent";
+pub(crate) const AVATAR_INTENT_TOOL_NAME: &str = "vac_emit_avatar_intent";
 
 /// Phase IV: 蜑ｯ菴懃畑繧剃ｼｴ縺・ヤ繝ｼ繝ｫ縺ｫ貂｡縺吝ｮ溯｡後さ繝ｳ繝・く繧ｹ繝医・
 #[derive(Clone)]
@@ -32,6 +38,7 @@ pub(crate) struct ToolContext {
 	pub(crate) persona_label: String,
 	/// `vac_emit_effect` 縺ｧ `channel` 蠑墓焚縺檎┌縺・→縺阪↓菴ｿ縺・里螳壹・ VAC 繝√Ε繝ｳ繝阪Ν蜷阪・
 	pub(crate) effect_channel: String,
+	pub(crate) effect_allowed_channels: Option<Vec<String>>,
 	/// Helix 蜻ｼ縺ｳ蜃ｺ縺礼ｳｻ繝・・繝ｫ逕ｨ縲よ悴險ｭ螳壹・繝壹Ν繧ｽ繝翫〒縺ｯ Twitch 邉ｻ繝・・繝ｫ繧堤┌蜉ｹ蛹悶☆繧九・
 	pub(crate) twitch_eventsub: Option<Arc<TwitchEventSubConfig>>,
 	/// Phase V-c: 繝｢繝・Ξ繝ｼ繧ｷ繝ｧ繝ｳ邉ｻ・・AN / timeout / delete / chat・峨ヤ繝ｼ繝ｫ縺悟ｿ・ｦ√→縺吶ｋ繝懊ャ繝医い繧ｫ繧ｦ繝ｳ繝郁ｨｭ螳壹・
@@ -124,6 +131,101 @@ pub(crate) fn locally_dispatched_tool_names(tools: &[Tool]) -> HashSet<String> {
 		.collect()
 }
 
+pub(crate) fn validate_function_tool_schemas(tools: &[Tool], require_strict: bool) -> Result<()> {
+	for tool in tools {
+		let Tool::Function {
+			name, parameters, strict, ..
+		} = tool
+		else {
+			continue;
+		};
+		if require_strict && *strict != Some(true) {
+			bail!("function tool {name:?} は strict: true が必要です");
+		}
+		if *strict == Some(true) {
+			validate_strict_schema(parameters, &format!("tool[{name}].parameters"))?;
+		}
+	}
+	Ok(())
+}
+
+fn validate_strict_schema(schema: &Value, path: &str) -> Result<()> {
+	let Some(object) = schema.as_object() else {
+		bail!("{path} はJSON object schemaである必要があります");
+	};
+	let is_object = object.get("type").is_some_and(|value| match value {
+		Value::String(value) => value == "object",
+		Value::Array(values) => values.iter().any(|value| value.as_str() == Some("object")),
+		_ => false,
+	});
+	if is_object {
+		if object.get("additionalProperties") != Some(&Value::Bool(false)) {
+			bail!("{path}.additionalProperties は false が必要です");
+		}
+		let properties = object.get("properties").and_then(Value::as_object);
+		let required = object
+			.get("required")
+			.and_then(Value::as_array)
+			.map(|values| values.iter().filter_map(Value::as_str).collect::<HashSet<_>>())
+			.unwrap_or_default();
+		if let Some(properties) = properties {
+			for (name, child) in properties {
+				if !required.contains(name.as_str()) {
+					bail!("{path}.required に {name:?} がありません");
+				}
+				validate_strict_schema(child, &format!("{path}.properties.{name}"))?;
+			}
+		}
+	}
+	validate_strict_schema_children(schema, path)
+}
+
+fn validate_strict_schema_children(schema: &Value, path: &str) -> Result<()> {
+	let Some(object) = schema.as_object() else {
+		return Ok(());
+	};
+	if let Some(items) = object.get("items") {
+		validate_strict_schema(items, &format!("{path}.items"))?;
+	}
+	for keyword in ["anyOf", "oneOf", "allOf"] {
+		if let Some(items) = object.get(keyword).and_then(Value::as_array) {
+			for (index, item) in items.iter().enumerate() {
+				validate_strict_schema(item, &format!("{path}.{keyword}[{index}]"))?;
+			}
+		}
+	}
+	Ok(())
+}
+
+pub(crate) fn apply_allowed_tools(tools: &[Tool], allowed_names: &[String]) -> Result<(ToolChoice, HashSet<String>)> {
+	let by_name = tools
+		.iter()
+		.map(|tool| (tool.name(), tool))
+		.collect::<std::collections::HashMap<_, _>>();
+	let mut refs = Vec::with_capacity(allowed_names.len());
+	let mut local = HashSet::new();
+	for name in allowed_names {
+		let tool = by_name
+			.get(name.as_str())
+			.ok_or_else(|| anyhow::anyhow!("allowed_tools に未宣言tool {name:?} が指定されています"))?;
+		let (kind, ref_name) = match tool {
+			Tool::Function { .. } => ("function", Some(name.clone())),
+			Tool::Custom { .. } => ("custom", Some(name.clone())),
+			Tool::WebSearch { .. } => ("web_search", None),
+			Tool::FileSearch { .. } => ("file_search", None),
+			Tool::CodeInterpreter { .. } => ("code_interpreter", None),
+		};
+		refs.push(AllowedToolRef {
+			kind: kind.to_string(),
+			name: ref_name,
+		});
+		if tool.is_locally_dispatched() {
+			local.insert(name.clone());
+		}
+	}
+	Ok((ToolChoice::Allowed(AllowedToolsChoice::auto(refs)), local))
+}
+
 /// `openai_tool_choice` 文字列を [`ToolChoice`] に変換する。
 pub(crate) fn parse_tool_choice(s: &str) -> Result<ToolChoice> {
 	match s.trim().to_lowercase().as_str() {
@@ -161,6 +263,7 @@ pub(crate) async fn run_function_tool(name: &str, arguments: &str, ctx: &ToolCon
 			r#"{"ok":true,"tool":"vac_ping"}"#.to_string()
 		}
 		"vac_emit_effect" => action_emit_effect(arguments, ctx).await,
+		"vac_emit_avatar_intent" => action_emit_avatar_intent(arguments, ctx).await,
 		"vac_twitch_set_category" => action_twitch_set_category(arguments, ctx).await,
 		"vac_twitch_chat_say" => action_twitch_chat_say(arguments, ctx).await,
 		"vac_twitch_ban_user" => action_twitch_ban_user(arguments, ctx).await,
@@ -194,12 +297,61 @@ fn json_err(message: impl Into<String>) -> String {
 /// - `declared` に入っていない名前は即座に `{"error":"tool not declared...","name":"..."}` を返す
 /// - 宣言済みなら [`run_function_tool`] に委譲
 pub(crate) async fn dispatch_tool_call(call: FunctionCallView<'_>, declared: &HashSet<String>, ctx: &ToolContext) -> InputItem {
+	let argument_chars = call.arguments.chars().count();
+	emit_tool_call_event(ctx, AiToolCallPhase::Started, call.name, argument_chars, 0, None, None).await;
+	let started = Instant::now();
 	let output = if !declared.contains(call.name) {
 		json_tool_error("tool not declared in openai_tools_json", call.name)
 	} else {
 		run_function_tool(call.name, call.arguments, ctx).await
 	};
+	let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+	let (success, error) = tool_output_status(&output);
+	emit_tool_call_event(
+		ctx,
+		AiToolCallPhase::Completed,
+		call.name,
+		argument_chars,
+		elapsed_ms,
+		Some(success),
+		error,
+	)
+	.await;
 	InputItem::function_call_output(call.call_id, output)
+}
+
+async fn emit_tool_call_event(
+	ctx: &ToolContext,
+	phase: AiToolCallPhase,
+	tool_name: &str,
+	argument_chars: usize,
+	elapsed_ms: u64,
+	success: Option<bool>,
+	error: Option<String>,
+) {
+	let control_event_tx = ctx.state.read().await.control_event_tx.clone();
+	let _ = control_event_tx.send(ControlEvent::AiToolCall {
+		phase,
+		persona_id: ctx.persona_label.clone(),
+		tool_name: tool_name.to_string(),
+		argument_chars,
+		elapsed_ms,
+		success,
+		error,
+		observed_at: jiff::Timestamp::now().to_string(),
+	});
+}
+
+fn tool_output_status(output: &str) -> (bool, Option<String>) {
+	let Ok(value) = serde_json::from_str::<Value>(output) else {
+		return (false, Some("tool returned non-JSON output".to_string()));
+	};
+	let error = value
+		.get("error")
+		.and_then(Value::as_str)
+		.map(|message| message.chars().take(240).collect::<String>());
+	let success = value.get("ok").and_then(Value::as_bool).unwrap_or(error.is_none());
+	(success, error)
 }
 
 // ---------- Phase IV: Action impls ----------
@@ -213,6 +365,78 @@ pub(crate) async fn dispatch_tool_call(call: FunctionCallView<'_>, declared: &Ha
 /// - `channel`: 逵∫払譎ゅ・ `ToolContext::effect_channel`
 /// - `content`: 蠢・医よｼ泌・隴伜挨蟄舌ｄ繝・く繧ｹ繝医ゅヶ繝ｩ繧ｦ繧ｶ繧ｽ繝ｼ繧ｹ蛛ｴ縺ｧ隗｣驥医☆繧九・
 /// - `meta`: 莉ｻ諢上ＡChannelDatum::meta` 縺ｫ key=value 縺ｨ縺励※繧ｳ繝斐・縺吶ｋ・・Value::Object` 縺ｮ縺ｿ・峨・
+pub(crate) fn constrain_effect_channels(tools: &mut [Tool], allowed: Option<&[String]>, default_channel: &str) -> Result<()> {
+    let Some(allowed) = allowed else { return Ok(()); };
+    if allowed.is_empty() || allowed.iter().any(|c| c.trim().is_empty() || c.trim() != c) {
+        bail!("effect_allowed_channels must contain non-empty channel names without surrounding whitespace");
+    }
+    if !allowed.iter().any(|c| c == default_channel) {
+        bail!("effect_allowed_channels must include configured channel_effect {default_channel:?}");
+    }
+    for tool in tools {
+        let Tool::Function { name, parameters, description, .. } = tool else { continue; };
+        if name != "vac_emit_effect" { continue; }
+        if let Some(channel) = parameters.pointer_mut("/properties/channel") {
+            let nullable = channel["type"] == "null" || channel["type"].as_array().is_some_and(|types| types.iter().any(|t| t == "null"));
+            let mut choices: Vec<Value> = allowed.iter().map(|c| json!(c)).collect();
+            if nullable { choices.push(Value::Null); }
+            // A custom schema may already restrict destinations: never widen it.
+            if let Some(existing) = channel.get("enum").and_then(Value::as_array) {
+                choices.retain(|choice| existing.contains(choice));
+            }
+            if choices.is_empty() { bail!("vac_emit_effect channel schema and effect_allowed_channels do not overlap"); }
+            channel["enum"] = json!(choices);
+            channel["description"] = json!(format!("演出の送り先。許可先: {}。null/省略は{default_channel}。画面観測や発話の入力先へは送らない。",allowed.join(", ")));
+        }
+        let suffix = format!(" 設定された演出先: {}。既定: {default_channel}。観測情報の記録には使わない。", allowed.join(", "));
+        description.get_or_insert_with(String::new).push_str(&suffix);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod effect_destination_tests {
+    use super::*;
+    #[test]
+    fn effect_destination_schema_is_explicit_and_does_not_widen_custom_enum() {
+        let original: Tool = serde_json::from_value(json!({"type":"function","name":"vac_emit_effect","strict":true,
+            "parameters":{"type":"object","additionalProperties":false,"properties":{"channel":{"type":["string","null"]}},"required":["channel"]}})).unwrap();
+        let mut tools=vec![original.clone()];
+        constrain_effect_channels(&mut tools,None,"effect").unwrap();
+        assert_eq!(tools[0],original);
+        let allowed=vec!["effect".into(),"reaction".into()];
+        constrain_effect_channels(&mut tools,Some(&allowed),"effect").unwrap();
+        assert_eq!(serde_json::to_value(&tools[0]).unwrap()["parameters"]["properties"]["channel"]["enum"],json!(["effect","reaction",null]));
+        let narrower=vec!["effect".into()];
+        constrain_effect_channels(&mut tools,Some(&narrower),"effect").unwrap();
+        constrain_effect_channels(&mut tools,Some(&allowed),"effect").unwrap();
+        assert_eq!(serde_json::to_value(&tools[0]).unwrap()["parameters"]["properties"]["channel"]["enum"],json!(["effect",null]));
+        assert!(constrain_effect_channels(&mut tools,Some(&[]),"effect").is_err());
+        assert!(constrain_effect_channels(&mut tools,Some(&["reaction".into()]),"effect").is_err());
+        assert!(constrain_effect_channels(&mut tools,Some(&["effect".into()," reaction".into()]),"effect").is_err());
+    }
+    #[tokio::test]
+    async fn effect_destination_rejects_observation_writes_and_keeps_multiple_outputs() {
+        let mut conf: crate::Conf=toml::from_str("").unwrap();
+        conf.runtime_dir=Some(std::env::temp_dir().join(format!("vac_effect_dest_{}",rand::random::<u64>())));
+        let state=crate::State::new(&conf,Arc::new(tokio::sync::Mutex::new(crate::AudioSink::open_default().unwrap())),crate::shutdown::ShutdownBroker::new()).await.unwrap();
+        let ctx=ToolContext {state:state.clone(),persona_label:"test".into(),effect_channel:"effect".into(),effect_allowed_channels:Some(vec!["effect".into(),"reaction".into()]),twitch_eventsub:None,twitch_moderator:None,twitch_default_broadcaster_login:None};
+        for channel in ["obs:game_frame","user","ai"] {
+            let result=action_emit_effect(&json!({"channel":channel,"content":"not an observation"}).to_string(),&ctx).await;
+            assert!(serde_json::from_str::<Value>(&result).unwrap().get("error").is_some());
+        }
+        assert!(state.read().await.channel_data.read().await.is_empty());
+        for channel in [Value::Null,json!("reaction")] {
+            let result=action_emit_effect(&json!({"channel":channel,"content":"sparkle","meta":{"intensity":0.3}}).to_string(),&ctx).await;
+            assert_eq!(serde_json::from_str::<Value>(&result).unwrap()["ok"],true);
+        }
+        let shared=state.read().await;
+        let data=shared.channel_data.read().await;
+        assert_eq!(data.iter().map(|d|d.channel.as_str()).collect::<Vec<_>>(),vec!["effect","reaction"]);
+        assert!(data.iter().all(|d|d.source.as_ref().unwrap().kind=="ai"));
+    }
+}
+
 async fn action_emit_effect(arguments: &str, ctx: &ToolContext) -> String {
 	let args: Value = match serde_json::from_str(arguments) {
 		Ok(v) => v,
@@ -230,6 +454,10 @@ async fn action_emit_effect(arguments: &str, ctx: &ToolContext) -> String {
 		.map(|s| s.trim().to_string())
 		.filter(|s| !s.is_empty())
 		.unwrap_or_else(|| ctx.effect_channel.clone());
+
+    if ctx.effect_allowed_channels.as_ref().is_some_and(|allowed| !allowed.contains(&channel)) {
+        return json_err(format!("effect channel {channel:?} is not allowed; allowed destinations: {}", ctx.effect_allowed_channels.as_ref().unwrap().join(", ")));
+    }
 
 	let mut cd = ChannelDatum::new(channel.clone(), content.clone())
 		.with_flag(ChannelDatum::FLAG_IS_FINAL)
@@ -259,6 +487,81 @@ async fn action_emit_effect(arguments: &str, ctx: &ToolContext) -> String {
 	);
 	ctx.state.read().await.push_channel_datum(cd).await;
 	json_ok(json!({"ok": true, "tool": "vac_emit_effect", "channel": channel, "datum_id": id}))
+}
+
+async fn action_emit_avatar_intent(arguments: &str, ctx: &ToolContext) -> String {
+	let (channel, target_link_id, intent_count, cd) = match build_avatar_intent_datum(arguments, &ctx.persona_label) {
+		Ok(v) => v,
+		Err(e) => return json_err(e),
+	};
+	let id = cd.get_id();
+	log::info!(
+		"《AI[{}]》 action vac_emit_avatar_intent -> channel={} target_link_id={} intents={} (datum_id={})",
+		ctx.persona_label,
+		channel,
+		target_link_id,
+		intent_count,
+		id
+	);
+	ctx.state.read().await.push_channel_datum(cd).await;
+	json_ok(json!({
+		"ok": true,
+		"tool": "vac_emit_avatar_intent",
+		"channel": channel,
+		"target_link_id": target_link_id,
+		"intent_count": intent_count,
+		"datum_id": id,
+	}))
+}
+
+pub(crate) fn build_avatar_intent_datum(
+	arguments: &str,
+	persona_label: &str,
+) -> std::result::Result<(String, String, usize, ChannelDatum), String> {
+	let args: Value = serde_json::from_str(arguments).map_err(|e| format!("invalid arguments JSON: {e}"))?;
+	let channel = args
+		.get("channel")
+		.and_then(|v| v.as_str())
+		.map(|s| s.trim().to_string())
+		.filter(|s| !s.is_empty())
+		.unwrap_or_else(|| DEFAULT_AVATAR_INTENT_CHANNEL.to_string());
+	let request: AvatarIntentRequest = serde_json::from_value(args.clone()).map_err(|e| format!("invalid AvatarIntent JSON: {e}"))?;
+	let Some(target_link_id) = request
+		.target_link_id
+		.as_deref()
+		.map(str::trim)
+		.filter(|s| !s.is_empty())
+		.map(str::to_string)
+	else {
+		return Err("target_link_id is required for vac_emit_avatar_intent".to_string());
+	};
+	if request.intents.is_empty() {
+		return Err("intents must contain at least one avatar intent".to_string());
+	}
+	if let Err(e) = avatar_intent_to_unmf(&request, &AvatarIntentMapperOptions::default()) {
+		return Err(e);
+	}
+	let content = serde_json::to_string(&request).map_err(|e| format!("failed to serialize AvatarIntent: {e}"))?;
+	let mut cd = ChannelDatum::new(channel.clone(), content)
+		.with_flag(ChannelDatum::FLAG_IS_FINAL)
+		.with_source(
+			DataSource::new("ai")
+				.with_subtype("action.emit_avatar_intent")
+				.with_actor(persona_label),
+		)
+		.with_meta("source_actor", persona_label.to_string())
+		.with_meta("target_link_id", target_link_id.clone())
+		.with_meta("intent_count", request.intents.len() as i64)
+		.with_meta("schema", "unvac.avatar_intent.v1");
+	if let Some(meta) = args.get("meta").and_then(|v| v.as_object()) {
+		for (k, v) in meta {
+			if matches!(k.as_str(), "source_actor" | "target_link_id" | "intent_count" | "schema") {
+				continue;
+			}
+			cd = cd.with_meta(k, v.clone());
+		}
+	}
+	Ok((channel, target_link_id, request.intents.len(), cd))
 }
 
 /// `vac_twitch_set_category`: Helix `PATCH /channels` 縺ｧ驟堺ｿ｡繧ｫ繝・ざ繝ｪ繝ｼ繧貞､画峩縺吶ｋ縲・
@@ -805,6 +1108,138 @@ mod tests {
 	}
 
 	#[test]
+	fn parse_tools_accepts_distributed_example_tools_json() {
+		let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("conf.example-openai-tools.json");
+		let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{} を読めない: {e}", path.display()));
+		let tools = parse_tools_json(&text).unwrap_or_else(|e| panic!("conf.example-openai-tools.json を parse できない: {e}"));
+		validate_function_tool_schemas(&tools, true)
+			.unwrap_or_else(|e| panic!("conf.example-openai-tools.json がstrict schemaではない: {e}"));
+		let names = declared_tool_names(&tools);
+		assert!(names.contains("vac_ping"));
+		assert!(names.contains("vac_emit_effect"));
+		assert!(names.contains("vac_emit_avatar_intent"));
+	}
+
+	#[test]
+	fn strict_schema_validation_rejects_optional_property_shape() {
+		let tools = vec![Tool::function(
+			"unsafe_shape",
+			json!({
+				"type": "object",
+				"properties": {"optional": {"type": "string"}},
+				"required": [],
+				"additionalProperties": false
+			}),
+			None,
+			Some(true),
+		)];
+		assert!(validate_function_tool_schemas(&tools, true).is_err());
+	}
+
+	#[test]
+	fn allowed_tools_builds_api_choice_and_local_defense_set() {
+		let tools = vec![
+			Tool::function(
+				"vac_ping",
+				json!({"type":"object","properties":{},"required":[],"additionalProperties":false}),
+				None,
+				Some(true),
+			),
+			Tool::WebSearch {
+				user_location: None,
+				search_context_size: None,
+			},
+		];
+		let allowed = vec!["vac_ping".to_string(), "web_search".to_string()];
+		let (choice, local) = apply_allowed_tools(&tools, &allowed).unwrap();
+		let value = serde_json::to_value(choice).unwrap();
+		assert_eq!(value["type"], "allowed_tools");
+		assert_eq!(value["mode"], "auto");
+		assert_eq!(value["tools"][0]["name"], "vac_ping");
+		assert_eq!(value["tools"][1]["type"], "web_search");
+		assert!(local.contains("vac_ping"));
+		assert!(!local.contains("web_search"));
+	}
+
+	#[test]
+	fn build_avatar_intent_datum_outputs_final_channel_datum() {
+		let raw = r#"{
+		 "target_link_id": "kaltsit_ai",
+		 "intents": [
+		  {"kind": "expression", "name": "concerned", "intensity": 0.45, "duration_ms": 1200}
+		 ],
+		 "meta": {"reason": "comment_reaction"}
+		}"#;
+		let (channel, target, count, cd) = build_avatar_intent_datum(raw, "Kaltsit").unwrap();
+		assert_eq!(channel, "avatar_intent");
+		assert_eq!(target, "kaltsit_ai");
+		assert_eq!(count, 1);
+		assert_eq!(cd.channel, "avatar_intent");
+		assert!(cd.has_flag(ChannelDatum::FLAG_IS_FINAL));
+		assert_eq!(cd.meta_get("source_actor").and_then(|v| v.as_str()), Some("Kaltsit"));
+		assert_eq!(cd.meta_get("target_link_id").and_then(|v| v.as_str()), Some("kaltsit_ai"));
+		assert_eq!(cd.meta_get("reason").and_then(|v| v.as_str()), Some("comment_reaction"));
+		let request: AvatarIntentRequest = serde_json::from_str(&cd.content).unwrap();
+		assert_eq!(request.target_link_id.as_deref(), Some("kaltsit_ai"));
+		assert_eq!(request.intents.len(), 1);
+	}
+
+	#[test]
+	fn build_avatar_intent_datum_protects_reserved_meta() {
+		let raw = r#"{
+		 "target_link_id": "kaltsit_ai",
+		 "intents": [
+		  {"kind": "expression", "name": "concerned", "intensity": 0.45}
+		 ],
+		 "meta": {
+		  "source_actor": "spoofed",
+		  "target_link_id": "other",
+		  "schema": "spoofed",
+		  "intent_count": 999
+		 }
+		}"#;
+		let (_, _, _, cd) = build_avatar_intent_datum(raw, "Kaltsit").unwrap();
+		assert_eq!(cd.meta_get("source_actor").and_then(|v| v.as_str()), Some("Kaltsit"));
+		assert_eq!(cd.meta_get("target_link_id").and_then(|v| v.as_str()), Some("kaltsit_ai"));
+		assert_eq!(cd.meta_get("schema").and_then(|v| v.as_str()), Some("unvac.avatar_intent.v1"));
+		assert_eq!(cd.meta_get("intent_count").and_then(|v| v.as_i64()), Some(1));
+	}
+
+	#[test]
+	fn avatar_reaction_presets_example_maps_to_unmf() {
+		let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("avatar-reaction-presets.example.json");
+		let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{} を読めない: {e}", path.display()));
+		let root: Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("avatar reaction preset JSON を parse できない: {e}"));
+		assert_eq!(
+			root.get("schema").and_then(|v| v.as_str()),
+			Some("unvac.avatar_reaction_presets.v1")
+		);
+		let target_link_id = root
+			.get("target_link_id")
+			.and_then(|v| v.as_str())
+			.unwrap_or("kaltsit_ai")
+			.to_string();
+		let presets = root
+			.get("presets")
+			.and_then(|v| v.as_object())
+			.expect("avatar reaction presets must contain object `presets`");
+		assert!(presets.contains_key("channel_point_surprise"));
+		for (name, preset) in presets {
+			let intents = preset
+				.get("intents")
+				.cloned()
+				.unwrap_or_else(|| panic!("preset `{name}` has no intents"));
+			let request = AvatarIntentRequest {
+				target_link_id: Some(target_link_id.clone()),
+				intents: serde_json::from_value(intents).unwrap_or_else(|e| panic!("preset `{name}` intents are invalid: {e}")),
+			};
+			assert!(!request.intents.is_empty(), "preset `{name}` has no intents");
+			avatar_intent_to_unmf(&request, &AvatarIntentMapperOptions::default())
+				.unwrap_or_else(|e| panic!("preset `{name}` does not map to UNMF: {e}"));
+		}
+	}
+
+	#[test]
 	fn parse_tools_rejects_malformed_function() {
 		let j = r#"[{"type":"function","function":{}}]"#;
 		assert!(parse_tools_json(j).is_err());
@@ -862,6 +1297,19 @@ mod tests {
 		let v: Value = serde_json::from_str(&s).unwrap();
 		assert_eq!(v["error"], "tool not declared in openai_tools_json");
 		assert_eq!(v["name"], "unauthorized_fn");
+	}
+
+	#[test]
+	fn tool_output_status_reports_json_success_and_error_without_exposing_output() {
+		assert_eq!(tool_output_status(r#"{"ok":true,"datum_id":42}"#), (true, None));
+		assert_eq!(
+			tool_output_status(r#"{"ok":false,"error":"target_link_id is required"}"#),
+			(false, Some("target_link_id is required".to_string()))
+		);
+		assert_eq!(
+			tool_output_status(r#"{"error":"tool not declared","name":"unsafe"}"#),
+			(false, Some("tool not declared".to_string()))
+		);
 	}
 
 	#[test]

@@ -8,13 +8,20 @@
 
 use crate::bridges::voice::FlowgraphVoiceIngress;
 use crate::flowgraph::node::TriggerHandle;
-use crate::processor::voice::{VoiceIngress, VoiceSink};
+use crate::processor::voice::{
+	record_voice_worker_error, record_voice_worker_final, record_voice_worker_partial, set_voice_worker_backend, voice_worker_status,
+	VoiceIngress, VoiceSink,
+};
+use crate::processor::voice_partial_preview::VoicePartialPreview;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use vosk::{CompleteResult, DecodingState, Model, Recognizer};
+
+pub(crate) const VOSK_SAMPLE_RATE: u32 = 16_000;
+pub(crate) const VOSK_CHUNK_SAMPLES: usize = 3_200;
 
 /// `flowgraph.ingress.voice` (engine=vosk) 経路の Vosk ワーカー起動。
 ///
@@ -23,6 +30,10 @@ pub(crate) fn spawn_from_flowgraph(
 	ingress: &FlowgraphVoiceIngress,
 	tokio_handle: tokio::runtime::Handle,
 	trigger: TriggerHandle,
+	control_event_tx: tokio::sync::broadcast::Sender<crate::control_events::ControlEvent>,
+	speech_floor: Arc<crate::state::SpeechFloorManager>,
+	voice_input: Arc<crate::state::VoiceInputControl>,
+	state: std::sync::Weak<tokio::sync::RwLock<crate::state::State>>,
 ) -> Option<VoiceIngress> {
 	if ingress.model_path.trim().is_empty() {
 		log::error!(
@@ -36,23 +47,51 @@ pub(crate) fn spawn_from_flowgraph(
 	let fixed_channel = ingress.fixed_channel.clone();
 	let source_label = format!("V2/Flowgraph/Voice/Vosk node={}", node_id);
 
-	let sink = VoiceSink::new(trigger, node_id, fixed_channel);
+	let partial_preview = VoicePartialPreview::spawn(&tokio_handle, state, ingress.partial_channel.clone());
+	let sink = VoiceSink::new(
+		trigger,
+		node_id,
+		fixed_channel,
+		control_event_tx,
+		speech_floor.clone(),
+		voice_input,
+		partial_preview,
+		ingress.speech_floor_key.clone(),
+		ingress.speech_floor_release_delay_ms,
+	);
 
 	let stop_flag = Arc::new(AtomicBool::new(false));
 	let stop_flag_worker = stop_flag.clone();
+	let status = voice_worker_status(ingress);
+	let thread_status = status.clone();
 	let join_handle = std::thread::Builder::new()
 		.name("vac-voice-vosk-fg".into())
-		.spawn(
-			move || match run_vosk_loop(tokio_handle, sink, model_dir, source_label.clone(), stop_flag_worker) {
-				Ok(()) => {}
+		.spawn(move || {
+			match run_vosk_loop(
+				tokio_handle,
+				sink,
+				model_dir,
+				source_label.clone(),
+				stop_flag_worker,
+				thread_status.clone(),
+			) {
+				Ok(()) => set_voice_worker_backend(&thread_status, "stopped"),
 				Err(e) => {
+					set_voice_worker_backend(&thread_status, "failed");
+					record_voice_worker_error(&thread_status, e.to_string());
 					log::error!("《Flowgraph/Voice》: Vosk スレッドが終了しました: {} ({})", e, source_label)
 				}
-			},
-		)
+			}
+		})
 		.ok()?;
 
-	Some(VoiceIngress { join_handle, stop_flag })
+	Some(VoiceIngress {
+		join_handle,
+		stop_flag,
+		speech_floor,
+		speech_floor_key: ingress.speech_floor_key.clone(),
+		status,
+	})
 }
 
 fn linear_resample_mono(mono: &[f32], from_hz: u32, to_hz: u32) -> Vec<f32> {
@@ -105,7 +144,7 @@ fn f32_mono_to_i16_16k(mono: &[f32]) -> Vec<i16> {
 		.collect()
 }
 
-fn complete_result_text(r: CompleteResult<'_>) -> String {
+pub(crate) fn complete_result_text(r: CompleteResult<'_>) -> String {
 	let raw = match r {
 		CompleteResult::Single(s) => s.text.trim().to_string(),
 		CompleteResult::Multiple(_) => String::new(),
@@ -119,6 +158,7 @@ fn run_vosk_loop(
 	model_dir: String,
 	source_label: String,
 	stop_flag: Arc<AtomicBool>,
+	status: crate::processor::voice::SharedVoiceWorkerStatus,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	log::info!("《Voice》: Vosk モデルを解決します spec={} ({})", model_dir, source_label);
 
@@ -135,7 +175,7 @@ fn run_vosk_loop(
 		)
 	})?;
 
-	let mut recognizer = Recognizer::new(&model, 16000.0).ok_or("Vosk Recognizer::new に失敗しました")?;
+	let mut recognizer = Recognizer::new(&model, VOSK_SAMPLE_RATE as f32).ok_or("Vosk Recognizer::new に失敗しました")?;
 	// 部分認識は partial_result() のテキストのみ利用（単語メタデータは不要）
 	recognizer.set_partial_words(false);
 
@@ -203,14 +243,12 @@ fn run_vosk_loop(
 	};
 
 	stream.play()?;
+	set_voice_worker_backend(&status, "vosk");
 	let _keep_stream_alive = stream;
 
 	/// 一度に処理するネイティブサンプル数（おおよそ 80ms @48kHz 相当の上限）
 	const MAX_PULL_NATIVE: usize = 4096;
-	/// Vosk へ送る i16 チャンク長（約 200ms @16kHz）
-	const VOSK_CHUNK: usize = 3200;
-
-	let mut pending_i16: Vec<i16> = Vec::with_capacity(VOSK_CHUNK * 2);
+	let mut pending_i16: Vec<i16> = Vec::with_capacity(VOSK_CHUNK_SAMPLES * 2);
 	let mut last_partial_sent: String = String::new();
 
 	log::info!("《Voice》: Vosk 録音・認識ループを開始しました ({})", source_label);
@@ -240,8 +278,8 @@ fn run_vosk_loop(
 		let mono_16k = linear_resample_mono(&pulled, in_hz_u32, 16000);
 		pending_i16.extend(f32_mono_to_i16_16k(&mono_16k));
 
-		while pending_i16.len() >= VOSK_CHUNK {
-			let chunk: Vec<i16> = pending_i16.drain(0..VOSK_CHUNK).collect();
+		while pending_i16.len() >= VOSK_CHUNK_SAMPLES {
+			let chunk: Vec<i16> = pending_i16.drain(0..VOSK_CHUNK_SAMPLES).collect();
 			match recognizer.accept_waveform(&chunk) {
 				Ok(DecodingState::Running) => {
 					let pr = recognizer.partial_result();
@@ -250,13 +288,15 @@ fn run_vosk_loop(
 						continue;
 					}
 					log::trace!("《Voice》: 認識（Vosk・部分） {:?}", text);
+					record_voice_worker_partial(&status, None, true);
 					last_partial_sent = text.clone();
-					sink.on_partial(&rt, text);
+					sink.on_partial(text);
 				}
 				Ok(DecodingState::Finalized) => {
 					let text = complete_result_text(recognizer.result());
 					recognizer.reset();
 					last_partial_sent.clear();
+					record_voice_worker_final(&status, None);
 					if !text.is_empty() {
 						log::debug!("《Voice》: 認識（Vosk・確定） {:?}", text);
 					}
@@ -265,7 +305,10 @@ fn run_vosk_loop(
 				Ok(DecodingState::Failed) => {
 					log::trace!("《Voice》: Vosk DecodingState::Failed（無音等）");
 				}
-				Err(e) => log::warn!("《Voice》: Vosk accept_waveform: {:?}", e),
+				Err(e) => {
+					record_voice_worker_error(&status, format!("Vosk accept_waveform: {e:?}"));
+					log::warn!("《Voice》: Vosk accept_waveform: {:?}", e);
+				}
 			}
 		}
 	}

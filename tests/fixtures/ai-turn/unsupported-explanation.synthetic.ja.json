@@ -1,0 +1,72 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "unsupported-explanation-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "fragment",
+      "content": "パン詰め工場で",
+      "allowed_actions": [
+        "observe",
+        "react",
+        "respond"
+      ],
+      "speech": "any"
+    },
+    {
+      "id": "ambiguous-short",
+      "content": "短い",
+      "allowed_actions": [
+        "observe",
+        "react",
+        "respond"
+      ],
+      "speech": "any",
+      "speech_forbids": [
+        "右回り",
+        "右から"
+      ]
+    },
+    {
+      "id": "ask-visible-mission",
+      "content": "ケルシー先生、いま画面に出ている命令は何？",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required",
+      "speech_includes": [
+        "ソトア"
+      ]
+    },
+    {
+      "id": "ask-confirm-factory",
+      "content": "ケルシー先生、パン詰め工場が砂漠の補給拠点で、そこを押さえる作戦と画面から確認できる？",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "explicit-word-meaning",
+      "content": "画面の作戦とは別に、一般的な言葉の意味を聞く。ケルシー先生、補給拠点とは何？",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "shared-excitement",
+      "content": "やったー！ ついに突破した、今のは嬉しい！",
+      "allowed_actions": [
+        "react"
+      ],
+      "speech": "required"
+    }
+  ]
+}

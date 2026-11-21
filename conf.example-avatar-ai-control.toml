@@ -1,0 +1,29 @@
+# UNVAC 2.0 AI アバター制御設定例。
+#
+# UNAvatar 側の profile は人間用 / AI 用に分類しない。
+# UNVAC 側で AvatarLink として用途を設定し、v2.0 では UNMF/Z の送信先を明示する。
+#
+# 実運用の最小経路:
+#   AI tool `vac_emit_avatar_intent`
+#     -> VAC channel `avatar_intent`
+#     -> flowgraph.example/ai-avatar-unmfz
+#     -> UNMF/Z
+#     -> UNAvatar Renderer
+
+flowgraph_dir = "flowgraph.example/ai-avatar-unmfz"
+
+[un_avatar.links.kaltsit_ai]
+label = "Kal'tsit AI"
+capabilities = ["reference", "ai_control"]
+profile_hint = "Kaltsit"
+
+[un_avatar.links.kaltsit_ai.unmfz]
+base_key_expr = "un-motion/frame/kaltsit-ai"
+topic_mode = "frame"
+schema_major = 1
+
+# ユーザー本人のアバターなど、UNVAC が参照だけしたい Renderer は reference に留める。
+[un_avatar.links.dr_usagi_reference]
+label = "Dr.USAGI reference"
+capabilities = ["reference"]
+profile_hint = "Dr.USAGI"

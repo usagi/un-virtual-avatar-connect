@@ -1,0 +1,17 @@
+node_modules
+.vite
+dist
+build
+target
+src-tauri/target
+src-tauri/gen
+src-tauri/gen/**
+gui/src-tauri/gen/**
+coverage
+test-results
+playwright-report
+*.log
+Cargo.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock

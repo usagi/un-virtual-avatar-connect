@@ -6,21 +6,21 @@
 # コマンド構文をパースする例。
 #
 # 考え方:
-#   commands.tsv の 1,2 行目は regex kind のエントリで、
-#     - `^(?P<src>\S+):=(?P<dst>.+)$` → replacement="learn"
-#     - `^(?P<src>\S+)!$`           → replacement="forget"
-#   になっている。glossary.match の first_replacement を見ることで
+#   commands.tsv の 1,2 行目は part_of_speech="正規表現" のエントリで、
+#     - `^(?P<src>\S+):=(?P<dst>.+)$` → reading="learn"
+#     - `^(?P<src>\S+)!$`           → reading="forget"
+#   になっている。glossary.match の first_reading を見ることで
 #   「どのコマンドか」が判別でき、captures[0] に `src` / `dst` が入る。
 #
 # フロー:
 #   1. web_input.exec_out → load (commands.tsv)
 #   2. web_input.content  → match.text
-#   3. match.on_match     → log（first_replacement / captures を表示）
+#   3. match.on_match     → log（first_reading / captures を表示）
 #   4. match.on_no_match  → log（通常メッセージとして扱う）
 #
 # 実運用の発展形:
-#   - match.first_replacement と compare.eq("learn") を噛ませて flow.branch で
-#     glossary.learn の exec_in を叩く。captures[0][0] が source、[0][1] が replacement
+#   - match.first_reading と compare.eq("learn") を噛ませて flow.branch で
+#     glossary.learn の exec_in を叩く。captures[0][0] が surface、[0][1] が reading
 #   - 同様に compare.eq("forget") → glossary.forget
 #   - 辞書本体は別 Table（user_dict.dict.tsv）として load_tsv で供給し、
 #     learn/forget → write_tsv で永続化
@@ -43,7 +43,7 @@ position = [80, 260]
 id = "cmd_path"
 feature = "flowgraph.literal.string"
 position = [80, 80]
-properties.value = "flowgraph.example/dictionary/commands.tsv"
+properties.value = "graph-file:commands.tsv"
 
 [[nodes]]
 id = "cmd_mode"
@@ -104,12 +104,12 @@ to = "match:dictionary"
 from = "in:content"
 to = "match:text"
 
-# on_match: コマンド種別（first_replacement）をログ
+# on_match: コマンド種別（first_reading）をログ
 [[edges]]
 from = "match:on_match"
 to = "log_matched:exec_in"
 [[edges]]
-from = "match:first_replacement"
+from = "match:first_reading"
 to = "log_matched:value"
 
 # on_no_match: 普通のメッセージとしてログ

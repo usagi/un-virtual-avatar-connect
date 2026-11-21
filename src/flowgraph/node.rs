@@ -25,7 +25,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use tokio::sync::mpsc::UnboundedSender;
@@ -195,6 +195,7 @@ impl SocketValueRepr {
 			// 受信側 `json_to_socket_value` はこの文字列を parse して DateTime に復元する。
 			SocketValue::DateTime(dt) => serde_json::Value::String(dt.to_rfc3339()),
 			SocketValue::MotionFrame(m) => serde_json::to_value(m).unwrap_or(serde_json::Value::Null),
+			SocketValue::Unmf(frame) => vac_motion::unmf::unmf_to_json_value(frame),
 		})
 	}
 
@@ -249,6 +250,7 @@ pub(crate) fn json_to_socket_value(ty: &SocketType, v: &serde_json::Value) -> Op
 		// `SocketValueRepr::to_socket_value` が default 値 fallback するなど既存挙動に合流）。
 		(SocketType::DateTime, J::String(s)) => crate::datetime::DateTime::from_rfc3339(s).ok().map(SocketValue::DateTime),
 		(SocketType::MotionFrame, v) => serde_json::from_value(v.clone()).ok().map(SocketValue::MotionFrame),
+		(SocketType::Unmf, v) => vac_motion::unmf::unmf_from_json_value(v).ok().map(SocketValue::Unmf),
 		_ => None,
 	}
 }
@@ -453,6 +455,14 @@ pub fn get_required_motion_frame(inputs: &InputMap, key: &str) -> Result<crate::
 		.map_err(|_| type_err(key, SocketType::MotionFrame, v.type_of()))
 }
 
+/// M7: [`vac_motion::unmf::UnMotionFrame`] 入力（`unmf` ポート。`json` から coerce 済みでも可）。
+pub fn get_required_unmf(inputs: &InputMap, key: &str) -> Result<vac_motion::unmf::UnMotionFrame, NodeExecError> {
+	let v = inputs.get(key).ok_or_else(|| NodeExecError::MissingRequiredInput(key.into()))?;
+	v.as_unmf()
+		.map(|frame| frame.clone())
+		.map_err(|_| type_err(key, SocketType::Unmf, v.type_of()))
+}
+
 pub fn get_required_list<'a>(inputs: &'a InputMap, key: &str) -> Result<&'a [SocketValue], NodeExecError> {
 	let v = inputs.get(key).ok_or_else(|| NodeExecError::MissingRequiredInput(key.into()))?;
 	v.as_list()
@@ -582,7 +592,7 @@ impl NodeOutput {
 /// - `audio_sink`: アプリ全体で共有する音声再生シンク。TTS 系ノードが利用する。
 ///   headless テストや sink 未初期化の文脈では `None`。
 /// - `state_handle`: `State`（`Arc<RwLock<State>>`）への weak 参照。
-///   `channel.emit` ノード等が既存の ws push / Control API emit を叩くために使う。
+///   `bos.output`等の明示service終端が既存のWS / Control API出力を叩くために使う。
 ///   1-shot `execute()` やテスト文脈では `None`。
 #[derive(Debug, Default)]
 pub struct ExecCtx {
@@ -595,9 +605,61 @@ pub struct ExecCtx {
 	pub audio_sink: Option<crate::SharedAudioSink>,
 	pub state_handle: Option<std::sync::Weak<tokio::sync::RwLock<crate::state::State>>>,
 	pub effect_mocks: Option<Arc<EffectMocks>>,
+	/// Studio/debugger向けのbounded runtime activity trace。
+	pub runtime_trace: Option<RuntimeTraceBuffer>,
+	/// runtime fq -> (source graph fq, instance path)。load-time compositionから供給する。
+	pub runtime_provenance: HashMap<String, (String, String)>,
+	/// Frozen root of this worker, for explicit graph-file: asset reads.
+	pub graph_root: Option<std::path::PathBuf>,
 }
 
 impl ExecCtx {
+	/// Resolve an explicit graph asset for replacement or creation in an existing
+	/// directory. Ordinary paths retain their existing semantics.
+	pub fn resolve_write_path(&self, path: &str) -> Result<std::path::PathBuf, String> {
+		let Some(relative) = path.strip_prefix("graph-file:") else { return Ok(path.into()); };
+		let relative = std::path::Path::new(relative);
+		if relative.as_os_str().is_empty() || relative.is_absolute() || relative.to_string_lossy().contains([':', '\\']) {
+			return Err("graph-file: requires a relative path using / separators".into());
+		}
+		let root = self.graph_root.as_ref().ok_or("graph-file: requires a loaded graph root")?
+			.canonicalize().map_err(|e| e.to_string())?;
+		let runtime_fq = self.node_id.split_once("::").ok_or("graph-file: source graph is unknown")?.0;
+		let source = self.runtime_provenance.get(runtime_fq).map(|(source, _)| source.as_str()).unwrap_or(runtime_fq);
+		let source_file = root.join(format!("{source}.flowgraph.toml"));
+		let candidate = source_file.parent().ok_or("graph-file: source parent is unknown")?.join(relative);
+		let resolved = match std::fs::symlink_metadata(&candidate) {
+			Ok(_) => candidate.canonicalize().map_err(|e| e.to_string())?,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				let name = candidate.file_name().ok_or("graph-file: missing file name")?;
+				candidate.parent().ok_or("graph-file: missing parent")?.canonicalize()
+					.map_err(|e| format!("graph-file: parent unavailable: {e}"))?.join(name)
+			}
+			Err(error) => return Err(error.to_string()),
+		};
+		if !resolved.starts_with(&root) { return Err("graph-file: asset must remain inside the graph root".into()); }
+		Ok(resolved)
+	}
+
+	/// Ordinary paths retain their existing process-relative/absolute semantics.
+	/// graph-file: paths follow the source graph, including instantiated modules.
+	pub fn resolve_read_path(&self, path: &str) -> Result<std::path::PathBuf, String> {
+		let Some(relative) = path.strip_prefix("graph-file:") else { return Ok(path.into()); };
+		let relative = std::path::Path::new(relative);
+		if relative.as_os_str().is_empty() || relative.is_absolute() || relative.to_string_lossy().contains([':', '\\']) {
+			return Err("graph-file: requires a relative path using / separators".into());
+		}
+		let root = self.graph_root.as_ref().ok_or("graph-file: requires a loaded graph root")?
+			.canonicalize().map_err(|e| e.to_string())?;
+		let runtime_fq = self.node_id.split_once("::").ok_or("graph-file: source graph is unknown")?.0;
+		let source = self.runtime_provenance.get(runtime_fq).map(|(source, _)| source.as_str()).unwrap_or(runtime_fq);
+		let source_file = root.join(format!("{source}.flowgraph.toml"));
+		let resolved = source_file.parent().ok_or("graph-file: source parent is unknown")?.join(relative)
+			.canonicalize().map_err(|e| format!("graph-file: asset unavailable: {e}"))?;
+		if !resolved.starts_with(&root) { return Err("graph-file: asset must remain inside the graph root".into()); }
+		Ok(resolved)
+	}
+
 	pub fn log(&mut self, s: impl Into<String>) {
 		self.trace.push(s.into());
 	}
@@ -605,6 +667,102 @@ impl ExecCtx {
 	pub fn record_effect(&mut self, effect: RecordedEffect) {
 		self.recorded_effects.push(effect);
 	}
+
+	pub fn record_runtime_event(
+		&self,
+		generation: u64,
+		runtime_node_id: &str,
+		port: impl Into<String>,
+		phase: RuntimeTracePhase,
+		value_summary: impl Into<String>,
+		active: bool,
+	) {
+		let Some(buffer) = self.runtime_trace.as_ref() else { return };
+		let runtime_fq = runtime_node_id.split_once("::").map_or("", |(fq, _)| fq);
+		let (source_fq, instance_path) = self.runtime_provenance.get(runtime_fq).cloned().unwrap_or_else(|| {
+			let (source, path) = runtime_fq.split_once("/@").unwrap_or((runtime_fq, ""));
+			(source.to_string(), path.replace("/@", "/"))
+		});
+		if let Ok(mut events) = buffer.write() {
+			if events.len() >= RUNTIME_TRACE_CAPACITY {
+				events.pop_front();
+			}
+			events.push_back(RuntimeTraceEvent {
+				generation,
+				runtime_node_id: runtime_node_id.to_string(),
+				source_fq,
+				instance_path,
+				port: port.into(),
+				phase,
+				value_summary: value_summary.into(),
+				active,
+			});
+		}
+	}
+}
+
+pub const RUNTIME_TRACE_CAPACITY: usize = 2048;
+
+#[cfg(test)]
+mod graph_asset_tests {
+	use super::*;
+	#[test]
+	fn graph_file_reads_follow_relocated_module_provenance() {
+		let outer = std::env::temp_dir().join(format!("vac-graph-assets-{}", rand::random::<u64>()));
+		std::fs::create_dir_all(&outer).unwrap();
+		std::fs::write(outer.join("outside.txt"), "outside").unwrap();
+		for (folder, source) in [("source", "pack/module"), ("destination", "received/pack/module")] {
+			let root = outer.join(folder);
+			let assets = root.join(source).parent().unwrap().join("assets");
+			std::fs::create_dir_all(&assets).unwrap();
+			std::fs::write(assets.join("note.txt"), "portable asset").unwrap();
+			let ctx = ExecCtx {
+				node_id: "main/@speaker::read".into(), graph_root: Some(root.clone()),
+				runtime_provenance: HashMap::from([("main/@speaker".into(), (source.into(), "speaker".into()))]),
+				..Default::default()
+			};
+			let resolved = ctx.resolve_read_path("graph-file:assets/note.txt").unwrap();
+			assert_eq!(ctx.resolve_write_path("graph-file:assets/note.txt").unwrap(), resolved);
+			let fresh = ctx.resolve_write_path("graph-file:assets/new.tsv").unwrap();
+			assert_eq!(fresh, assets.canonicalize().unwrap().join("new.tsv"));
+			assert!(!fresh.exists());
+			assert_eq!(std::fs::read_to_string(resolved).unwrap(), "portable asset");
+			assert_eq!(ctx.resolve_read_path("legacy/relative.txt").unwrap(), std::path::PathBuf::from("legacy/relative.txt"));
+			for bad in ["graph-file:", "graph-file:/absolute", "graph-file:C:/outside", "graph-file:..\\outside", "graph-file:missing"] {
+				assert!(ctx.resolve_read_path(bad).is_err(), "{bad}");
+			}
+			let escape = if folder == "source" { "graph-file:../../outside.txt" } else { "graph-file:../../../outside.txt" };
+			assert!(ctx.resolve_read_path(escape).unwrap_err().contains("inside the graph root"));
+			assert!(ctx.resolve_write_path(escape).unwrap_err().contains("inside the graph root"));
+			assert!(ctx.resolve_write_path(&escape.replace("outside.txt", "new-outside.txt")).unwrap_err().contains("inside the graph root"));
+		}
+		assert!(ExecCtx::default().resolve_read_path("graph-file:assets/note.txt").is_err());
+		std::fs::remove_dir_all(outer).unwrap();
+	}
+}
+
+pub type RuntimeTraceBuffer = Arc<RwLock<VecDeque<RuntimeTraceEvent>>>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeTracePhase {
+	Log,
+	ExecInput,
+	ExecOutput,
+	DataOutput,
+	ExecSuppressed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimeTraceEvent {
+	pub generation: u64,
+	pub runtime_node_id: String,
+	pub source_fq: String,
+	pub instance_path: String,
+	pub port: String,
+	pub phase: RuntimeTracePhase,
+	pub value_summary: String,
+	pub active: bool,
 }
 
 /// Fixture / debugger が観測する mock 副作用の記録。
@@ -685,6 +843,44 @@ impl RecordedEffect {
 			error,
 		}
 	}
+
+	pub fn desktop_notification(node: impl Into<String>, payload: JsonValue, error: Option<String>) -> Self {
+		Self {
+			kind: "desktop_notification".into(),
+			node: node.into(),
+			method: None,
+			url: None,
+			path: None,
+			status: None,
+			bytes: None,
+			contents: Some(payload.to_string()),
+			request_body: Some(payload),
+			response_body: None,
+			error,
+		}
+	}
+
+	pub fn sqlite_query(
+		node: impl Into<String>,
+		path: impl Into<String>,
+		request_body: JsonValue,
+		response_body: Option<String>,
+		error: Option<String>,
+	) -> Self {
+		Self {
+			kind: "sqlite_query".into(),
+			node: node.into(),
+			method: Some("QUERY".into()),
+			url: None,
+			path: Some(path.into()),
+			status: None,
+			bytes: None,
+			contents: None,
+			request_body: Some(request_body),
+			response_body,
+			error,
+		}
+	}
 }
 
 /// Fixture / debugger 用の副作用差し替え表。
@@ -754,6 +950,7 @@ pub struct StatefulCtx<'a> {
 ///   主に Delay ノードが timer 完了時に「どの pending 値を取り出すか」を id として渡すのに使う。
 #[derive(Debug, Clone, Default)]
 pub struct TriggerEvent {
+	pub receipt: Option<Arc<super::trigger_receipt::TriggerReceipt>>,
 	pub node_id: String,
 	pub fired_exec: Vec<String>,
 	pub data_overrides: InputMap,
@@ -762,6 +959,7 @@ pub struct TriggerEvent {
 impl TriggerEvent {
 	pub fn new(node_id: impl Into<String>) -> Self {
 		Self {
+			receipt: None,
 			node_id: node_id.into(),
 			fired_exec: Vec::new(),
 			data_overrides: InputMap::new(),
@@ -785,6 +983,12 @@ pub struct TriggerHandle {
 }
 
 impl TriggerHandle {
+	pub async fn closed(&self) {
+		self.sender.closed().await;
+	}
+	pub fn is_closed(&self) -> bool {
+		self.sender.is_closed()
+	}
 	pub fn new(sender: UnboundedSender<TriggerEvent>) -> Self {
 		Self { sender }
 	}
@@ -809,6 +1013,12 @@ pub enum TriggerSendError {
 
 pub trait NodeDescriptor: Send + Sync {
 	fn describe(&self) -> NodeSpec;
+
+	/// Whether an execution needs this data input. Inactive branches are not pulled
+	/// or validated at runtime; all connections remain statically type-checked.
+	fn input_is_active(&self, _port: &str, _fired: &ExecFireSet) -> Result<bool, NodeExecError> {
+		Ok(true)
+	}
 
 	/// Phase φ-2: Control API (`POST /api/v1/control/flowgraph/{instance_id}/trigger/{node_id}`)
 	/// からの外部トリガ発火を許可するかの opt-in フラグ。既定 `false`。
@@ -874,6 +1084,10 @@ pub trait PureNode: NodeDescriptor {
 /// `StatefulCtx::trigger` 経由の「自己 trigger」だけが許容される効果。
 #[async_trait]
 pub trait StatefulNode: NodeDescriptor {
+	/// Optional host context for asynchronous I/O nodes. Existing state nodes keep compute semantics.
+	async fn compute_with_host(&self, state: &mut (dyn Any + Send), props: &InputMap, inputs: &InputMap, fired_exec: &ExecFireSet, ctx: &StatefulCtx<'_>, _host: &ExecCtx) -> Result<NodeOutput, NodeExecError> {
+		self.compute(state, props, inputs, fired_exec, ctx).await
+	}
 	/// state の初期値を生成。engine が NodeInstance 作成時に 1 度だけ呼ぶ。
 	fn init_state(&self) -> Box<dyn Any + Send>;
 
@@ -928,6 +1142,13 @@ pub enum NodeImpl {
 }
 
 impl NodeImpl {
+	pub fn input_is_active(&self, port: &str, fired: &ExecFireSet) -> Result<bool, NodeExecError> {
+		match self {
+			Self::Pure(n) => n.input_is_active(port, fired),
+			Self::Stateful { node, .. } => node.input_is_active(port, fired),
+			Self::Effectful(n) => n.input_is_active(port, fired),
+		}
+	}
 	pub fn describe(&self) -> NodeSpec {
 		match self {
 			NodeImpl::Pure(n) => n.describe(),

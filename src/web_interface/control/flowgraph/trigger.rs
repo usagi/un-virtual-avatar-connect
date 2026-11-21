@@ -18,6 +18,15 @@ use super::util::err_json;
 ///     socket 側の `PortSpec.ty` が正とする。`value` だけを抽出して生 JSON 版と同じ経路に流す。
 #[derive(Debug, Deserialize)]
 pub struct TriggerNodeRequest {
+	/// Selected exec outputs to observe for this request only (maximum 16).
+	#[serde(default)]
+	pub observe: Vec<(String, String)>,
+	#[serde(default)]
+	pub wait_ms: u64,
+	#[serde(default)]
+	pub expected_root: Option<String>,
+	#[serde(default)]
+	pub expected_source_digest: Option<String>,
 	#[serde(default)]
 	pub inputs: serde_json::Map<String, serde_json::Value>,
 	/// 複数の exec 入力を持つノードで「どのポートを発火したか」を明示する場合に指定。
@@ -28,6 +37,8 @@ pub struct TriggerNodeRequest {
 
 #[derive(Debug, Serialize)]
 pub struct TriggerNodeResponse {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub receipt: Option<crate::flowgraph::trigger_receipt::ReceiptSnapshot>,
 	/// 処理受理（engine への送信まで）を表す。実行完了ではない点に注意。
 	pub accepted: bool,
 	pub instance_id: String,
@@ -179,6 +190,17 @@ pub async fn post_trigger_node(
 		);
 	};
 
+	if let Some(expected) = &body.expected_root {
+		if *expected != super::graph_root_identity(&rt.root_dir) {
+			return err_json(actix_web::http::StatusCode::CONFLICT,"trigger_root_changed","実行対象の保存先が変わりました");
+		}
+	}
+	if let Some(expected) = &body.expected_source_digest {
+		let fq=node_id.split_once("::").map(|(fq,_)|fq).unwrap_or("");
+		if rt.source_digests.get(fq) != Some(expected) {
+			return err_json(actix_web::http::StatusCode::CONFLICT,"trigger_source_changed","確認した構成と実行内容が異なります");
+		}
+	}
 	let Some(meta) = rt.node_meta.get(&node_id) else {
 		return err_json(
 			actix_web::http::StatusCode::NOT_FOUND,
@@ -225,6 +247,22 @@ pub async fn post_trigger_node(
 
 	let mut event = TriggerEvent::new(node_id.clone()).with_exec(exec_port.clone());
 	event.data_overrides = overrides;
+	if body.wait_ms > 2000 {
+		return err_json(actix_web::http::StatusCode::BAD_REQUEST,"invalid_receipt_wait","結果の待機は最大2000msです");
+	}
+	let receipt = if body.observe.is_empty() { None } else {
+		let receipt=match crate::flowgraph::trigger_receipt::TriggerReceipt::new(body.observe.clone()) {
+			Ok(value)=>std::sync::Arc::new(value),
+			Err(error)=>return err_json(actix_web::http::StatusCode::BAD_REQUEST,"invalid_receipt_outputs",error),
+		};
+		for (node,port) in &body.observe {
+			let valid=rt.node_meta.get(node).and_then(|meta| reg.spec(&meta.feature))
+				.is_some_and(|spec| spec.outputs.iter().any(|p| p.name==*port && p.is_exec));
+			if !valid { return err_json(actix_web::http::StatusCode::BAD_REQUEST,"invalid_receipt_outputs","観測対象は現在の構成にあるexec出力に限ります"); }
+		}
+		Some(receipt)
+	};
+	event.receipt=receipt.clone();
 
 	if let Err(e) = handle.send(event) {
 		return err_json(
@@ -233,6 +271,13 @@ pub async fn post_trigger_node(
 			format!("trigger 送信失敗: {e}"),
 		);
 	}
+	// Never hold the runtime read lock while waiting; reload may retire this
+	// worker. The receipt remains tied to the exact event sent above.
+	drop(rt_guard);
+	let receipt=match receipt {
+		Some(receipt)=>receipt.wait_snapshot(std::time::Duration::from_millis(body.wait_ms)).await,
+		None=>None,
+	};
 
 	log::info!(
 		"《Flowgraph/Trigger》 {} :: {} (feature={}, exec={}, overrides={})",
@@ -244,6 +289,7 @@ pub async fn post_trigger_node(
 	);
 
 	HttpResponse::Accepted().json(TriggerNodeResponse {
+		receipt,
 		accepted: true,
 		instance_id,
 		node_id,
@@ -296,9 +342,9 @@ mod tests {
 	#[test]
 	fn select_exec_port_rejects_non_exec_override() {
 		let spec = learn_spec();
-		// `source` は String 入力であって exec ではない。
-		let err = select_exec_port(&spec, Some("source")).unwrap_err();
-		assert!(matches!(err, TriggerValidationError::ExecPortNotExec(ref n) if n == "source"));
+		// `surface` は String 入力であって exec ではない。
+		let err = select_exec_port(&spec, Some("surface")).unwrap_err();
+		assert!(matches!(err, TriggerValidationError::ExecPortNotExec(ref n) if n == "surface"));
 		assert_eq!(err.status(), actix_web::http::StatusCode::BAD_REQUEST);
 		assert_eq!(err.code(), "invalid_port");
 	}
@@ -315,14 +361,14 @@ mod tests {
 	fn coerce_input_overrides_happy_path() {
 		let spec = learn_spec();
 		let inputs = serde_json::Map::from_iter([
-			("source".into(), json!("ドクターウサギ")),
-			("replacement".into(), json!({"type":"string","value":"DR.USAGI"})),
+			("reading".into(), json!("ドクターウサギ")),
+			("surface".into(), json!({"type":"string","value":"Dr.USAGI"})),
 			("priority".into(), json!(3)),
 		]);
 		let (map, names) = coerce_input_overrides(&spec, &inputs).unwrap();
 		assert_eq!(names.len(), 3);
-		assert!(matches!(map.get("source"), Some(SocketValue::String(s)) if s == "ドクターウサギ"));
-		assert!(matches!(map.get("replacement"), Some(SocketValue::String(s)) if s == "DR.USAGI"));
+		assert!(matches!(map.get("reading"), Some(SocketValue::String(s)) if s == "ドクターウサギ"));
+		assert!(matches!(map.get("surface"), Some(SocketValue::String(s)) if s == "Dr.USAGI"));
 		assert!(matches!(map.get("priority"), Some(SocketValue::Int(3))));
 	}
 
@@ -362,4 +408,70 @@ mod tests {
 		assert!(map.is_empty());
 		assert!(names.is_empty());
 	}
+    #[test]
+    fn control_input_accepts_typed_flags_and_rejects_invalid_shape() {
+        let registry = crate::flowgraph::registry::registry();
+        assert!(registry.is_control_triggerable("flowgraph.ingress.control"));
+        let spec = registry.spec("flowgraph.ingress.control").unwrap();
+        assert_eq!(select_exec_port(&spec, None).unwrap().name, "exec_in");
+        let (values, _) = coerce_input_overrides(&spec, &serde_json::from_value(json!({"content":"learn(X=Y)", "flags":["dictionary.write"]})).unwrap()).unwrap();
+        assert!(matches!(values.get("flags"), Some(SocketValue::List(items)) if items.len() == 1));
+        assert!(coerce_input_overrides(&spec, &serde_json::from_value(json!({"flags":{"dictionary.write":true}})).unwrap()).is_err());
+        assert!(coerce_input_overrides(&spec, &serde_json::from_value(json!({"exec_in":true})).unwrap()).is_err());
+    }
+
+    #[actix_web::test]
+    async fn protected_control_input_persists_only_authorized_targeted_commands() {
+        use actix_web::{test as http, App};
+        use std::sync::Arc;
+        use crate::web_interface::control::auth::{ControlApiRuntime, TokenSource, control_api_auth};
+        let root = std::env::temp_dir().join(format!("vac-control-input-http-{}", rand::random::<u64>()));
+        let graphs = root.join("graphs");
+        std::fs::create_dir_all(graphs.join("assets")).unwrap();
+        let graph = include_str!("../../../../flowgraph.example/dictionary-managed-command/main.flowgraph.toml")
+            .replace("flowgraph.ingress.web_input", "flowgraph.ingress.control")
+            .replace("properties.value=[]", "properties.value=[\"dictionary.write\"]")
+            .replace("properties.value=[\"example_moderator\"]", "properties.value=[]");
+        std::fs::write(graphs.join("main.flowgraph.toml"), format!("{graph}\n[[edges]]\nfrom=\"in:flags\"\nto=\"gate:flags\"\n")).unwrap();
+        std::fs::write(graphs.join("assets/commands.tsv"), include_str!("../../../../flowgraph.example/dictionary-managed-command/assets/commands.tsv")).unwrap();
+        let dictionary = graphs.join("assets/user.tsv");
+        std::fs::write(&dictionary, include_str!("../../../../flowgraph.example/dictionary-managed-command/assets/user.tsv")).unwrap();
+        let peer = root.join("peer.tsv"); std::fs::write(&peer, "untouched peer").unwrap();
+        let mut conf: crate::Conf = toml::from_str("").unwrap(); conf.runtime_dir = Some(root.join("runtime"));
+        let state = crate::State::new(&conf, Arc::new(tokio::sync::Mutex::new(crate::AudioSink::disconnected_for_test())), crate::shutdown::ShutdownBroker::new()).await.unwrap();
+        let runtime = crate::flowgraph::runtime::FlowgraphRuntime::load_and_spawn(&graphs, Arc::downgrade(&state), None, None, None, None);
+        assert!(runtime.ok, "{:?}", runtime.diagnostics);
+        let worker = runtime.handle.clone().unwrap();
+        *state.read().await.flowgraph.write().await = Some(runtime);
+        let policy = ControlApiRuntime { token: "isolated-test-token".into(), token_source: TokenSource::Config,
+            require_token_for_loopback: true, require_token_for_non_loopback: true, written_token_file: None, tables: vec![] };
+        let app = http::init_service(App::new().app_data(Data::new(state.clone())).app_data(Data::new(policy))
+            .service(web::scope("/api/v1/control").wrap(actix_web::middleware::from_fn(control_api_auth)).service(post_trigger_node))).await;
+        let uri = "/api/v1/control/flowgraph/default/trigger/main%3A%3Ain";
+        for (token, body, expected_status, changed) in [
+            (None, json!({"inputs":{"content":"learn(X=拒否)","flags":["dictionary.write"]}}), 401, false),
+            (Some("wrong"), json!({"inputs":{"content":"learn(X=拒否)","flags":["dictionary.write"]}}), 401, false),
+            (Some("isolated-test-token"), json!({"expected_root":"wrong-root", "inputs":{"content":"learn(X=別対象)","flags":["dictionary.write"]}}), 409, false),
+            (Some("isolated-test-token"), json!({"inputs":{"content":"learn(X=誤型)","flags":{"dictionary.write":true}}}), 422, false),
+            (Some("isolated-test-token"), json!({"inputs":{"content":"learn(X=dictionary.write)","flags":[]}}), 202, false),
+            (Some("isolated-test-token"), json!({"inputs":{"content":"learn(X=正)","flags":["dictionary.write"]}}), 202, true),
+            (Some("isolated-test-token"), json!({"inputs":{"content":"learn(Y=残留権限)","flags":[]}}), 202, false),
+        ] {
+            let before = std::fs::read(&dictionary).unwrap();
+            let mut request = http::TestRequest::post().uri(uri).peer_addr("127.0.0.1:12345".parse().unwrap()).set_json(body);
+            if let Some(token) = token { request = request.insert_header(("Authorization", format!("Bearer {token}"))); }
+            let response = http::call_service(&app, request.to_request()).await;
+            assert_eq!(response.status().as_u16(), expected_status);
+            // HTTP acceptance alone is not execution completion. Wait for the
+            // running engine to drain the event before inspecting persisted data.
+            tokio::time::timeout(std::time::Duration::from_secs(3), worker.command.export_state_snapshot()).await.unwrap().unwrap();
+            assert_eq!(before != std::fs::read(&dictionary).unwrap(), changed);
+            assert_eq!(std::fs::read_to_string(&peer).unwrap(), "untouched peer");
+        }
+        assert!(std::fs::read_to_string(&dictionary).unwrap().contains("正\tX"));
+        worker.shutdown().await;
+        drop(app); drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
 }

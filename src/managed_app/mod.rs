@@ -56,6 +56,8 @@ pub const DEFAULT_SHUTDOWN_GRACE_MS: u64 = 10_000;
 /// [`ShutdownCfg::from_spec`] で defaults を埋めて作る。`stop_entry_graceful` の入力。
 #[derive(Debug, Clone, Serialize)]
 pub struct ShutdownCfg {
+	pub scope: crate::conf::RunWithShutdownScope,
+	pub on_vac_exit: Option<RunWithShutdownAction>,
 	pub action: RunWithShutdownAction,
 	pub method: RunWithShutdownMethod,
 	pub grace_ms: u64,
@@ -67,6 +69,8 @@ pub struct ShutdownCfg {
 impl Default for ShutdownCfg {
 	fn default() -> Self {
 		Self {
+			scope: crate::conf::RunWithShutdownScope::default(),
+			on_vac_exit: None,
 			action: RunWithShutdownAction::default(),
 			method: RunWithShutdownMethod::default(),
 			grace_ms: DEFAULT_SHUTDOWN_GRACE_MS,
@@ -81,6 +85,8 @@ impl ShutdownCfg {
 	pub fn from_spec(spec: Option<&RunWithShutdownSpec>) -> Self {
 		let mut out = Self::default();
 		if let Some(s) = spec {
+			out.scope = s.scope.unwrap_or_default();
+			out.on_vac_exit = s.on_vac_exit;
 			if let Some(a) = s.action {
 				out.action = a;
 			}
@@ -108,6 +114,12 @@ impl ShutdownCfg {
 		out
 	}
 
+	pub fn for_vac_exit(&self) -> Self {
+		let mut out = self.clone();
+		out.action = self.on_vac_exit.unwrap_or(self.action);
+		out
+	}
+
 	/// 呼び出し側から `grace_ms` だけ override する共通パターン（API 経由の `body.grace_ms` を反映する用途）。
 	pub fn with_grace_ms(mut self, grace_ms: u64) -> Self {
 		self.grace_ms = grace_ms;
@@ -121,6 +133,8 @@ pub struct ManagedAppSpec {
 	pub id: String,
 	pub label: String,
 	pub command: String,
+	/// UNVAC 起動時に自動起動するか。false でも手動操作と Runtime Mode の対象には残る。
+	pub start_on_launch: bool,
 	/// `if_not_running` の値（プロセス名の部分一致検索に使う）。`None` なら状態監視不可。
 	pub process_marker: Option<String>,
 	/// `run_with` 側で `minimized = true` が付いていたか。GUI の「このアプリは最小化で立ち上げる」チップ表示用。
@@ -134,6 +148,10 @@ pub struct ManagedAppSpec {
 	/// Phase ε-2: シャットダウン挙動（action / method / grace_ms）を defaults 込みで解決した値。
 	/// API 側では `body.grace_ms` で上書き可能、VAC 自身の shutdown フローではそのまま使う。
 	pub shutdown: ShutdownCfg,
+	/// UNAA/Z discovery 上の app id。
+	pub unaa_z_app_id: Option<String>,
+	/// UNAA/Z discovery 上の instance id。
+	pub unaa_z_instance_id: Option<String>,
 }
 
 /// sysinfo ポーリング 1 回分の状態スナップショット。
@@ -211,12 +229,15 @@ fn build_specs(run_with: &[RunWith]) -> Vec<ManagedAppSpec> {
 			id,
 			label: rw.display_label(),
 			command: rw.command().to_string(),
+			start_on_launch: rw.start_on_launch(),
 			process_marker: rw.process_marker().map(|s| s.to_string()),
 			minimized: rw.minimized(),
 			run_as_admin: rw.run_as_admin(),
 			working_dir: rw.working_dir().map(|s| s.to_string()),
 			supports_status: rw.process_marker().is_some(),
 			shutdown: ShutdownCfg::from_spec(rw.shutdown_spec()),
+			unaa_z_app_id: rw.unaa_z_app_id().map(|s| s.to_string()),
+			unaa_z_instance_id: rw.unaa_z_instance_id().map(|s| s.to_string()),
 		});
 	}
 	specs
@@ -233,7 +254,7 @@ pub fn probe_all(specs: &[ManagedAppSpec]) -> HashMap<String, ManagedAppStatus> 
 
 	let mut out = HashMap::with_capacity(specs.len());
 	for spec in specs {
-		let pids = if let Some(marker) = &spec.process_marker {
+		let mut pids = if let Some(marker) = &spec.process_marker {
 			system
 				.processes()
 				.iter()
@@ -243,6 +264,7 @@ pub fn probe_all(specs: &[ManagedAppSpec]) -> HashMap<String, ManagedAppStatus> 
 		} else {
 			Vec::new()
 		};
+		pids.sort_unstable();
 		out.insert(
 			spec.id.clone(),
 			ManagedAppStatus {
@@ -254,6 +276,17 @@ pub fn probe_all(specs: &[ManagedAppSpec]) -> HashMap<String, ManagedAppStatus> 
 		);
 	}
 	out
+}
+
+fn managed_app_status_changed(previous: &ManagedAppStatus, current: &ManagedAppStatus) -> bool {
+	if previous.running != current.running {
+		return true;
+	}
+	let mut previous_pids = previous.pids.clone();
+	let mut current_pids = current.pids.clone();
+	previous_pids.sort_unstable();
+	current_pids.sort_unstable();
+	previous_pids != current_pids
 }
 
 /// 定期的に probe_all して registry を更新し、変化があれば `ControlEvent::ManagedAppState` を broadcast するタスク。
@@ -304,7 +337,7 @@ pub async fn run_monitor(
 			for (id, new_s) in new_statuses {
 				let prev = w.statuses.get(&id);
 				let changed = match prev {
-					Some(p) => p.running != new_s.running || p.pids != new_s.pids,
+					Some(p) => managed_app_status_changed(p, &new_s),
 					None => true,
 				};
 				if changed {
@@ -378,8 +411,9 @@ pub async fn stop_entry_graceful(pids: &[u32], cfg: ShutdownCfg) -> crate::Resul
 	// 子孫 PID まで包括する。複数の root pid から集めた union。
 	let mut all_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
 	for &p in pids {
-		for d in run_with_collect_process_tree_pids(p) {
-			all_pids.insert(d);
+		all_pids.insert(p);
+		if cfg.scope == crate::conf::RunWithShutdownScope::ProcessTree {
+			all_pids.extend(run_with_collect_process_tree_pids(p));
 		}
 	}
 
@@ -535,16 +569,16 @@ pub async fn stop_all_graceful(registry: &Arc<RwLock<ManagedAppRegistry>>) -> Ve
 		if st.pids.is_empty() {
 			continue;
 		}
+		let cfg = spec.shutdown.for_vac_exit();
 		log::info!(
 			"《Shutdown》 ManagedApp stop 開始 id={} action={:?} method={:?} grace_ms={} pids={:?}",
 			spec.id,
-			spec.shutdown.action,
-			spec.shutdown.method,
-			spec.shutdown.grace_ms,
+			cfg.action,
+			cfg.method,
+			cfg.grace_ms,
 			st.pids
 		);
 		let id = spec.id.clone();
-		let cfg = spec.shutdown.clone();
 		let pids = st.pids.clone();
 		handles.push(tokio::spawn(async move {
 			let r = stop_entry_graceful(&pids, cfg).await;
@@ -583,7 +617,7 @@ fn send_close_to_pids(pids: &std::collections::HashSet<u32>, method: RunWithShut
 	use windows::core::BOOL;
 	use windows::Win32::Foundation::{HWND, LPARAM, TRUE, WPARAM};
 	use windows::Win32::UI::WindowsAndMessaging::{
-		EnumWindows, GetWindow, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, SendMessageTimeoutW, GW_OWNER, SC_CLOSE,
+		EnumWindows, GetWindow, GetWindowLongPtrW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, SendMessageTimeoutW, GWL_EXSTYLE, GW_OWNER, SC_CLOSE, WS_EX_TOOLWINDOW,
 		SMTO_ABORTIFHUNG, SMTO_NORMAL, WM_CLOSE, WM_SYSCOMMAND,
 	};
 
@@ -599,7 +633,13 @@ fn send_close_to_pids(pids: &std::collections::HashSet<u32>, method: RunWithShut
 		if !ctx.pids.contains(&wpid) {
 			return TRUE;
 		}
-		// ツールウィンドウやオーナー付きは無視（親ウィンドウにだけ送る）
+		// Tao/Winit event targets and Tauri single-instance IPC windows are
+		// technically visible, ownerless WS_EX_TOOLWINDOWs. Closing them can
+		// disable the app's event loop before its normal close gate completes.
+		if unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32 & WS_EX_TOOLWINDOW.0 != 0 {
+			return TRUE;
+		}
+		// オーナー付き窓には送らず、アプリの親窓に終了判断を任せる。
 		if unsafe { GetWindow(hwnd, GW_OWNER) }.map(|h| !h.is_invalid()).unwrap_or(false) {
 			return TRUE;
 		}
@@ -720,38 +760,94 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn pid_order_does_not_create_false_state_change() {
+		let previous = ManagedAppStatus {
+			id: "coeiroink".into(),
+			running: true,
+			pids: vec![40, 10, 30, 20],
+			checked_at: Timestamp::now(),
+		};
+		let current = ManagedAppStatus {
+			pids: vec![10, 20, 30, 40],
+			..previous.clone()
+		};
+		assert!(!managed_app_status_changed(&previous, &current));
+	}
+
+	#[test]
 	fn auto_id_when_not_specified() {
 		let rws = vec![
 			RunWith::Command("http://example.com".to_string()),
 			RunWith::CommandIfProcessIsNotRunning {
 				command: "obs64.exe".to_string(),
 				if_not_running: Some("obs64".to_string()),
+				start_on_launch: Some(false),
 				run_as_admin: None,
 				working_dir: None,
 				minimized: None,
 				id: None,
 				label: None,
+				unaa_z_app_id: None,
+				unaa_z_instance_id: None,
 				shutdown: None,
 			},
 			RunWith::CommandIfProcessIsNotRunning {
 				command: "coeiroink.exe".to_string(),
 				if_not_running: Some("COEIROINKv2".to_string()),
+				start_on_launch: None,
 				run_as_admin: None,
 				working_dir: None,
 				minimized: Some(true),
 				id: Some("coeiroink".to_string()),
 				label: Some("CoeiroInk (speech)".to_string()),
+				unaa_z_app_id: Some("un-coeiroink".to_string()),
+				unaa_z_instance_id: Some("main".to_string()),
 				shutdown: None,
 			},
 		];
 		let reg = ManagedAppRegistry::from_run_with(&rws);
 		assert_eq!(reg.specs.len(), 3);
 		assert_eq!(reg.specs[0].id, "run-with-1");
+		assert_eq!(reg.specs[2].unaa_z_app_id.as_deref(), Some("un-coeiroink"));
+		assert_eq!(reg.specs[2].unaa_z_instance_id.as_deref(), Some("main"));
 		assert!(!reg.specs[0].supports_status, "Command(..) は状態監視対象外");
 		assert_eq!(reg.specs[1].id, "run-with-2");
 		assert!(reg.specs[1].supports_status);
+		assert!(!reg.specs[1].start_on_launch);
+		assert!(reg.specs[2].start_on_launch);
 		assert_eq!(reg.specs[2].id, "coeiroink", "明示 id が優先される");
 		assert_eq!(reg.specs[2].label, "CoeiroInk (speech)");
 		assert!(reg.specs[2].minimized);
 	}
+}
+
+#[cfg(test)]
+mod shutdown_policy_scope_tests {
+//! Offline verification of the production shutdown policy resolver. No app initialization.
+use super::*;
+use crate::conf::RunWithShutdownAction as A;
+#[test]
+fn shutdown_policy_scopes_preserve_legacy_and_overrides() {
+ for action in [A::CloseOnly,A::CloseAndWait,A::LeaveRunning] {
+  let spec=RunWithShutdownSpec{action:Some(action),..Default::default()};let cfg=ShutdownCfg::from_spec(Some(&spec));assert_eq!(cfg.action,action);assert_eq!(cfg.for_vac_exit().action,action);
+ }
+ let spec:RunWithShutdownSpec=serde_json::from_value(serde_json::json!({"action":"close_only","on_vac_exit":"leave_running","method":"wm_close","grace_ms":12345,"app_specific":"coeiroink"})).unwrap();
+ let cfg=ShutdownCfg::from_spec(Some(&spec));let exit=cfg.for_vac_exit();assert_eq!(cfg.action,A::CloseOnly);assert_eq!(exit.action,A::LeaveRunning);assert_eq!(exit.grace_ms,12345);assert_eq!(exit.method,cfg.method);assert_eq!(exit.app_specific,cfg.app_specific);
+ let reverse=ShutdownCfg::from_spec(Some(&RunWithShutdownSpec{action:Some(A::LeaveRunning),on_vac_exit:Some(A::CloseOnly),..Default::default()}));assert_eq!(reverse.action,A::LeaveRunning);assert_eq!(reverse.for_vac_exit().action,A::CloseOnly);
+ println!("Shutdown policy: legacy actions preserved; VAC-exit override isolated; advanced settings preserved.");
+}
+
+#[test]
+fn shutdown_process_scope_is_independent_of_exit_action() {
+    use crate::conf::RunWithShutdownScope as Scope;
+    assert_eq!(ShutdownCfg::from_spec(None).scope, Scope::ProcessTree);
+    let spec: RunWithShutdownSpec = serde_json::from_value(serde_json::json!({
+        "scope":"matched_processes", "action":"close_only", "on_vac_exit":"leave_running"
+    })).unwrap();
+    let cfg = ShutdownCfg::from_spec(Some(&spec));
+    assert_eq!(cfg.scope, Scope::MatchedProcesses);
+    assert_eq!(cfg.for_vac_exit().scope, Scope::MatchedProcesses);
+    assert_eq!(cfg.with_grace_ms(55).scope, Scope::MatchedProcesses);
+}
+
 }

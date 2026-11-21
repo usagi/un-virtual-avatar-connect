@@ -26,11 +26,13 @@
 //!
 //! TOML 配列操作は [`toml_ops`]、ビュー構築は [`util`]。
 
+mod batch;
 mod toml_ops;
+mod mode_actions;
 mod util;
 
 use actix_web::web::{self, Data, Json, Path};
-use actix_web::{delete, get, post, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use toml_edit::DocumentMut;
 
@@ -56,9 +58,14 @@ pub enum RunWithDto {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct RunWithTableDto {
+	/// GUI-only patch, persisted under modes rather than run_with.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub mode_actions: Option<std::collections::BTreeMap<String, String>>,
 	pub command: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub if_not_running: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub start_on_launch: Option<bool>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub run_as_admin: Option<bool>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,6 +76,12 @@ pub struct RunWithTableDto {
 	pub id: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub label: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub unaa_z_app_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub unaa_z_instance_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub shutdown: Option<crate::conf::RunWithShutdownSpec>,
 }
 
 impl From<&RunWith> for RunWithDto {
@@ -78,22 +91,28 @@ impl From<&RunWith> for RunWithDto {
 			RunWith::CommandIfProcessIsNotRunning {
 				command,
 				if_not_running,
+				start_on_launch,
 				run_as_admin,
 				working_dir,
 				minimized,
 				id,
 				label,
-				// shutdown は GUI 側で編集 UI が無いので DTO には露出させない。disk ファイル上の
-				// 値はバックアップ含めそのまま保持される（別のエンドポイント経由で touch しない限り）。
-				shutdown: _,
+				unaa_z_app_id,
+				unaa_z_instance_id,
+				shutdown,
 			} => RunWithDto::Table(RunWithTableDto {
+				mode_actions: None,
 				command: command.clone(),
 				if_not_running: if_not_running.clone(),
+				start_on_launch: *start_on_launch,
 				run_as_admin: *run_as_admin,
 				working_dir: working_dir.clone(),
 				minimized: *minimized,
 				id: id.clone(),
 				label: label.clone(),
+				unaa_z_app_id: unaa_z_app_id.clone(),
+				unaa_z_instance_id: unaa_z_instance_id.clone(),
+				shutdown: shutdown.clone(),
 			}),
 		}
 	}
@@ -102,6 +121,7 @@ impl From<&RunWith> for RunWithDto {
 /// GUI が扱いやすいよう派生情報を追加した 1 件の表示形。
 #[derive(Debug, Serialize, Clone)]
 pub struct RunWithView {
+	pub modes: Vec<mode_actions::ModeActionView>,
 	pub index: usize,
 	/// 明示 `id` または `run-with-<index>` の自動値。
 	pub effective_id: String,
@@ -114,6 +134,8 @@ pub struct RunWithView {
 
 #[derive(Debug, Serialize)]
 pub struct RunWithListResponse {
+	pub modes: Vec<mode_actions::ModeActionView>,
+	pub revision: Option<String>,
 	pub entries: Vec<RunWithView>,
 	/// 書き込み先 conf ファイルのパス。GUI の UX（「このファイルに追記します」）のため。
 	pub source_path: Option<String>,
@@ -121,6 +143,8 @@ pub struct RunWithListResponse {
 
 #[derive(Debug, Serialize)]
 pub struct RunWithMutationResponse {
+	pub modes: Vec<mode_actions::ModeActionView>,
+	pub revision: Option<String>,
 	pub entries: Vec<RunWithView>,
 	pub source_path: Option<String>,
 	pub backup: Option<String>,
@@ -137,13 +161,21 @@ pub async fn get_run_with(state: Data<SharedState>) -> impl Responder {
 	};
 	let Some(path) = path_opt else {
 		return HttpResponse::Ok().json(RunWithListResponse {
+			modes: Vec::new(),
 			entries: Vec::new(),
+			revision: None,
 			source_path: None,
 		});
 	};
-	match Conf::new_noop_probe(&path) {
+	let original = match std::fs::read_to_string(&path) {
+		Ok(text) => text,
+		Err(e) => return err_response(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "read_failed", e),
+	};
+	match toml::from_str::<Conf>(&original) {
 		Ok(c) => HttpResponse::Ok().json(RunWithListResponse {
-			entries: build_views(&c.run_with),
+			modes: mode_actions::definitions(&c),
+			entries: mode_actions::views(&c),
+			revision: Some(blake3::hash(original.as_bytes()).to_hex().to_string()),
 			source_path: Some(path.display().to_string()),
 		}),
 		Err(e) => err_response(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "conf_load_failed", e),
@@ -154,7 +186,7 @@ pub async fn get_run_with(state: Data<SharedState>) -> impl Responder {
 
 /// `conf.toml` を load して `toml_edit` でいじり、書き戻し + managed_apps registry を更新する。
 /// クロージャ側は `&mut DocumentMut` を受け取って `run_with` 配列を編集する。
-async fn mutate_conf<F>(state: &SharedState, mutate: F) -> Result<RunWithMutationResponse, HttpResponse>
+async fn mutate_conf<F>(state: &SharedState, request: &HttpRequest, mutate: F) -> Result<RunWithMutationResponse, HttpResponse>
 where
 	F: FnOnce(&mut DocumentMut) -> Result<(), HttpResponse>,
 {
@@ -170,9 +202,12 @@ where
 		));
 	};
 
+	let _operation = crate::profile_store::lifecycle::lock_config_write(&source_path)
+		.map_err(|error| err_response(actix_web::http::StatusCode::CONFLICT, "profile_busy", error))?;
 	let original = std::fs::read_to_string(&source_path)
 		.map_err(|e| err_response(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "read_failed", e))?;
 
+	check_revision(request, &original)?;
 	let mut doc = original
 		.parse::<DocumentMut>()
 		.map_err(|e| err_response(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "conf_toml_parse_failed", e))?;
@@ -190,8 +225,11 @@ where
 		));
 	}
 
+	let checked: Conf = toml::from_str(&updated_text).map_err(|e| err_response(actix_web::http::StatusCode::BAD_REQUEST,"invalid_conf_after_edit",e))?;
+	crate::conf::runtime_mode::validate_runtime_modes(&checked).map_err(|e| err_response(actix_web::http::StatusCode::BAD_REQUEST,"invalid_mode_after_edit",e))?;
+
 	// バックアップ。
-	let ts = jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string();
+	let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
 	let bak_name = format!(
 		"{}.bak-{}",
 		source_path.file_name().and_then(|s| s.to_str()).unwrap_or("conf.toml"),
@@ -199,10 +237,10 @@ where
 	);
 	let bak_path = source_path.with_file_name(&bak_name);
 	if let Err(e) = std::fs::copy(&source_path, &bak_path) {
-		log::warn!("《RunWithOps》 バックアップに失敗: {e}");
+		return Err(err_response(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "backup_failed", format!("バックアップを作れないため保存しませんでした: {e}")));
 	}
 
-	if let Err(e) = std::fs::write(&source_path, &updated_text) {
+	if let Err(e) = crate::profile_store::write_config_transaction(&source_path, updated_text.as_bytes()) {
 		return Err(err_response(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "write_failed", e));
 	}
 
@@ -217,7 +255,7 @@ where
 	// 即時 probe で初期ステータスを埋める（monitor タスクの次 tick を待たない）。
 	new_registry.statuses = managed_app::probe_all(&new_registry.specs);
 
-	let entries = build_views(&new_conf.run_with);
+	let entries = mode_actions::views(&new_conf);
 
 	// state.managed_apps を置換。
 	{
@@ -234,6 +272,8 @@ where
 	);
 
 	Ok(RunWithMutationResponse {
+		modes: mode_actions::definitions(&new_conf),
+		revision: Some(blake3::hash(updated_text.as_bytes()).to_hex().to_string()),
 		entries,
 		source_path: Some(source_path.display().to_string()),
 		backup: Some(bak_name),
@@ -245,10 +285,33 @@ where
 	})
 }
 
-// ---- POST / DELETE -----------------------------------------------------------
+// Optional for compatibility with existing API clients; the GUI always supplies this.
+fn check_revision(request: &HttpRequest, original: &str) -> Result<(), HttpResponse> {
+	if let Some(expected) = request.headers().get("If-Match") {
+		let current = format!("b3:{}", blake3::hash(original.as_bytes()).to_hex());
+		if expected.to_str().ok() != Some(current.as_str()) {
+			return Err(err_response(actix_web::http::StatusCode::CONFLICT, "revision_conflict",
+				"別の画面で設定が変更されています。入力内容を控え、一覧を更新して対象を選び直してください。"));
+		}
+	}
+	Ok(())
+}
+
+// ---- POST / PUT / DELETE -----------------------------------------------------
+
+#[put("/run_with/batch")]
+pub async fn put_batch(request: HttpRequest, state: Data<SharedState>, body: Json<batch::Batch>) -> impl Responder {
+	if !request.headers().contains_key("If-Match") {
+		return err_response(actix_web::http::StatusCode::PRECONDITION_REQUIRED,"revision_required","保存前に現在の設定を読み込んでください。");
+	}
+	match mutate_conf(&state, &request, |doc| batch::apply(doc, &body)).await {
+		Ok(response) => HttpResponse::Ok().json(response),
+		Err(error) => error,
+	}
+}
 
 #[post("/run_with")]
-pub async fn post_add(state: Data<SharedState>, body: Json<RunWithDto>) -> impl Responder {
+pub async fn post_add(request: HttpRequest, state: Data<SharedState>, body: Json<RunWithDto>) -> impl Responder {
 	// 妥当性の軽い事前チェック: command が空だと後続の Conf パースが実用上通ってしまう恐れがある。
 	if let RunWithDto::Table(t) = &*body {
 		if t.command.trim().is_empty() {
@@ -261,9 +324,45 @@ pub async fn post_add(state: Data<SharedState>, body: Json<RunWithDto>) -> impl 
 	}
 
 	let new_entry = body.into_inner();
-	match mutate_conf(&state, |doc| {
+	match mutate_conf(&state, &request, |doc| {
+		let index = run_with_array(doc)?.len();
+		run_with_array(doc)?.push(dto_to_value(&new_entry));
+		mode_actions::patch(doc, index, &new_entry)?;
+		Ok(())
+	})
+	.await
+	{
+		Ok(resp) => HttpResponse::Ok().json(resp),
+		Err(r) => r,
+	}
+}
+
+#[put("/run_with/{index}")]
+pub async fn put_entry(request: HttpRequest, state: Data<SharedState>, index: Path<usize>, body: Json<RunWithDto>) -> impl Responder {
+	let target_index = index.into_inner();
+	let updated_entry = body.into_inner();
+	let command = match &updated_entry {
+		RunWithDto::Table(t) => t.command.as_str(),
+		RunWithDto::Simple(s) => s.as_str(),
+	};
+	if command.trim().is_empty() {
+		return err_response(actix_web::http::StatusCode::BAD_REQUEST, "empty_command", "command が空です。");
+	}
+
+	match mutate_conf(&state, &request, move |doc| {
 		let arr = run_with_array(doc)?;
-		arr.push(dto_to_value(&new_entry));
+		if target_index >= arr.len() {
+			return Err(err_response(
+				actix_web::http::StatusCode::NOT_FOUND,
+				"index_out_of_range",
+				format!("index {target_index} は run_with[{}] の範囲外です。", arr.len()),
+			));
+		}
+		let old_conf: Conf = toml::from_str(&doc.to_string()).map_err(|e| err_response(actix_web::http::StatusCode::BAD_REQUEST, "invalid_conf", e))?;
+		let old_id = build_views(&old_conf.run_with)[target_index].effective_id.clone();
+		run_with_array(doc)?.replace(target_index, dto_to_value(&updated_entry));
+		mode_actions::preserve_id(doc, target_index, &old_id)?;
+		mode_actions::patch(doc, target_index, &updated_entry)?;
 		Ok(())
 	})
 	.await
@@ -274,9 +373,9 @@ pub async fn post_add(state: Data<SharedState>, body: Json<RunWithDto>) -> impl 
 }
 
 #[delete("/run_with/{index}")]
-pub async fn delete_entry(state: Data<SharedState>, index: Path<usize>) -> impl Responder {
+pub async fn delete_entry(request: HttpRequest, state: Data<SharedState>, index: Path<usize>) -> impl Responder {
 	let target_index = index.into_inner();
-	match mutate_conf(&state, move |doc| {
+	match mutate_conf(&state, &request, move |doc| {
 		let arr = run_with_array(doc)?;
 		if target_index >= arr.len() {
 			return Err(err_response(
@@ -285,7 +384,7 @@ pub async fn delete_entry(state: Data<SharedState>, index: Path<usize>) -> impl 
 				format!("index {target_index} は run_with[{}] の範囲外です。", arr.len()),
 			));
 		}
-		arr.remove(target_index);
+		mode_actions::remove(doc, target_index)?;
 		Ok(())
 	})
 	.await
@@ -296,5 +395,19 @@ pub async fn delete_entry(state: Data<SharedState>, index: Path<usize>) -> impl 
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-	cfg.service(get_run_with).service(post_add).service(delete_entry);
+	cfg.service(get_run_with).service(post_add).service(put_batch).service(put_entry).service(delete_entry);
+}
+
+#[cfg(test)]
+mod revision_tests {
+ use super::*;
+ #[test]
+ fn stale_edit_is_rejected_before_index_mutation() {
+  let original = "run_with = [\"first\", \"second\"]";
+  let header = format!("b3:{}", blake3::hash(original.as_bytes()).to_hex());
+  let request = actix_web::test::TestRequest::default().insert_header(("If-Match", header)).to_http_request();
+  assert!(check_revision(&request, original).is_ok());
+  let result = check_revision(&request, "run_with = [\"second\"]").unwrap_err();
+  assert_eq!(result.status(), actix_web::http::StatusCode::CONFLICT);
+ }
 }

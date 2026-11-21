@@ -18,8 +18,12 @@ pub(crate) fn build_views(run_with: &[RunWith]) -> Vec<RunWithView> {
 		.iter()
 		.enumerate()
 		.map(|(idx, r)| RunWithView {
+			modes: Vec::new(),
 			index: idx,
-			effective_id: r.explicit_id().map(|s| s.to_string()).unwrap_or_else(|| format!("run-with-{idx}")),
+			effective_id: r
+				.explicit_id()
+				.map(|s| s.to_string())
+				.unwrap_or_else(|| format!("run-with-{}", idx + 1)),
 			display_label: r.display_label().to_string(),
 			supports_status: r.process_marker().is_some(),
 			entry: RunWithDto::from(r),

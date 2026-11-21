@@ -16,8 +16,8 @@
 //! equivalent な `DecisionConf` を合成するので、既存の `force_activate_regex_pattern` /
 //! `ignore_regex_pattern` / `min_interval_in_secs` を書いている設定はそのまま動く。
 //!
-//! `min_interval_in_secs` は **スコアとは独立した hard gate** として維持する（過剰な短周期抑制を
-//! スコア側に無理に埋め込まないための単純な絞り弁）。
+//! `min_interval_in_secs` はスコアとは独立した次回評価の最短時刻として扱う。Observation Buffer が
+//! その時刻まで最新観測を保留し、ここでの判定は heartbeat 等との競合に対する安全弁になる。
 
 use super::config::{AiPersonaConf, DecisionConf, DecisionModulator};
 
@@ -138,6 +138,17 @@ impl std::fmt::Debug for DecisionSpec {
 }
 
 impl DecisionSpec {
+	/// 発話権待ちや近接観測の集約で失ってはいけない、明示的な正規表現シグナルか。
+	///
+	/// legacy の `force_activate_regex_pattern` と、正の score を持つ明示 RegexMatch を対象にする。
+	/// score 判定そのものとは別に、名指しなどの強い観測を後続の通常実況で上書きしないために使う。
+	pub fn is_priority_observation(&self, input: &DecisionInput<'_>) -> bool {
+		self.modulators.iter().any(|modulator| match modulator {
+			CompiledModulator::RegexMatch { re, score } => *score > 0.0 && re.is_match(input.latest_trigger_content),
+			_ => false,
+		})
+	}
+
 	/// 明示的な `DecisionConf` からコンパイル。
 	pub fn from_conf(conf: &DecisionConf) -> Result<Self> {
 		let modulators = conf
@@ -220,10 +231,18 @@ impl DecisionSpec {
 		}
 	}
 
-	/// スコア計算で触る `min_interval_in_secs` の値（hard gate 側）を取得。`AiService` 側で
+	/// スコア計算で触る `min_interval_in_secs` の値を取得。`AiService` 側で
 	/// `last_activated` を更新するかどうかの判定に使う。
 	pub fn min_interval_in_secs(&self) -> Option<u64> {
 		self.min_interval_in_secs
+	}
+
+	/// 次の評価が可能になるまでの残り時間。`min_interval` 中の観測を破棄せず、
+	/// observation buffer が保留するために使う。
+	pub fn remaining_min_interval(&self, last_activated: SystemTime) -> Option<std::time::Duration> {
+		let minimum = std::time::Duration::from_secs(self.min_interval_in_secs?);
+		let elapsed = last_activated.elapsed().ok()?;
+		minimum.checked_sub(elapsed)
 	}
 }
 
@@ -274,14 +293,20 @@ mod tests {
 	fn persona_with_legacy(force: Option<&str>, ignore: Option<&str>, min_interval: Option<u64>) -> AiPersonaConf {
 		let mut p = AiPersonaConf {
 			id: Some("t".into()),
+			display_name: None,
 			is_enabled: true,
 			channel_utterance: Some("ai".into()),
 			channel_effect: None,
 			observe: Default::default(),
 			decision: None,
 			heartbeat: None,
+			initiative: None,
+			turn_management: None,
+			observation_buffer: None,
 			api_key: None,
+			api_key_file: None,
 			model: None,
+			openai_model_policy: None,
 			custom_instructions: None,
 			system_instructions_extra: None,
 			openai_max_output_tokens: None,
@@ -289,6 +314,7 @@ mod tests {
 			openai_reasoning_effort: None,
 			openai_store: None,
 			openai_reasoning_encrypted_passthrough: None,
+			openai_prompt_cache_key: None,
 			temperature: None,
 			top_p: None,
 			n: None,
@@ -315,11 +341,13 @@ mod tests {
 			min_interval_in_secs: min_interval,
 			remove_chars: None,
 			assistant_max_chars: None,
+			assistant_max_sentences: None,
 			assistant_strip_substrings: vec![],
 			openai_stream: None,
 			openai_tools_json_path: None,
 			openai_tool_choice: None,
 			openai_parallel_tool_calls: None,
+			openai_tool_policy: None,
 			openai_max_in_flight: None,
 			fine_tuning: None,
 			respect_speech_floor: None,
@@ -341,6 +369,16 @@ mod tests {
 			no_jitter,
 		);
 		assert!(matches!(d, Decision::Activate { .. }), "got {:?}", d);
+	}
+
+	#[test]
+	fn reports_remaining_min_interval_for_observation_scheduler() {
+		let p = persona_with_legacy(None, None, Some(3));
+		let spec = DecisionSpec::from_persona(&p).unwrap();
+		let last_activated = SystemTime::now().checked_sub(Duration::from_millis(1_200)).unwrap();
+		let remaining = spec.remaining_min_interval(last_activated).unwrap();
+		assert!(remaining >= Duration::from_millis(1_700));
+		assert!(remaining <= Duration::from_millis(1_900));
 	}
 
 	#[test]
@@ -390,6 +428,20 @@ mod tests {
 			no_jitter,
 		);
 		assert!(matches!(d, Decision::Activate { .. }), "got {:?}", d);
+	}
+
+	#[test]
+	fn positive_regex_marks_priority_observation() {
+		let persona = persona_with_legacy(Some("ケルシー"), None, None);
+		let spec = DecisionSpec::from_persona(&persona).unwrap();
+		assert!(spec.is_priority_observation(&DecisionInput {
+			channel: "user",
+			latest_trigger_content: "ケルシー先生、聞こえている？",
+		}));
+		assert!(!spec.is_priority_observation(&DecisionInput {
+			channel: "user",
+			latest_trigger_content: "次のステージへ進む",
+		}));
 	}
 
 	#[test]

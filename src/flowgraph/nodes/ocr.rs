@@ -4,7 +4,7 @@
 //!
 //! ## プラットフォーム
 //!
-//! - **Windows** のみ実装（Windows Media OCR を利用）。
+//! - **Windows 10/11** のみ実装（OS同梱の Windows Media OCR を利用）。
 //! - その他プラットフォームでは `on_error` を即返す。
 //!
 //! ## ポート
@@ -13,7 +13,7 @@
 //!   - `exec_in` (Exec)
 //!   - `source` (String): ローカルパス / `file:///...` / `http(s)://...` / `data:image/...` のいずれか
 //!   - `lang` (String): BCP-47（例: `"ja-JP"`, `"en-US"`）
-//!   - `lines` (Bool, default `false`): true なら `Lines()` 単位、false なら `Text()` 全文
+//!   - `lines` (Bool, default `false`): true なら認識行を改行区切り、false なら空白区切りの1行
 //!   - `check_result_lang` (Bool, default `false`): 認識結果に whatlang をかけ `lang` と一致しなければ error
 //! - 出力:
 //!   - `on_success` / `on_error` (Exec)
@@ -128,10 +128,15 @@ impl EffectfulNode for OcrRecognizeNode {
 				Err(e) => return Ok(err_output(e)),
 			};
 
-			let text_result = match &target {
-				PathOrTempFileWithMime::Path(p, m) => crate::processor::ocr::recognize(p, m, &lang, lines),
-				PathOrTempFileWithMime::TempFile(tf, m) => crate::processor::ocr::recognize(tf.file_path(), m, &lang, lines),
+			let (path, mime) = match &target {
+				PathOrTempFileWithMime::Path(p, m) => (std::path::PathBuf::from(p), m.clone()),
+				PathOrTempFileWithMime::TempFile(tf, m) => (tf.file_path().to_path_buf(), m.clone()),
 			};
+			let backend_lang = lang.clone();
+			let text_result = tokio::task::spawn_blocking(move || crate::processor::ocr::recognize(path, mime, &backend_lang, lines))
+				.await
+				.map_err(|e| anyhow::anyhow!("OCR worker の完了待機に失敗しました: {e}"))
+				.and_then(|result| result);
 
 			let text = match text_result {
 				Ok(t) => t,
@@ -231,6 +236,85 @@ mod tests {
 			SocketValue::Result(result) => {
 				assert!(!result.ok);
 				assert_eq!(result.code.as_deref(), Some("ocr.recognize"));
+			}
+			other => panic!("expected result, got {other:?}"),
+		}
+	}
+
+	#[cfg(target_os = "windows")]
+	#[tokio::test]
+	async fn invalid_image_returns_recoverable_error() {
+		let path = std::env::temp_dir().join(format!("unvac-invalid-ocr-{}.png", std::process::id()));
+		std::fs::write(&path, b"not an image").unwrap();
+		let node = OcrRecognizeNode;
+		let mut ctx = ExecCtx::default();
+		let mut fired = ExecFireSet::new();
+		fired.insert("exec_in");
+		let inputs: InputMap = [
+			("source".into(), SocketValue::String(path.to_string_lossy().into_owned())),
+			("lang".into(), SocketValue::String("en-US".into())),
+		]
+		.into_iter()
+		.collect();
+		let out = node.execute(&mut ctx, &InputMap::new(), &inputs, &fired).await.unwrap();
+		std::fs::remove_file(path).unwrap();
+		assert!(out.fired_exec.contains("on_error"));
+		match out.data.get("result").unwrap() {
+			SocketValue::Result(result) => {
+				assert!(!result.ok);
+				assert_eq!(result.code.as_deref(), Some("ocr.recognize"));
+			}
+			other => panic!("expected result, got {other:?}"),
+		}
+	}
+
+	#[cfg(target_os = "windows")]
+	#[tokio::test]
+	async fn unavailable_language_returns_recoverable_error() {
+		let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/image/m05/ss-ocr-result.png");
+		let node = OcrRecognizeNode;
+		let mut ctx = ExecCtx::default();
+		let mut fired = ExecFireSet::new();
+		fired.insert("exec_in");
+		let inputs: InputMap = [
+			("source".into(), SocketValue::String(path.to_string_lossy().into_owned())),
+			("lang".into(), SocketValue::String("zz-ZZ".into())),
+		]
+		.into_iter()
+		.collect();
+		let out = node.execute(&mut ctx, &InputMap::new(), &inputs, &fired).await.unwrap();
+		assert!(out.fired_exec.contains("on_error"));
+		assert!(matches!(
+			out.data.get("result"),
+			Some(SocketValue::Result(FlowResult { ok: false, code: Some(code), .. })) if code == "ocr.recognize"
+		));
+	}
+
+	/// 実画像をFlowgraphの外向きcontractまで通す明示評価。
+	#[cfg(target_os = "windows")]
+	#[tokio::test]
+	#[ignore = "Windows OCR言語packと実画像が必要"]
+	async fn real_image_flows_to_success_result() {
+		let path = std::env::var("UNVAC_OCR_TEST_IMAGE").expect("UNVAC_OCR_TEST_IMAGE is required");
+		let lang = std::env::var("UNVAC_OCR_TEST_LANG").unwrap_or_else(|_| "ja-JP".into());
+		let node = OcrRecognizeNode;
+		let mut ctx = ExecCtx::default();
+		let mut fired = ExecFireSet::new();
+		fired.insert("exec_in");
+		let inputs: InputMap = [
+			("source".into(), SocketValue::String(path)),
+			("lang".into(), SocketValue::String(lang)),
+			("lines".into(), SocketValue::Bool(true)),
+		]
+		.into_iter()
+		.collect();
+		let out = node.execute(&mut ctx, &InputMap::new(), &inputs, &fired).await.unwrap();
+		assert!(out.fired_exec.contains("on_success"));
+		match out.data.get("result").unwrap() {
+			SocketValue::Result(result) => {
+				assert!(result.ok);
+				assert!(matches!(result.value.as_deref(), Some(SocketValue::String(text)) if !text.is_empty()));
+				eprintln!("flowgraph_result={:?}", result.value);
 			}
 			other => panic!("expected result, got {other:?}"),
 		}

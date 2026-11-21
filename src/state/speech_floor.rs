@@ -48,10 +48,13 @@ impl SpeechFloorManager {
 	pub async fn wait_until_free(&self, key: &str) {
 		loop {
 			let f = self.floor(key);
+			let notified = f.notify.notified();
+			tokio::pin!(notified);
+			notified.as_mut().enable();
 			if !f.held.load(Ordering::SeqCst) {
 				return;
 			}
-			f.notify.notified().await;
+			notified.await;
 		}
 	}
 }

@@ -14,7 +14,7 @@
 η フェーズ末（[phase-eta-dictionary-unification.md §9.2 / §9.3](phase-eta-dictionary-unification.md)）で以下 2 機能が「φ 以降」に明示的に繰り越された:
 
 - **Dictionary Editor pane**: 11 カラム表 UI による TSV 直接編集（sortable / filterable、`is_locked` 保護、期限切れグレーアウト）
-- **Live Quick-Add Widget**: Twitch チャンネルポイント連携想定の小型 UI。「学習（source → replacement）」を 1 クリックで `dictionary.learn` ノードに trigger 投入し、UNDO（Forget latest）ボタンで取り消し
+- **Live Quick-Add Widget**: Twitch チャンネルポイント連携想定の小型 UI。「学習（surface → reading）」を 1 クリックで `glossary.learn` ノードに trigger 投入し、UNDO（Forget latest）ボタンで取り消し
 
 保留の直接理由は **Control API 側の不足**:
 
@@ -57,7 +57,7 @@
 - Undo 履歴のサーバ側永続化（client 側メモリのみ、ページリロードで消える）
 - Flowgraph トポロジーそのものの GUI 編集（これは既存の `/control/flowgraph/*` file API の仕事）
 - Quick-Add 履歴の multi-user 共有
-- Table の全文検索（`source` 部分一致のみ、ILIKE 相当）
+- Table の全文検索（`reading` / `surface` / `part_of_speech` / `comment`、ILIKE 相当）
 
 ---
 
@@ -82,17 +82,17 @@
   "entries": [
     {
       "row_index": 0,
-      "source": "ウサギネットワーク",
-      "replacement": "USAGI.NETWORK",
-      "kind": "literal",
+      "reading": "うさぎねっとわーく",
+      "surface": "USAGI.NETWORK",
+      "part_of_speech": "固有名詞",
+      "comment": "",
       "priority": 0,
       "is_locked": false,
       "enabled": true,
       "by": "chat",
       "created_at": "2026-04-22T18:33:22Z",
       "expires_at": null,
-      "tags": "dictionary.chat",
-      "note": "migrated from dictionary.chat.txt"
+      "tags": "dictionary.chat"
     }
   ]
 }
@@ -147,9 +147,10 @@ pub struct TableFileDto {
 #[derive(Serialize, Deserialize)]
 pub struct TableEntryDto {
     pub row_index: usize,
-    pub source: String,
-    pub replacement: String,
-    pub kind: String,       // "literal" | "regex"
+    pub reading: String,
+    pub surface: String,
+    pub part_of_speech: String, // Google IME品詞。UNVAC拡張: "正規表現"
+    pub comment: String,
     pub priority: i64,
     pub is_locked: bool,
     pub enabled: bool,
@@ -157,7 +158,6 @@ pub struct TableEntryDto {
     pub created_at: Option<String>, // RFC3339
     pub expires_at: Option<String>,
     pub tags: Option<String>,
-    pub note: Option<String>,
 }
 ```
 
@@ -188,9 +188,9 @@ pub struct TableEntryDto {
 ```json
 {
   "inputs": {
-    "source": { "type": "string", "value": "ドクターウサギ" },
-    "replacement": { "type": "string", "value": "DR.USAGI" },
-    "kind": { "type": "string", "value": "literal" },
+    "reading": { "type": "string", "value": "どくたーうさぎ" },
+    "surface": { "type": "string", "value": "Dr.USAGI" },
+    "part_of_speech": { "type": "string", "value": "固有名詞" },
     "priority": { "type": "int", "value": 0 },
     "by": { "type": "string", "value": "quick-add" }
   }
@@ -297,9 +297,9 @@ DictionaryEditorPane.svelte      ← root、tab 切替
 
 ### 6.3 UX 仕様
 
-- **列**: source / replacement / kind badge / priority / locked icon / enabled toggle / tags / expires chip / note / (操作列)
+- **列**: reading / surface / part_of_speech / comment / priority / locked icon / enabled toggle / tags / expires chip / (操作列)
 - **ソート**: クリックで列ソート（フロント側、pageable）
-- **フィルタ**: キーワード（source 部分一致）、kind 絞り込み（literal / regex）、tag 絞り込み
+- **フィルタ**: キーワード（reading / surface / part_of_speech / comment）、通常語 / 正規表現、tag 絞り込み
 - **is_locked**: 行背景グレー + 南京錠アイコン、削除ボタン無効化（hover で「ロックされています」toast）
 - **expires_at が過去**: 行全体グレーアウト（tooltip に `Expired at ...`）
 - **enabled=false**: 行を薄く表示
@@ -348,8 +348,8 @@ sequenceDiagram
 
 ### 7.2 UI
 
-- 1 行フォーム: `source` input + `→` + `replacement` input + `[Learn]` button
-- `kind` は `quick_add.kind`（literal / regex）で決め打ち、切替は expanded menu
+- 1 行フォーム: Google IME列順の `reading` input + `surface` input + `[Learn]` button
+- `quick_add.kind` は互換設定として残し、`literal` は `part_of_speech=名詞`、`regex` は `part_of_speech=正規表現` に写像
 - 直近 10 件の履歴を dropdown 表示
 - 各履歴行に `[Undo]` ボタン → 対応する forget trigger を発火
 
@@ -374,8 +374,8 @@ sequenceDiagram
 
 ### 7.4 UNDO 実装
 
-- 履歴各行に `forget` 用の payload を保持（同じ source / kind）
-- `[Undo]` 押下で `POST /flowgraph/main/trigger/main::forget (mode=latest, source=...)` を発火
+- 履歴各行に `forget` 用の payload を保持（同じ surface / reading）
+- `[Undo]` 押下で `POST /flowgraph/main/trigger/main::forget (mode=latest, surface=..., reading=...)` を発火
 - サーバ側 `forget` ノードの `is_locked` 保護があるので locked 行の undo は不可（409 相当で toast）
 
 ---

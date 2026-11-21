@@ -21,7 +21,7 @@
 //! - `req.pitch`  (0.0=標準): `>=0` → `[normal, max]`、`<0` → `[min, normal]`。
 //! - `req.volume` (1.0=標準): `>1.0` → `[normal, max]`、`<1.0` → `[min, normal]`（1.0 以上は clamp）。
 
-use super::super::driver::{maybe_save_wav, AudioContext, TtsDriver, TtsError, TtsOutcome, TtsParamSchema, TtsRequest};
+use super::super::driver::{TtsDriver, TtsError, TtsParamSchema, TtsRequest, TtsSynthesis};
 use async_trait::async_trait;
 
 pub struct OsDriver;
@@ -56,7 +56,11 @@ impl TtsDriver for OsDriver {
 		TtsParamSchema::default()
 	}
 
-	async fn speak(&self, req: TtsRequest, audio: &AudioContext<'_>) -> Result<TtsOutcome, TtsError> {
+	fn supports_deferred_playback(&self) -> bool {
+		cfg!(target_os = "windows")
+	}
+
+	async fn synthesize(&self, req: &TtsRequest) -> Result<TtsSynthesis, TtsError> {
 		let mut tts = tts::Tts::default().map_err(|e| TtsError::Config(format!("tts::Tts::default: {e}")))?;
 
 		if !req.voice.is_empty() {
@@ -80,20 +84,15 @@ impl TtsDriver for OsDriver {
 		#[cfg(target_os = "windows")]
 		{
 			let wav = tts
-				.synthesize(req.text)
+				.synthesize(req.text.clone())
 				.map_err(|e| TtsError::Synthesis(format!("synthesize: {e}")))?;
-			let played = audio.play_wav(wav.clone()).await?;
-			let path = maybe_save_wav(&wav, &req.save_path).await?;
-			Ok(TtsOutcome { played, audio_path: path })
+			Ok(TtsSynthesis::Wav(wav))
 		}
 
 		#[cfg(not(target_os = "windows"))]
 		{
-			let _ = audio; // 非 Windows は自前で再生するため未使用
-			if !req.save_path.is_empty() {
-				log::warn!("[tts.os] save_path は非 Windows では未対応です。無視します。");
-			}
-			tts.speak(req.text, false).map_err(|e| TtsError::Synthesis(format!("speak: {e}")))?;
+			tts.speak(req.text.clone(), false)
+				.map_err(|e| TtsError::Synthesis(format!("speak: {e}")))?;
 			// 終了待ち
 			loop {
 				match tts.is_speaking() {
@@ -102,10 +101,7 @@ impl TtsDriver for OsDriver {
 					Err(e) => return Err(TtsError::Playback(format!("is_speaking: {e}"))),
 				}
 			}
-			Ok(TtsOutcome {
-				played: true,
-				audio_path: String::new(),
-			})
+			Ok(TtsSynthesis::SelfPlayed)
 		}
 	}
 }

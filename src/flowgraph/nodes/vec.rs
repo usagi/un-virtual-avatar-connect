@@ -131,7 +131,7 @@ fn distance_n<const N: usize>(a: [f64; N], b: [f64; N]) -> f64 {
 // ===========================================================================
 
 macro_rules! vec_make_node {
-	($name:ident, $feature:literal, $title:literal, $n:expr, [$($comp:literal),+]) => {
+	($name:ident, $feature:literal, $title:literal, $n:expr_2021, [$($comp:literal),+]) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -158,7 +158,7 @@ macro_rules! vec_make_node {
 }
 
 macro_rules! vec_unpack_node {
-	($name:ident, $feature:literal, $title:literal, $n:expr, [$($comp:literal),+]) => {
+	($name:ident, $feature:literal, $title:literal, $n:expr_2021, [$($comp:literal),+]) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -192,7 +192,7 @@ macro_rules! vec_unpack_node {
 }
 
 macro_rules! vec_binop_node {
-	($name:ident, $feature:literal, $title:literal, $n:expr, $op:ident, $desc:literal) => {
+	($name:ident, $feature:literal, $title:literal, $n:expr_2021, $op:ident, $desc:literal) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -229,7 +229,7 @@ macro_rules! vec_binop_node {
 }
 
 macro_rules! vec_scalar_out_binop_node {
-	($name:ident, $feature:literal, $title:literal, $n:expr, $op:ident, $desc:literal) => {
+	($name:ident, $feature:literal, $title:literal, $n:expr_2021, $op:ident, $desc:literal) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -265,7 +265,7 @@ macro_rules! vec_scalar_out_binop_node {
 }
 
 macro_rules! vec_scale_node {
-	($name:ident, $feature:literal, $title:literal, $n:expr) => {
+	($name:ident, $feature:literal, $title:literal, $n:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -301,7 +301,7 @@ macro_rules! vec_scale_node {
 }
 
 macro_rules! vec_unary_pure_node {
-	($name:ident, $feature:literal, $title:literal, $n:expr, $op:ident, $desc:literal, $out_ty:expr, $wrap:expr) => {
+	($name:ident, $feature:literal, $title:literal, $n:expr_2021, $op:ident, $desc:literal, $out_ty:expr_2021, $wrap:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -334,7 +334,7 @@ macro_rules! vec_unary_pure_node {
 }
 
 macro_rules! vec_lerp_node {
-	($name:ident, $feature:literal, $title:literal, $n:expr) => {
+	($name:ident, $feature:literal, $title:literal, $n:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {

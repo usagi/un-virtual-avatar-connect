@@ -2,6 +2,8 @@
 
 Virtual Avatar Connect のレイヤ構成と依存方向、および開発時の Commit Granularity Rule。
 詳細な Flowgraph 仕様は [`roadmap/phase-delta-spec.md`](roadmap/phase-delta-spec.md)、フェーズ進行は [`roadmap.md`](roadmap.md) を参照。Enum / ライブラリ再利用の設計正本は [`roadmap/phase-lambda-flowgraph-enum-and-library.md`](roadmap/phase-lambda-flowgraph-enum-and-library.md)（Phase λ）。
+U.N. シリーズアプリ連携の control plane は **UN App API over Zenoh (UNAA/Z)** と呼び、プロトコル正本は [`manual/un-app-api-over-zenoh.md`](manual/un-app-api-over-zenoh.md)、計画と実装履歴は [`roadmap/un-app-api-zenoh-roadmap.md`](roadmap/un-app-api-zenoh-roadmap.md)。motion / expression data plane の **UNMF/Z** とは別層として扱う。
+UNVAC 2.0 では UNAvatar / UNMotion 側の必須改修を前提にせず、AI が UNMF/Z motion source になる最小安定版を先に切る。AvatarLink / AI intent / profile discovery の段階設計は [`roadmap/unvac-2-avatar-ai-control.md`](roadmap/unvac-2-avatar-ai-control.md) を正本とする。
 
 ---
 
@@ -75,7 +77,7 @@ Virtual Avatar Connect のレイヤ構成と依存方向、および開発時の
 ### `src/web_interface/`
 
 - `actix-web` サーバ
-- `control/` 配下に Control API（`/api/v1/control/*`）: file CRUD / flowgraph CRUD / table CRUD / flowgraph trigger / shutdown / pause / resume
+- `control/` 配下に Control API（`/api/v1/control/*`）: file CRUD / flowgraph CRUD / table CRUD / flowgraph trigger / shutdown / pause / resume / Voice Ingressソフトミュート
 - WebSocket（`/ws/control`）
 
 ### `src/bridges/`
@@ -86,6 +88,9 @@ Virtual Avatar Connect のレイヤ構成と依存方向、および開発時の
 ### `src/motion/`（Phase M0〜）
 
 - VMC 互換の **生 UDP パススルー**（`[motion]`、`ShutdownBroker` 連携）。パースは後段（M4 / Phase ρ 系）
+- 2026-05 方針: 内部 motion core は VMC ではなく **UNMF**、送受信・保存・外部連携の data plane は **UNMF/Z**。VMC は `VMC -> UNMF` / `UNMF -> VMC` の互換 adapter として扱う。既存 VMC passthrough は低遅延互換経路として維持する。
+- 実装 first slice: `crates/vac-motion/src/unmf.rs` が `un-motion-frame` / `un-motion-frame-zenoh` を参照し、VMC `MotionFrame` と `UNMotionFrame` の import/export、UNMF/Z MessagePack payload encode/decode を担当する。FlowGraph は UNMF を専用 `unmf` socket として扱い、`json <-> unmf` coerce で検査・保存・外部 JSON 境界へ接続する。UNMF/Z publish / subscribe node は Zenoh topic strategy を使い、UNAA/Z endpoint metadata resolver から base key / topic mode / schema major を受け取れる。GUI は UNAA/Z endpoint metadata 候補から resolver + publish / subscribe サブグラフを生成できる。既存 `motion_frame` socket は VMC/OSC wire adapter として残す。
+- UNMF/Z 1.1 LAN transport: `[unmfz.listen]`でpublisherの固定listen IP/port、`[[unmfz.connect]]`でsubscriberの複数接続先を指定する。未指定時の自動探索を維持し、UNVACプロセス内のAvatar motion / Flowgraph publish / ingress / subscribeは単一Zenoh sessionを共有する。接続経路はUNAA/Z endpoint metadataやUNMF/Z key所有権とは分離する。
 - 設計: [`roadmap/v2-vmc-and-restructure.md`](roadmap/v2-vmc-and-restructure.md)、M0 正本: [`roadmap/phase-mu-vmc-motion-m0.md`](roadmap/phase-mu-vmc-motion-m0.md)
 
 ### `src/twitch/`
@@ -97,6 +102,7 @@ Virtual Avatar Connect のレイヤ構成と依存方向、および開発時の
 
 - 子プロセス管理（CoeiroInk / VOICEVOX / LibreTranslate など）
 - `stop_all_graceful` で WM_CLOSE → grace → TerminateProcess
+- 後続計画: UNA / UNM など U.N. シリーズアプリは process-level Managed App に加え、Zenoh-based **UNAA/Z** identity / capabilities / status / command surface と関連付ける。`run_with` は起動・停止、UNAA/Z は readiness / capability / app command を担当する。
 
 ### `src/libretranslate/`
 
@@ -170,13 +176,13 @@ UNVET (`usagi/un-virtual-eye-tracker`) の convention を踏襲し、Phase χ �
 
 ## 実行入口（計画・工程順）
 
-現状のエントリは `virtual-avatar-connect-cli` → `run_cli()`、`virtual-avatar-connect-desktop` → `run_desktop()` の **2 runner 構成**を持つ。いずれも同一コア（`AppCore`）から起動する薄い runner。CLI はターミナル実行・ログ確認・本体機能開発向けで、従来通り Control API と GUI 配信を起動する。GUI 開発は `gui` 側の `npm run dev` と組み合わせる。desktop は一般配布向けで、システムトレイ常駐を本体とし、tray の `GUI を開く` または左ダブルクリックから Tauri WebView GUI を表示する。root package 名と同名の `virtual-avatar-connect.exe` alias は配布物を紛らわしくするため作らない。詳細・名称の正本は [`roadmap/v2-vmc-and-restructure.md`](roadmap/v2-vmc-and-restructure.md) §1.1 / §1.2。再構造化の **Step 4〜9 チェックリスト**は [`roadmap.md`](roadmap.md)「v2 crate / runner / GUI 同梱」。実装順と担当境界は [`roadmap/crate-runner-desktop-restructure.md`](roadmap/crate-runner-desktop-restructure.md)。
+現状のエントリは `virtual-avatar-connect-cli` → `run_cli()`、`virtual-avatar-connect-desktop` → `run_desktop()` の **2 runner 構成**を持つ。いずれも同一コア（`AppCore`）から起動する薄い runner。CLI はターミナル実行・ログ確認・本体機能開発向けで、従来通り Control API と GUI 配信を起動する。GUI 開発は `gui` 側の `npm run dev` と組み合わせる。desktop は一般配布向けで、起動時に Tauri WebView GUI を表示し、window close 後は tray へ常駐する。tray の `GUI を開く` または左ダブルクリックから再表示できる。root package 名と同名の `virtual-avatar-connect.exe` alias は配布物を紛らわしくするため作らない。詳細・名称の正本は [`roadmap/v2-vmc-and-restructure.md`](roadmap/v2-vmc-and-restructure.md) §1.1 / §1.2。再構造化の **Step 4〜9 チェックリスト**は [`roadmap.md`](roadmap.md)「v2 crate / runner / GUI 同梱」。実装順と担当境界は [`roadmap/crate-runner-desktop-restructure.md`](roadmap/crate-runner-desktop-restructure.md)。
 
 **推奨する実装順**
 
 1. **crate 再構造化**（`vac-core` 等、`v2` 計画書 §3）— 境界が固まってから runner を増やす。
 2. **CLI runner と desktop runner** の詳細設計・実装 — どちらも単体起動可能（CLI はコンソール付き玄人向け、desktop はコンソール非表示・一般ユーザー向け入口）。
-3. **Tauri（Phase ε-2）** を **desktop 版へ組み込む** — desktop 版では tray 常駐を主動線にし、tray から window を show / focus する。CLI は API / ログ / 開発用 runner として残す。
+3. **Tauri（Phase ε-2）** を **desktop 版へ組み込む** — desktop 版は起動時に GUI を表示し、window close 後は tray へ常駐する。CLI は API / ログ / 開発用 runner として残す。
 
 **GUI 静的ファイル**: Svelte の **ビルド済み** `gui/dist` を専用 crate またはモジュールに同梱し、CLI／desktop の両方から **内蔵配信**できるようにする（詳細は v2 計画書 §1.2）。**GitHub Actions 等の CI は** v2 計画書 **§1.3**（部分 CI を今は入れない）に従い、ワークスペース確定後にまとめて設計する。
 
@@ -188,5 +194,7 @@ HTTP/WS をそのまま使う Tauri shell 方針は [`roadmap/phase-epsilon-shut
 
 - [`roadmap.md`](roadmap.md) — 全フェーズのチェックボックスとサブフェーズ一覧
 - [`roadmap/phase-delta-spec.md`](roadmap/phase-delta-spec.md) — Flowgraph 基幹仕様
+- [`manual/un-app-api-over-zenoh.md`](manual/un-app-api-over-zenoh.md) — UN App API over Zenoh (UNAA/Z) protocol
+- [`roadmap/un-app-api-zenoh-roadmap.md`](roadmap/un-app-api-zenoh-roadmap.md) — UNAA/Z control plane implementation plan
 - [`manual/index.md`](manual/index.md) — ユーザー向けマニュアル
 - [`../CHANGELOG.md`](../CHANGELOG.md) — Phase 単位の変更履歴

@@ -9,6 +9,19 @@ use crate::flowgraph::socket::{SocketType, SocketValue};
 use crate::flowgraph::FlowgraphRuntime;
 use crate::SharedState;
 
+pub(super) fn lock_graph_writes(root: &Path) -> Result<std::fs::File, HttpResponse> {
+	super::write_lock::acquire(root).map_err(|error| {
+		if error.kind() == std::io::ErrorKind::WouldBlock {
+			err_json(actix_web::http::StatusCode::CONFLICT, "flowgraph_busy", "同じ保存先を別の操作が変更中です。編集中の内容を保持して、完了後に再操作してください。")
+		} else if error.kind() == std::io::ErrorKind::NotFound {
+			err_json(actix_web::http::StatusCode::CONFLICT, "flowgraph_root_missing",
+				format!("グラフの保存先が見つからないため、操作していません。フォルダーの移動・削除やドライブの接続を確認してから再操作してください。保存先: {}", root.display()))
+		} else {
+			err_json(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "flowgraph_lock_failed", error)
+		}
+	})
+}
+
 pub(crate) fn err_json(status: actix_web::http::StatusCode, code: &str, detail: impl std::fmt::Display) -> HttpResponse {
 	HttpResponse::build(status).json(serde_json::json!({
 		"error": code,
@@ -365,11 +378,7 @@ pub(crate) fn root_relative(root: &Path, file: &Path) -> String {
 
 pub(crate) fn make_backup(file: &Path) -> std::io::Result<String> {
 	let ts = jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string();
-	let name = file.file_name().and_then(|s| s.to_str()).unwrap_or("unknown.flowgraph.toml");
-	let bak_name = format!("{name}.bak-{ts}");
-	let bak_path = file.with_file_name(&bak_name);
-	std::fs::copy(file, &bak_path)?;
-	Ok(bak_name)
+	super::file_backup::create(file, &ts)
 }
 
 /// プラットフォーム既定のエディタ/ビューアで file を開く（fire-and-forget）。
@@ -398,6 +407,28 @@ pub(crate) fn spawn_os_opener(file: &Path) -> (String, bool) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[actix_web::test]
+	async fn writer_gate_reports_missing_root_and_busy_without_creating_graphs() {
+		let root = std::env::temp_dir().join(format!("unvac-gate-errors-{}-{}", std::process::id(),
+			std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+		let response = lock_graph_writes(&root).unwrap_err();
+		assert_eq!(response.status(), actix_web::http::StatusCode::CONFLICT);
+		let body: serde_json::Value = serde_json::from_slice(&actix_web::body::to_bytes(response.into_body()).await.unwrap()).unwrap();
+		assert_eq!(body["error"], "flowgraph_root_missing");
+		assert!(body["detail"].as_str().unwrap().contains(&root.display().to_string()));
+		assert!(!root.exists(), "missing roots must not be silently recreated");
+		std::fs::create_dir(&root).unwrap();
+		let guard = lock_graph_writes(&root).unwrap();
+		let response = lock_graph_writes(&root).unwrap_err();
+		assert_eq!(response.status(), actix_web::http::StatusCode::CONFLICT);
+		let body: serde_json::Value = serde_json::from_slice(&actix_web::body::to_bytes(response.into_body()).await.unwrap()).unwrap();
+		assert_eq!(body["error"], "flowgraph_busy");
+		drop(guard);
+		drop(lock_graph_writes(&root).unwrap());
+		std::fs::remove_file(root.join(".flowgraph-write.lock")).unwrap();
+		std::fs::remove_dir(root).unwrap();
+	}
 
 	#[test]
 	fn fq_to_file_path_basic() {
@@ -468,7 +499,7 @@ mod tests {
 		// 既定はオプトインされていないはず。
 		assert!(!r.is_control_triggerable("flowgraph.literal.string"));
 		assert!(!r.is_control_triggerable("flowgraph.util.log"));
-		assert!(!r.is_control_triggerable("flowgraph.channel.emit"));
+		assert!(!r.is_control_triggerable("flowgraph.bos.output"));
 		// 未登録は無条件 false。
 		assert!(!r.is_control_triggerable("flowgraph.does.not.exist"));
 	}

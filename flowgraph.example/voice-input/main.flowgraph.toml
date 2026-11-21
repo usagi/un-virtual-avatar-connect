@@ -4,9 +4,8 @@
 # 音声入力 → OS TTS のエコーサンプル。
 #
 # 前提:
-#   - `conf.toml` に `[[processors]] feature = "voice"` を追加（暫定 / v2 では δ-9 で刷新）。
-#     モデルパスなどは `conf.example-voice.toml` を参照。
-#   - voice サービスが動いていれば `flowgraph.ingress.voice` にトリガーが届く。
+#   - `flowgraph.ingress.voice` ノードの properties で engine / model_path を指定する。
+#   - VAC がこの graph をロードすると、voice worker が起動して認識結果をこのノードへ流す。
 #
 # 動作:
 #   - マイク入力（Vosk / Whisper）で認識された is_final テキストが ingress.voice に届く。
@@ -29,6 +28,10 @@ tags = ["example", "voice", "vosk", "whisper", "tts"]
 id = "in"
 feature = "flowgraph.ingress.voice"
 position = [80, 200]
+properties.engine = "vosk"
+properties.model_path = "vosk-model-small-ja-0.22"
+properties.language_code = "ja"
+properties.fixed_channel = "voice"
 
 
 # ---- TTS ----

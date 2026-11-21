@@ -1,0 +1,38 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "shared-play-synthetic-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "shared-excitement",
+      "content": "うおお、やった！ 今の逆転、めちゃくちゃ熱い！",
+      "allowed_actions": ["react"],
+      "speech": "required",
+      "avatar_intent": "required"
+    },
+    {
+      "id": "enjoying-a-hypothesis",
+      "content": "ケルシー先生、今のは速さだけじゃなくてタイミングも関係するのかもと思うと、面白くない？",
+      "allowed_actions": ["respond"],
+      "speech": "required"
+    },
+    {
+      "id": "sharing-an-impression",
+      "content": "ケルシー先生、この先が読めない感じ、私は好きだな。先生はどう？",
+      "allowed_actions": ["respond"],
+      "speech": "required"
+    },
+    {
+      "id": "explicit-advice-request",
+      "content": "ここは相談。私は速さとタイミングのどちらが影響したかまだわからない。次に比べるなら、片方を同じにして試すのはどう思う？",
+      "allowed_actions": ["respond"],
+      "speech": "required"
+    }
+  ]
+}

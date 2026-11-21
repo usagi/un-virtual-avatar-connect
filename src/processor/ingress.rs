@@ -1,10 +1,9 @@
-//! イベント駆動型の入力起点（ingress）のうち、**まだ Flowgraph bridge が揃っていないもの**を
-//! `[[processors]]` 設定から並行起動する。
+//! V1 `[[processors]]` に残った ingress 設定の互換処理。
 //!
 //! - **Twitch IRC**: ζ-1 で Flowgraph bridge (`flowgraph.ingress.twitch` + `src/bridges/twitch.rs`) に
 //!   完全移行済み。V1 経路（`[[processors]] feature="twitch"` / トップレベル `[twitch]` の IRC フィールド）
 //!   は deprecation 警告のみ出して何も起動しない。
-//! - **Twitch EventSub**: ζ-2 で Flowgraph 化予定。ζ-1 時点では V1 経路で起動する。
+//! - **Twitch EventSub**: Flowgraph ingress が同じ broadcaster を購読している場合は V1 ループを自動スキップする。
 //! - **Voice**: δ-9 Part E.2 で Flowgraph 移行完了。V1 経路は廃止済み。`[[processors]] feature="voice"` が残っていれば警告のみ。
 //! - **WebInput**: V1 `[[processors]] feature="webinput"` からの登録は `web_input::WebInputRegistry` 側で処理する。
 
@@ -80,7 +79,7 @@ pub(crate) async fn prepare(
 					pc.id,
 					bl_key
 				);
-			} else if let Some(resolved) = twitch_eventsub::resolve_from_processor(u, ch, es).await {
+			} else { match twitch_eventsub::resolve_from_processor(u, ch, es).await { Some(resolved) => {
 				match resolved {
 					Ok(r) => {
 						log::info!("《Twitch》: EventSub を開始します (processor id={:?})", pc.id);
@@ -88,19 +87,16 @@ pub(crate) async fn prepare(
 					}
 					Err(e) => log::error!("《Twitch》 EventSub: {:?}", e),
 				}
-			}
+			} _ => {}}}
 		}
 	}
 
-	// トップレベル [twitch] の IRC フィールドは deprecated。Flowgraph 側で定義し直すよう促す。
+	// username / channel_to は EventSub と V1 出力の fallback にも使う。IRC 専用だった reads だけを警告する。
 	if let Some(ref tw) = conf.twitch {
-		let irc_fields_set = !tw.username.trim().is_empty()
-			|| tw.channel_to.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false)
-			|| tw.reads.as_ref().map(|r| !r.is_empty()).unwrap_or(false);
-		if irc_fields_set {
+		if tw.reads.as_ref().map(|r| !r.is_empty()).unwrap_or(false) {
 			log::warn!(
-				"《Twitch》: トップレベル `[twitch]` の IRC フィールド（username / channel_to / reads）は ζ-1 で廃止されました。\
-				 `flowgraph.ingress.twitch` ノードで定義してください（Flowgraph bridge が担当します）。"
+				"《Twitch》: トップレベル `[twitch].reads` は ζ-1 で廃止されました。\
+				 `flowgraph.ingress.twitch` ノードの `channels` で定義してください。"
 			);
 		}
 		// EventSub はトップレベル定義からも V1 経路で起動する。
@@ -122,7 +118,7 @@ pub(crate) async fn prepare(
 						 `[twitch.eventsub].force_v1_loop = true` を設定してください。",
 						bl_key
 					);
-				} else if let Some(resolved) = twitch_eventsub::resolve_from_top_level(&tw.username, tw.effective_channel_to(), es).await {
+				} else { match twitch_eventsub::resolve_from_top_level(&tw.username, tw.effective_channel_to(), es).await { Some(resolved) => {
 					match resolved {
 						Ok(r) => {
 							log::info!("《Twitch》: トップレベル EventSub を開始します");
@@ -130,7 +126,7 @@ pub(crate) async fn prepare(
 						}
 						Err(e) => log::error!("《Twitch》 EventSub: {:?}", e),
 					}
-				}
+				} _ => {}}}
 			}
 		} else if tw.eventsub.is_some() {
 			log::warn!(

@@ -203,7 +203,7 @@ properties.value = "subtitles-1"
 
 [[nodes]]
 id = "sub_emit"
-feature = "flowgraph.channel.emit"
+feature = "flowgraph.bos.output"
 position = [1280, 440]
 
 
@@ -360,7 +360,7 @@ from = "sub_branch:then"
 to = "sub_emit:exec_in"
 [[edges]]
 from = "sub_channel:value"
-to = "sub_emit:channel"
+to = "sub_emit:destination"
 [[edges]]
 from = "sub_text:result"
 to = "sub_emit:content"

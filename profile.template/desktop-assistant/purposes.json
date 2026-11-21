@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "purposes": [
+    {
+      "id": "assistant-output",
+      "name": "デスクトップAIの字幕・音声",
+      "roots": [
+        "assistant-output"
+      ]
+    }
+  ]
+}

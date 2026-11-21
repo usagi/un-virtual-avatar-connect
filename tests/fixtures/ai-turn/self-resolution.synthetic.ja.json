@@ -1,0 +1,45 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "self-resolution-after-consultation-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "consult",
+      "content": "ケルシー先生、空腹の表示が出ている。食料がないのかもしれない。まず食料を確認すべきだと思う？",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "resolved-inventory",
+      "content": "あ、食料はあるね。寝てるから食べられないだけじゃん。",
+      "allowed_actions": [
+        "observe"
+      ],
+      "speech": "forbidden"
+    },
+    {
+      "id": "back-to-play",
+      "content": "よし、壁作りの続きに戻ろう。",
+      "allowed_actions": [
+        "observe"
+      ],
+      "speech": "forbidden"
+    },
+    {
+      "id": "new-question",
+      "content": "ケルシー先生、ところでこの壁の並びはどう見える？",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    }
+  ]
+}

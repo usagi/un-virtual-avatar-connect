@@ -21,9 +21,13 @@ fn default_limit() -> usize {
 	100
 }
 
+fn normalized_limit(limit: usize) -> usize {
+	limit.clamp(1, crate::state::CONTROL_EVENT_HISTORY_CAPACITY)
+}
+
 #[get("/events/history")]
 pub async fn history(state: Data<SharedState>, query: Query<EventHistoryQuery>) -> impl Responder {
-	let limit = query.limit.clamp(1, 500);
+	let limit = normalized_limit(query.limit);
 	let kind = query.kind.as_deref().map(str::trim).filter(|s| !s.is_empty());
 	let history = {
 		let s = state.read().await;
@@ -42,4 +46,17 @@ pub async fn history(state: Data<SharedState>, query: Query<EventHistoryQuery>) 
 		"events": rows,
 		"limit": limit,
 	}))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn event_history_limit_uses_stream_duration_capacity() {
+		assert_eq!(normalized_limit(0), 1);
+		assert_eq!(normalized_limit(200), 200);
+		assert_eq!(normalized_limit(usize::MAX), crate::state::CONTROL_EVENT_HISTORY_CAPACITY);
+		assert!(crate::state::CONTROL_EVENT_HISTORY_CAPACITY >= 4000);
+	}
 }

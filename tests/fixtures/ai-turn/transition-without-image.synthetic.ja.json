@@ -1,0 +1,37 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "transition-without-image-synthetic-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 120,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "celebrate-during-blackout",
+      "content": "うおお、やった！ ゴールした！ 今は次のステージに切り替わる暗転中だ。",
+      "allowed_actions": [
+        "react"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "ask-unseen-cause",
+      "content": "ケルシー先生、最後のどの操作が勝因だったと思う？",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required"
+    },
+    {
+      "id": "routine-transition",
+      "content": "次のステージが出た。続けます。",
+      "allowed_actions": [
+        "observe"
+      ],
+      "speech": "forbidden"
+    }
+  ]
+}

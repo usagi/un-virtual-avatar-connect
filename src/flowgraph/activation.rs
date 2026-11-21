@@ -25,7 +25,7 @@ pub fn file_fq_for_node_id(node_id: &str) -> Option<&str> {
 pub fn file_effective_exec_active(fq: &str, meta: &FlowgraphFileActivationMeta, conf: &Conf, runtime_mode: Option<&str>) -> bool {
 	let _ = fq;
 	if meta.mode_groups.is_empty() {
-		return true;
+		return meta.default_enabled;
 	}
 	if conf.modes.is_empty() {
 		return meta.default_enabled;
@@ -62,8 +62,12 @@ pub fn build_node_exec_active_map(
 	runtime_mode: Option<&str>,
 ) -> HashMap<String, bool> {
 	let mut out = HashMap::with_capacity(node_meta.len());
-	for node_id in node_meta.keys() {
-		let active = if let Some(fq) = file_fq_for_node_id(node_id) {
+	for (node_id, node) in node_meta {
+		let active = if !node.activation_chain.is_empty() {
+			node.activation_chain
+				.iter()
+				.all(|meta| file_effective_exec_active(node_id, meta, conf, runtime_mode))
+		} else if let Some(fq) = file_fq_for_node_id(node_id) {
 			let meta = file_activation.get(fq).cloned().unwrap_or_default();
 			file_effective_exec_active(fq, &meta, conf, runtime_mode)
 		} else {
@@ -201,7 +205,7 @@ mod tests {
 	}
 
 	#[test]
-	fn empty_mode_groups_always_active() {
+	fn empty_mode_groups_respect_default_even_when_a_mode_is_selected() {
 		let conf: Conf = toml::from_str(
 			r#"
 			workers = 1
@@ -213,6 +217,11 @@ mod tests {
 		.unwrap();
 		let m = FlowgraphFileActivationMeta::default();
 		assert!(file_effective_exec_active("f", &m, &conf, None));
+		let disabled = FlowgraphFileActivationMeta { default_enabled: false, ..m };
+		assert!(!file_effective_exec_active("f", &disabled, &conf, None));
+		assert!(!file_effective_exec_active("f", &disabled, &conf, Some("daily")));
+		let no_modes: Conf = toml::from_str("workers=1").unwrap();
+		assert!(!file_effective_exec_active("f", &disabled, &no_modes, None));
 	}
 
 	#[test]
@@ -281,6 +290,7 @@ mod tests {
 				feature: "flowgraph.util.log".into(),
 				file: std::path::PathBuf::from("a"),
 				position: None,
+				activation_chain: Vec::new(),
 				properties: Default::default(),
 			},
 		);
@@ -290,6 +300,53 @@ mod tests {
 		assert!(!gate.is_exec_active("a::n"));
 		gate.set_global_exec_suppress(false);
 		assert!(gate.is_exec_active("a::n"));
+	}
+
+	#[test]
+	fn composed_node_requires_every_activation_layer() {
+		let conf: Conf = toml::from_str(
+			r#"
+			workers = 1
+			default_runtime_mode = "daily"
+			[modes.daily]
+			flowgraph_groups.enable = ["conversation"]
+			"#,
+		)
+		.unwrap();
+		let node = LoadedNodeMeta {
+			feature: "flowgraph.util.log".into(),
+			file: std::path::PathBuf::from("module"),
+			position: None,
+			activation_chain: vec![meta_groups(&["conversation"]), meta_groups(&["translation"])],
+			properties: Default::default(),
+		};
+		let node_meta = HashMap::from([("conversation/@translate::log".to_string(), node)]);
+		let map = build_node_exec_active_map(&conf, &node_meta, &HashMap::new(), None);
+		assert_eq!(map.get("conversation/@translate::log"), Some(&false));
+
+		let both_enabled: Conf = toml::from_str(
+			r#"
+			workers = 1
+			default_runtime_mode = "daily"
+			[modes.daily]
+			flowgraph_groups.enable = ["conversation", "translation"]
+			"#,
+		)
+		.unwrap();
+		let map = build_node_exec_active_map(&both_enabled, &node_meta, &HashMap::new(), None);
+		assert_eq!(map.get("conversation/@translate::log"), Some(&true));
+
+		let translation_disabled: Conf = toml::from_str(
+			r#"
+			workers = 1
+			default_runtime_mode = "daily"
+			[modes.daily]
+			flowgraph_groups.disable = ["translation"]
+			"#,
+		)
+		.unwrap();
+		let map = build_node_exec_active_map(&translation_disabled, &node_meta, &HashMap::new(), None);
+		assert_eq!(map.get("conversation/@translate::log"), Some(&false));
 	}
 
 	#[test]

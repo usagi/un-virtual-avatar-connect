@@ -1,5 +1,7 @@
 # Phase δ Specification — VAC Flowgraph
 
+> Composition update: file/module/instance、型付き graph I/O、Studio cross-file portal、公開 channel 廃止は [`../manual/flowgraph-composition.md`](../manual/flowgraph-composition.md) を優先する。本書の `channel.emit` と旧3セクション制約は実装史としてのみ参照する。
+
 **Status**: Phase δ-0 locked. 基準仕様として δ-1 以降の実装が参照する。実装中の発見で随時改訂する場合は §14 の合意事項を更新し、変更点を CHANGELOG または PR 説明に記録する。
 
 **Scope**: VAC のパイプライン処理を「型付き IO コネクター + exec pin による DAG」= **VAC Flowgraph** へ全面刷新するための仕様。AI Persona 統合は本フェーズ対象外。V1 処理系は δ 閉幕時点で完全削除し v1.0 に major bump。
@@ -123,7 +125,7 @@ struct NodeSpec {
 - `flowgraph.dictionary.forget`     (η 新設: Pure、mode=latest/all/exact、is_locked 尊重)
 - `flowgraph.table.from_json`       (η 新設: Pure)
 - `flowgraph.table.to_json`         (η 新設: Pure)
-- `flowgraph.table.load_tsv`        (η 新設: Effectful、auto / headerful / legacy_loose)
+- `flowgraph.table.load_tsv`        (η 新設: Effectful、auto / google_ime / headerful / legacy_loose)
 - `flowgraph.table.write_tsv`       (η 新設: Effectful、atomic rename)
 - ~~`flowgraph.dictionary.command`~~ (η で削除、`dictionary.match` + `dictionary.learn` / `.forget` で代替。詳細は [phase-eta-dictionary-unification.md](phase-eta-dictionary-unification.md) §6)
 - `flowgraph.command.match`
@@ -1070,7 +1072,7 @@ paste 成功後は内部で reload を走らせ `FlowgraphReloaded` WS push を�
 #### 12.3.1 起動方法
 
 ```powershell
-virtual-avatar-connect.exe --migrate --conf conf.toml [--migrate-out-dir migrated] [--migrate-strict]
+virtual-avatar-connect-cli.exe conf.toml --migrate [--migrate-out-dir migrated] [--migrate-strict]
 ```
 
 - `--migrate` を付けると `execute_special_modes_without_conf` 内で `crate::migrate::migrate_conf_file` を呼び、終了する（通常起動には入らない）。
@@ -1107,7 +1109,7 @@ virtual-avatar-connect.exe --migrate --conf conf.toml [--migrate-out-dir migrate
 | `twitch`                              | `twitch-echo`           | `ingress.twitch → util.log`（`[twitch]` / `[twitch.eventsub]` / `[twitch.moderator]` は保持） |
 | `twitch-out`                          | `twitch-chat-send`      | `ingress.web_input + 4 × literal(token/client_id/broadcaster_id/sender_id) → twitch.chat_send` |
 | `web-input`                           | `web-input`             | `ingress.web_input → util.log`                                                                 |
-| `voice`                               | —                       | **変換しない**。`[[processors]]` のまま保持 + warning（δ-9 で `[voice]` サービス化予定）         |
+| `voice`                               | `voice-input`           | `ingress.voice → util.log`。Vosk / Whisper 設定は node properties へ移す。                       |
 | 上記以外                              | —                       | warning で skip。ユーザー手動対応。                                                              |
 
 - 同一 feature が複数あれば、2 個目以降は `<topic>-1` / `<topic>-2` とサフィックスで衝突回避。

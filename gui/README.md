@@ -5,12 +5,12 @@
 
 ## 技術スタック
 
-| 層 | 選定 |
-|----|------|
-| Framework | Svelte 5 (runes) + Vite + TypeScript |
-| Node editor | [Svelte Flow](https://svelteflow.dev/) (`@xyflow/svelte`) |
-| UI kit | [Skeleton v4](https://skeleton.dev/) (内部で [melt-ui](https://melt-ui.com/) を使う headless 基盤) + Tailwind v4 |
-| 将来 | そのまま Tauri v2 に持ち込める構成 |
+| 層          | 選定                                                                                                             |
+| ----------- | ---------------------------------------------------------------------------------------------------------------- |
+| Framework   | Svelte 5 (runes) + Vite + TypeScript                                                                             |
+| Node editor | [Svelte Flow](https://svelteflow.dev/) (`@xyflow/svelte`)                                                        |
+| UI kit      | [Skeleton v4](https://skeleton.dev/) (内部で [melt-ui](https://melt-ui.com/) を使う headless 基盤) + Tailwind v4 |
+| 将来        | そのまま Tauri v2 に持ち込める構成                                                                               |
 
 TypeScript を採用しているのは、VAC 本体の `ControlEvent` / `ReloadRequest` などが `#[serde(tag = "...")]`
 付きの Rust tagged enum で定義されており、**TS の discriminated union へ 1:1 に写して WebSocket ハンドラの

@@ -1,0 +1,19 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "game-text-mission",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "cases": [
+    {
+      "id": "mission",
+      "content": "ケルシー先生、画面に表示されている命令は何？",
+      "allowed_actions": [
+        "respond"
+      ],
+      "speech": "required",
+      "speech_includes": [
+        "ソトア"
+      ]
+    }
+  ]
+}

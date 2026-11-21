@@ -11,14 +11,35 @@ OpenAI / Twitch / OBS / TTS などの実サービスを叩かず、`flowgraph.ex
 `--flowgraph-test-dir` には、`*.flowgraph.test.toml` を含むディレクトリを指定します。
 テスト定義が 1 件も見つからない場合は、誤ったディレクトリを成功扱いしないため失敗します。
 
-```powershell
+```console
 cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-dir flowgraph.example/table-write-tsv-mock
+```
+
+リリース前の代表 smoke としては、UNAA/Z control plane と UNMF/Z motion data plane の dry-run fixture も使えます。
+
+```console
+cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-dir flowgraph.example/un-app-control
+cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-dir flowgraph.example/unmf-vmc-adapter
+```
+
+UNVAC 2.0 の AI アバター制御だけをまとめて確認する場合:
+
+```console
+cargo xtask avatar-control smoke
+```
+
+個別に切り分ける場合:
+
+```console
+cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-dir flowgraph.example/ai-avatar-unmfz
+cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-dir flowgraph.example/ai-avatar-unmfz-invalid
+cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-dir flowgraph.example/twitch-command-to-avatar-expression
 ```
 
 機械処理や差分確認には JSON 出力を使います。
 通常出力でも `capabilities` 行に `file_read=1` のような集計が出ます。
 
-```powershell
+```console
 cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-dir flowgraph.example/table-write-tsv-mock --flowgraph-test-json
 ```
 
@@ -28,7 +49,7 @@ cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-dir flowgraph.exa
 fixture ディレクトリを見つけたらそこで探索を止めるため、fixture 内部の補助ファイルは別 fixture として扱われません。
 fixture が 1 件も見つからない root は失敗扱いです。
 
-```powershell
+```console
 cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-root flowgraph.example
 ```
 
@@ -37,11 +58,21 @@ JSON 出力では suite 全体の成否、fixture 件数、失敗件数、各 fi
 各 fixture report には `capability_summary` と `graph_signature` も含まれるため、テスト対象 graph が要求する file / network などの capability と、外部 trigger / 未接続 boundary port の surface も同じ JSON で確認できます。
 `[tests.expect]` では `graph_signature_file_count` / `graph_signature_edge_count` / `graph_signature_trigger_count` / `graph_signature_boundary_input_count` / `graph_signature_boundary_output_count` / `graph_signature_required_capabilities` で、graph の公開面が意図せず変わっていないかを固定できます。
 
-```powershell
+```console
 cargo run --bin virtual-avatar-connect-cli -- --flowgraph-test-root flowgraph.example --flowgraph-test-json
 ```
 
 `--flowgraph-test-dir` と `--flowgraph-test-root` は同時指定できません。
+
+## load-check 実行
+
+`--flowgraph-load-dir` は、fixture test file を持たない実運用 Flowgraph をロード検証して終了します。
+生成した local Flowgraph や配信用 graph の構文・型接続だけを確認したいときに使います。
+
+```console
+cargo run --bin virtual-avatar-connect-cli -- --flowgraph-load-dir flowgraph.avatar-ai-control.local
+cargo run --bin virtual-avatar-connect-cli -- --flowgraph-load-dir flowgraph.avatar-ai-control.local --flowgraph-test-json
+```
 
 ## fixture ファイル構成
 

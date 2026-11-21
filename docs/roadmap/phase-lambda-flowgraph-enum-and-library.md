@@ -1,5 +1,7 @@
 # Phase λ — Flowgraph: Enum 型システム + ライブラリ再利用
 
+> Superseded for composition: 型付き graph I/O、graph-as-node、`library_uses` 廃止、公開 channel 廃止の確定仕様は [`../manual/flowgraph-composition.md`](../manual/flowgraph-composition.md) を正本とする。本書の v0 スタブは実装史として残す。
+
 本書は **Phase λ（lambda）** の設計正本である。Enum（閉集合文字列）、ユーザ定義 `[[enums]]`、ライブラリ境界ノード、`[meta]` 拡張、ライブラリ依存グラフと循環検出の方針をここに集約する。実装はサブフェーズ λ-0 … λ-5 に分割し、[`roadmap.md`](../roadmap.md) の **Completed**（および将来の λ+）と照合する。
 
 ---

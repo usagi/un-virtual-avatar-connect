@@ -12,6 +12,7 @@
 
 use crate::utility::bool_true;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -26,8 +27,8 @@ pub struct AiConf {
 /// 旧 `force_activate_regex_pattern` / `ignore_regex_pattern` は **互換レイヤとして**内部的に `modulators` へ合成される
 /// （旧フィールドを残しておけば従来通りの挙動になる）。明示的に `[ai.personas.decision]` を書いた場合はそちらが優先。
 ///
-/// `min_interval_in_secs` は **スコアとは独立した hard gate** として残す。連打を抑えたいだけの要件で
-/// スコア設計を歪めないための単純な絞り弁で、`force_activate`（スコア >= threshold）後でも効く。
+/// `min_interval_in_secs` はスコアとは独立した次回評価の最短時刻。Observation Buffer は
+/// この時刻まで最新観測を保留し、Decision Engine 側も競合時の安全弁として再確認する。
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DecisionConf {
 	/// 合計スコアがこの値以上のとき応答。未指定時は 50.0。
@@ -42,7 +43,7 @@ pub struct DecisionConf {
 	/// スコア算出器の配列。上から順に評価し、各 modulator の出す値を合算する。
 	#[serde(default)]
 	pub modulators: Vec<DecisionModulator>,
-	/// 応答間隔の下限（秒）。**スコアとは独立した hard gate**。未指定または 0 で無効。
+	/// AI評価間隔の下限（秒）。待機中の観測はObservation Bufferが最新一件へ集約する。
 	pub min_interval_in_secs: Option<u64>,
 }
 
@@ -100,17 +101,16 @@ impl DecisionModulator {
 	}
 }
 
-/// Phase III で追加した heartbeat 設定（自発発話の外部トリガー）。
+/// 観測broadcastを取りこぼした場合に、直近の未処理datumを回収する監視。
 ///
-/// 有効化すると、各ペルソナに 1 本の `tokio::task` が追加され、`interval_secs` ごとに **直近のトリガー発話を再評価** する。
-/// 再評価は Decision Engine を通して通常の `react()` と同じ経路で行なうため、`modulators` に
-/// `SilenceSince` などを足しておかないと単純な連打になる点に注意。
+/// 有効化すると各ペルソナに監視taskを追加する。同じdatum IDは一度だけ処理するため、
+/// 時間経過だけを理由に同じ発話を再評価しない。自発発話は将来のInitiative Schedulerで扱う。
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct HeartbeatConf {
-	/// 自発発話の評価を有効化する（既定: false）。
+	/// 未処理datumの回収監視を有効化する（既定: false）。
 	#[serde(default)]
 	pub enabled: bool,
-	/// 評価の周期秒。未指定時は 60 秒。短くしすぎると料金・レート制限に跳ねるので注意。
+	/// 回収確認の周期秒。未指定時は60秒。
 	#[serde(default = "HeartbeatConf::default_interval_secs")]
 	pub interval_secs: u64,
 }
@@ -188,7 +188,7 @@ pub struct OpenAiFewShotTurn {
 	pub content: String,
 }
 
-/// `[[ai.personas]].openai_reasoning_effort` に書く値。gpt-5 系モデル専用。
+/// `[[ai.personas]].openai_reasoning_effort` に書く値。対応モデルと値は model_policy で判定する。
 ///
 /// Responses API の `reasoning.effort` (`ReasoningEffort` enum) に 1:1 でマップされる。
 /// conf 層では async_openai / openai_responses の型に依存したくないので、conf 側の enum として
@@ -196,15 +196,149 @@ pub struct OpenAiFewShotTurn {
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum OpenAiReasoningEffortConf {
+	None,
+	Minimal,
 	Low,
 	Medium,
 	High,
+	Xhigh,
+	Max,
+}
+
+/// 通常応答より高性能なモデルへ昇格する条件。
+///
+/// `model` は既存の routine model のまま維持し、この設定に一致した観測だけを
+/// `model` で指定した escalation model へ送る。
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OpenAiModelPolicyConf {
+	pub model: String,
+	pub reasoning_effort: Option<OpenAiReasoningEffortConf>,
+	pub max_output_tokens: Option<u32>,
+	#[serde(default)]
+	pub trigger_channels: Vec<String>,
+	/// `flowgraph.ai.observe.request_class` の完全一致で昇格する依頼種別。
+	#[serde(default)]
+	pub trigger_request_classes: Vec<String>,
+	pub trigger_regex_pattern: Option<String>,
+}
+
+/// Function tool のschema検証と、観測channelごとの呼び出し許可。
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct OpenAiToolPolicyConf {
+	/// Optional destinations for vac_emit_effect. None preserves custom legacy routing.
+	pub effect_allowed_channels: Option<Vec<String>>,
+	/// true の場合、すべてのfunction toolに `strict: true` とstrict互換schemaを要求する。
+	#[serde(default)]
+	pub require_strict: bool,
+	/// channel別指定がない観測で許可するtool名。未指定なら宣言済みtoolをすべて許可する。
+	pub default_allowed: Option<Vec<String>>,
+	/// 観測channel完全一致で `default_allowed` を置き換える許可集合。
+	#[serde(default)]
+	pub by_channel: HashMap<String, Vec<String>>,
+	/// 信頼済み `request_class` ごとに `by_channel` / `default_allowed` を置き換える許可集合。
+	#[serde(default)]
+	pub by_request_class: HashMap<String, Vec<String>>,
+}
+
+/// 一度の Responses API 呼び出しで、発話要否と発話本文を同時に決める。
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct AiTurnManagementConf {
+	/// false またはブロック省略時は従来どおり常に自由文を発話する。
+	#[serde(default)]
+	pub enabled: bool,
+	/// 発話付き身体表現を同じutteranceの音声再生開始まで待つ。TTS接続時のみ有効にする。
+	#[serde(default)]
+	pub avatar_sync_with_speech: bool,
+	/// 通常返答の音声片が正常終了してから続きが始まるまでの上限。
+	/// 未指定または0は無期限。優先依頼・チャネポには適用しない。
+	pub continuation_gap_ms: Option<u64>,
+	/// Keep bounded untrusted readings of images actually included in replies.
+	#[serde(default)]
+	pub visual_history_enabled: bool,
+	/// Opt-in candidate: add one retained same-source image on explicit past-screen references.
+	#[serde(default)]
+	pub past_screen_image_enabled: bool,
+}
+
+/// 短時間に連続する確定観測を一つの AI 評価へまとめる。
+///
+/// STT の確定断片や複数 ingress が近接して届いても観測ごとに API を呼ばず、最後の観測を
+/// 起点として channel data の履歴全体を評価する。`max_wait_ms` は入力が続く場合の飢餓を防ぐ。
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ObservationBufferConf {
+	/// 最後の確定観測から評価まで待つ静穏時間。
+	#[serde(default = "ObservationBufferConf::default_settle_ms")]
+	pub settle_ms: u64,
+	/// 観測を最初に保留してから評価するまでの最大時間。
+	#[serde(default = "ObservationBufferConf::default_max_wait_ms")]
+	pub max_wait_ms: u64,
+}
+
+impl Default for ObservationBufferConf {
+	fn default() -> Self {
+		Self {
+			settle_ms: Self::default_settle_ms(),
+			max_wait_ms: Self::default_max_wait_ms(),
+		}
+	}
+}
+
+/// 配信状態と会話の静穏時間から作る、通常応答とは独立した自発参加候補。
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AiInitiativeConf {
+	#[serde(default)]
+	pub enabled: bool,
+	#[serde(default = "AiInitiativeConf::default_interval_secs")]
+	pub interval_secs: u64,
+	#[serde(default = "AiInitiativeConf::default_startup_grace_secs")]
+	pub startup_grace_secs: u64,
+	#[serde(default = "AiInitiativeConf::default_idle_secs")]
+	pub idle_secs: u64,
+	#[serde(default = "AiInitiativeConf::default_min_interval_secs")]
+	pub min_interval_secs: u64,
+	#[serde(default = "AiInitiativeConf::default_max_attempts_per_hour")]
+	pub max_attempts_per_hour: usize,
+	#[serde(default = "AiInitiativeConf::default_max_speeches_per_hour")]
+	pub max_speeches_per_hour: usize,
+}
+
+impl AiInitiativeConf {
+	fn default_interval_secs() -> u64 {
+		15
+	}
+	fn default_startup_grace_secs() -> u64 {
+		60
+	}
+	fn default_idle_secs() -> u64 {
+		180
+	}
+	fn default_min_interval_secs() -> u64 {
+		300
+	}
+	fn default_max_attempts_per_hour() -> usize {
+		4
+	}
+	fn default_max_speeches_per_hour() -> usize {
+		2
+	}
+}
+
+impl ObservationBufferConf {
+	fn default_settle_ms() -> u64 {
+		750
+	}
+
+	fn default_max_wait_ms() -> u64 {
+		5_000
+	}
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AiPersonaConf {
 	/// 任意の識別子。ログ・CLI の `--persona-id` 指定に使う。未指定でもサービスは起動するが、Fine-tune 等の CLI 指定が効かない。
 	pub id: Option<String>,
+	/// GUIや運用ログへ表示する名前。未指定時は `id` を表示する。
+	pub display_name: Option<String>,
 	#[serde(default = "bool_true")]
 	pub is_enabled: bool,
 
@@ -224,10 +358,21 @@ pub struct AiPersonaConf {
 
 	/// Phase III で追加した heartbeat（自発発話の外部トリガー）設定。未指定なら無効。
 	pub heartbeat: Option<HeartbeatConf>,
+	/// 配信中の実況をすべて音声応答へ変換せず、observe / respond / react / close を選択させる。
+	pub turn_management: Option<AiTurnManagementConf>,
+	/// 近接した確定観測を一度の AI 評価へまとめる。未指定時も既定値で有効。
+	pub observation_buffer: Option<ObservationBufferConf>,
+	/// Twitch配信中の開始時・継続実況中・長時間沈黙時に、通常応答と別予算で自発参加候補を作る。
+	pub initiative: Option<AiInitiativeConf>,
 
 	// --- OpenAI API ---
 	pub api_key: Option<String>,
+	/// API keyを格納したUTF-8 text file。相対pathはprocessの作業directory基準。
+	/// desktop managed profileでは `credentials/openai-api-key.txt` を使用する。
+	pub api_key_file: Option<PathBuf>,
 	pub model: Option<String>,
+	/// routine model から明示条件で escalation model へ昇格する任意ポリシー。
+	pub openai_model_policy: Option<OpenAiModelPolicyConf>,
 	pub custom_instructions: Option<String>,
 	pub system_instructions_extra: Option<String>,
 	/// χ-6 で追加した Responses API 正式キー。未指定時は env `VAC_OPENAI_MAX_OUTPUT_TOKENS`、
@@ -237,8 +382,8 @@ pub struct AiPersonaConf {
 	/// χ-6 で追加した Chat Completions 互換 legacy フィールド。`openai_max_output_tokens` が
 	/// 未指定のときだけ fallback として u32 へ昇格させて扱う。
 	pub max_tokens: Option<u16>,
-	/// χ-6 で追加。gpt-5 系の `reasoning.effort` を制御する。低 / 中 / 高で切り替え可能。
-	/// gpt-5 系以外で指定しても Responses 層で無視される（warn ログ）。
+	/// χ-6 で追加。対応モデルの `reasoning.effort` を制御する。
+	/// モデルごとの対応値を Responses 層で確認し、未対応の指定は warn ログで通知する。
 	pub openai_reasoning_effort: Option<OpenAiReasoningEffortConf>,
 	/// χ-6 で追加。Responses API の `store` フラグ。VAC は client 側で全 input を再構築する
 	/// ので、**未指定時は `false`** を送る（サーバ側 conversation state に依存しない運用）。
@@ -250,6 +395,8 @@ pub struct AiPersonaConf {
 	/// 明示的に `false` を指定すれば opt-out できる（デバッグや実機計測の比較用）。
 	/// 詳細: [`docs/roadmap/phase-psi-alpha-encrypted-reasoning.md`](../../docs/roadmap/phase-psi-alpha-encrypted-reasoning.md)
 	pub openai_reasoning_encrypted_passthrough: Option<bool>,
+	/// Prompt Cache routing key。未指定時はpersona idから安定キーを生成する。
+	pub openai_prompt_cache_key: Option<String>,
 	pub temperature: Option<f32>,
 	pub top_p: Option<f32>,
 	pub n: Option<u8>,
@@ -288,12 +435,15 @@ pub struct AiPersonaConf {
 	pub min_interval_in_secs: Option<u64>,
 	pub remove_chars: Option<String>,
 	pub assistant_max_chars: Option<usize>,
+	/// 音声応答を文末境界で切る上限。`。` / `！` / `？` / `!` / `?` を文末として数える。
+	pub assistant_max_sentences: Option<usize>,
 	#[serde(default)]
 	pub assistant_strip_substrings: Vec<String>,
 	pub openai_stream: Option<bool>,
 	pub openai_tools_json_path: Option<PathBuf>,
 	pub openai_tool_choice: Option<String>,
 	pub openai_parallel_tool_calls: Option<bool>,
+	pub openai_tool_policy: Option<OpenAiToolPolicyConf>,
 	pub openai_max_in_flight: Option<usize>,
 	pub fine_tuning: Option<OpenAiChatFinetuning>,
 	pub respect_speech_floor: Option<String>,

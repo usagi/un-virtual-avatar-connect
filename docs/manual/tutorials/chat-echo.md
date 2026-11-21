@@ -2,7 +2,7 @@
 
 Twitch コメントを sibling の TTS flowgraph に橋渡しする **multi-file サンプル**。
 
-> ソース: [`flowgraph.example/chat-echo/main.flowgraph.toml`](../../../flowgraph.example/chat-echo/main.flowgraph.toml) + [`tts.flowgraph.toml`](../../../flowgraph.example/chat-echo/tts.flowgraph.toml)
+> ソース: [`flowgraph.example/chat-echo/main.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/chat-echo/main.flowgraph.toml) + [`tts.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/chat-echo/tts.flowgraph.toml)
 
 ## ねらい
 
@@ -36,17 +36,18 @@ to = "./tts::speaker:exec_in"
 ## 前提
 
 - `conf.example-twitch.toml` を見て Twitch OAuth が完了している
-- ベースの `main::speaker` は `tts.speak`（engine=`os`）に向けて既に configure 済み
+- VOICEVOX Engineを起動する。このサンプルの `tts.flowgraph.toml` は `engine_literal` で `voicevox` を指定している。接続先・話者を指定する場合は `speaker` の `endpoint`・`voice` 入力へ値を接続する
 
 ## 実行手順
 
-1. `flowgraph/chat-echo/` をディレクトリごと配置
+1. `flowgraph.example/chat-echo/` の2ファイルを、操作対象プロファイルのFlowgraph保存先へ同じフォルダー構造で取り込む
 2. VAC 再起動（or GUI の「Reload」）
-3. 配信チャットに発言すると、OS TTS が読み上げる
+3. `main` のTwitch入力ノードで、`channels` に受信する配信チャンネル名（`#`なし）を指定し、保存・適用する
+4. 配信チャットに発言し、VOICEVOXの読み上げを確認する
 
 ## よくある拡張
 
-- `tts.flowgraph.toml` の中身を voicevox や coeiroink に差し替え（[tts-voicevox](./tts-voicevox.md) 参照）
+- `tts.flowgraph.toml` の音声エンジンをOS音声やCOEIROINKへ変更（[tts-voicevox](./tts-voicevox.md) 参照）
 - `in:sender_actor` / `source_kind` を使って「モデレーターだけ読む」などの分岐
 
 ## 関連ノード

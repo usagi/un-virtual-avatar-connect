@@ -83,11 +83,11 @@
 # -------------------------------------------------------------------------
 #
 # OS TTS（Windows SAPI など）:
-#   virtual-avatar-connect --test-os-tts        # 利用可能な voice 一覧をダンプ
+#   OS の音声設定や SAPI 対応ツールで利用可能な voice 名を確認。
 #
 # VOICEVOX / AivisSpeech:
-#   virtual-avatar-connect --voicevox-speakers  # /speakers を人間可読に整形
-#     （内部で GET /speakers を叩くだけなのでエンジンが起動している必要あり）
+#   Engine の UI または GET http://localhost:50021/speakers /
+#   GET http://localhost:10101/speakers で styles[].id を確認。
 #
 # CoeiroInk:
 #   GET http://localhost:50032/v1/speakers を curl / ブラウザで叩く

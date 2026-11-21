@@ -9,7 +9,7 @@
 use crate::flowgraph::loader::diagnostic::{
 	Diagnostic, DiagnosticCode, FlowgraphFileActivationMeta, GraphCapabilitySummary, GraphSignature, GraphSignatureFile,
 	GraphSignaturePort, GraphSignatureTrigger, LoadError, LoadReport, LoadedNodeMeta, PackageLockEntry, PackageManifestSummary, Severity,
-	TypeSchemaSummary,
+	TypeSchemaGraphSummary, TypeSchemaSummary,
 };
 use crate::flowgraph::loader::reference::parse_port_ref;
 use crate::flowgraph::node::{InputMap, NodeSpec, PortSpec};
@@ -26,8 +26,14 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FlowgraphFile {
+	/// composition 展開後の activation 制約列。source TOML には存在しない loader 内部情報。
+	#[serde(default, skip_serializing, skip_deserializing)]
+	pub(crate) activation_chain: Vec<FlowgraphFileActivationMeta>,
 	#[serde(default)]
 	pub meta: Option<FileMeta>,
+	/// v2 composition: entry/module の種別と型付き公開 I/O。
+	#[serde(default)]
+	pub graph: GraphDeclaration,
 	#[serde(default)]
 	pub package: Option<FlowgraphPackageManifest>,
 	#[serde(default)]
@@ -43,6 +49,51 @@ pub struct FlowgraphFile {
 	/// Phase υ: GUI 上の編集グループ。engine 実行には影響しない。
 	#[serde(default)]
 	pub groups: Vec<FlowgraphGroupDef>,
+	/// v2 composition: module graph を親 Canvas 上へ配置する graph-as-node。
+	#[serde(default)]
+	pub instances: Vec<GraphInstance>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GraphKind {
+	#[default]
+	Entry,
+	Module,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GraphDeclaration {
+	#[serde(default)]
+	pub kind: GraphKind,
+	#[serde(default)]
+	pub inputs: Vec<GraphInputPort>,
+	#[serde(default)]
+	pub outputs: Vec<GraphOutputPort>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphInputPort {
+	pub name: String,
+	#[serde(rename = "type")]
+	pub ty: String,
+	pub to: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphOutputPort {
+	pub name: String,
+	#[serde(rename = "type")]
+	pub ty: String,
+	pub from: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphInstance {
+	pub id: String,
+	pub graph: String,
+	#[serde(default)]
+	pub position: Option<[f64; 2]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -401,6 +452,10 @@ pub(crate) struct BuildContext {
 impl BuildContext {
 	pub(crate) fn build(self, reg: &NodeRegistry) -> Result<LoadReport, LoadError> {
 		let mut diagnostics: Vec<Diagnostic> = Vec::new();
+		let (execution_files, composition, mut composition_diagnostics) =
+			crate::flowgraph::loader::composition::expand_composition(&self.files, &self.known_file_fqs, reg).map_err(LoadError::new)?;
+		diagnostics.append(&mut composition_diagnostics);
+		let execution_file_fqs: HashSet<String> = execution_files.iter().map(|(fq, _, _)| fq.clone()).collect();
 		for (_, file_path, file) in &self.files {
 			validate_enum_definitions(file, file_path, &mut diagnostics);
 		}
@@ -415,8 +470,11 @@ impl BuildContext {
 		validate_type_schema_field_refs(&self.files, &known_type_schema_ids, &mut diagnostics);
 		validate_type_schema_cycles(&self.files, &known_type_schema_ids, &mut diagnostics);
 		let type_schema_dependency_order = build_type_schema_dependency_order(&type_schemas);
-		let file_activation: HashMap<String, FlowgraphFileActivationMeta> =
-			self.files.iter().map(|(fq, _, f)| (fq.clone(), file_activation_meta(f))).collect();
+		let type_schema_graph_summary = build_type_schema_graph_summary(&type_schemas);
+		let file_activation: HashMap<String, FlowgraphFileActivationMeta> = execution_files
+			.iter()
+			.map(|(fq, _, f)| (fq.clone(), file_activation_meta(f)))
+			.collect();
 
 		let mut builder = FlowgraphBuilder::new();
 		let mut node_meta: HashMap<String, LoadedNodeMeta> = HashMap::new();
@@ -425,7 +483,7 @@ impl BuildContext {
 		// (fq_name, NodeSpec) マップを作り、edge 解決で参照する。
 		let mut node_specs: HashMap<String, NodeSpec> = HashMap::new();
 
-		for (file_fq, file_path, file) in &self.files {
+		for (file_fq, file_path, file) in &execution_files {
 			let mut local_ids: HashSet<String> = HashSet::new();
 
 			for node in &file.nodes {
@@ -493,6 +551,7 @@ impl BuildContext {
 						feature: node.feature.clone(),
 						file: file_path.clone(),
 						position: node.position,
+						activation_chain: file.activation_chain.clone(),
 						properties,
 					},
 				);
@@ -500,11 +559,11 @@ impl BuildContext {
 		}
 
 		// Pass 2: エッジ解決
-		let ctx_files: HashSet<String> = self.known_file_fqs.clone();
+		let ctx_files: HashSet<String> = execution_file_fqs;
 		let mut connected_inputs: BTreeSet<(String, String)> = BTreeSet::new();
 		let mut connected_outputs: BTreeSet<(String, String)> = BTreeSet::new();
 		let mut edge_count = 0;
-		for (file_fq, file_path, file) in &self.files {
+		for (file_fq, file_path, file) in &execution_files {
 			let resolve_ctx = crate::flowgraph::loader::reference::ResolveContext {
 				current_file_fq: file_fq.clone(),
 				known_file_fqs: ctx_files.clone(),
@@ -679,6 +738,7 @@ impl BuildContext {
 			&self.files,
 			&type_schemas,
 			&type_schema_dependency_order,
+			&type_schema_graph_summary,
 			&node_meta,
 			&node_specs,
 			&connected_inputs,
@@ -687,19 +747,23 @@ impl BuildContext {
 			&capability_summary,
 		);
 
+		let source_digests = self.source_digests;
 		Ok(LoadReport {
 			program,
 			diagnostics,
 			node_meta,
 			graph_signature,
 			package_manifests,
+			source_digests,
 			package_dependency_order,
 			package_lock_preview,
 			type_schemas,
 			type_schema_dependency_order,
+			type_schema_graph_summary,
 			package_lock_preview_digest,
 			capability_summary,
 			file_activation,
+			composition,
 		})
 	}
 }
@@ -760,15 +824,41 @@ fn build_type_schema_summary(files: &[(String, PathBuf, FlowgraphFile)]) -> Vec<
 					field_type_exprs,
 					field_record_refs,
 					record_refs: record_refs.into_iter().collect(),
+					external_record_refs: Vec::new(),
+					referenced_by: Vec::new(),
 				}
 			})
 		})
 		.collect();
+	let mut referenced_by: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+	let known_schema_ids: BTreeSet<String> = schemas.iter().map(|schema| schema.id.clone()).collect();
+	for schema in &schemas {
+		for referenced_schema_id in &schema.record_refs {
+			if known_schema_ids.contains(referenced_schema_id) {
+				referenced_by
+					.entry(referenced_schema_id.clone())
+					.or_default()
+					.insert(schema.id.clone());
+			}
+		}
+	}
+	for schema in &mut schemas {
+		schema.external_record_refs = schema
+			.record_refs
+			.iter()
+			.filter(|referenced_schema_id| !known_schema_ids.contains(*referenced_schema_id))
+			.cloned()
+			.collect();
+		schema.referenced_by = referenced_by
+			.remove(&schema.id)
+			.map(|refs| refs.into_iter().collect())
+			.unwrap_or_default();
+	}
 	schemas.sort_by(|a, b| a.source_fq.cmp(&b.source_fq).then_with(|| a.id.cmp(&b.id)));
 	schemas
 }
 
-fn collect_record_schema_refs(ty: &crate::flowgraph::SocketType, out: &mut BTreeSet<String>) {
+pub(crate) fn collect_record_schema_refs(ty: &crate::flowgraph::SocketType, out: &mut BTreeSet<String>) {
 	match ty {
 		crate::flowgraph::SocketType::Record(schema_id) => {
 			out.insert(schema_id.clone());
@@ -979,6 +1069,28 @@ fn build_type_schema_dependency_order(type_schemas: &[TypeSchemaSummary]) -> Vec
 	order
 }
 
+fn build_type_schema_graph_summary(type_schemas: &[TypeSchemaSummary]) -> TypeSchemaGraphSummary {
+	let known_schema_ids: BTreeSet<String> = type_schemas.iter().map(|schema| schema.id.clone()).collect();
+	let mut dependency_edge_count = 0usize;
+	let mut external_ref_count = 0usize;
+	for schema in type_schemas {
+		for referenced_schema_id in &schema.record_refs {
+			if known_schema_ids.contains(referenced_schema_id) {
+				dependency_edge_count += 1;
+			} else {
+				external_ref_count += 1;
+			}
+		}
+	}
+	TypeSchemaGraphSummary {
+		schema_count: type_schemas.len(),
+		dependency_edge_count,
+		external_ref_count,
+		root_schema_count: type_schemas.iter().filter(|schema| schema.referenced_by.is_empty()).count(),
+		leaf_schema_count: type_schemas.iter().filter(|schema| schema.record_refs.is_empty()).count(),
+	}
+}
+
 fn build_package_dependency_order(package_manifests: &[PackageManifestSummary]) -> Vec<String> {
 	let known_ids: BTreeSet<String> = package_manifests.iter().filter_map(|manifest| manifest.id.clone()).collect();
 	let mut dependencies_by_id: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -1119,6 +1231,7 @@ fn build_graph_signature(
 	files: &[(String, PathBuf, FlowgraphFile)],
 	type_schemas: &[TypeSchemaSummary],
 	type_schema_dependency_order: &[String],
+	type_schema_graph_summary: &TypeSchemaGraphSummary,
 	node_meta: &HashMap<String, LoadedNodeMeta>,
 	node_specs: &HashMap<String, NodeSpec>,
 	connected_inputs: &BTreeSet<(String, String)>,
@@ -1213,6 +1326,7 @@ fn build_graph_signature(
 		files: files_meta,
 		type_schemas: type_schemas.to_vec(),
 		type_schema_dependency_order: type_schema_dependency_order.to_vec(),
+		type_schema_graph_summary: type_schema_graph_summary.clone(),
 		external_triggers,
 		boundary_inputs,
 		boundary_outputs,
@@ -1549,14 +1663,13 @@ mod tests {
 	// CI には該当ファイルが存在しないため `#[ignore]` で既定除外し、
 	// 開発者は `cargo test -- --ignored load_local_voice_to_tts` で走らせる。
 	#[test]
-	#[ignore]
 	fn load_local_voice_to_tts_flowgraph() {
-		let path = Path::new("flowgraph.local/voice-to-tts/main.flowgraph.toml");
-		if !path.exists() {
-			eprintln!("skipping: {} が存在しない（.local gitignore 下、開発者環境専用）", path.display());
+		let path = Path::new("flowgraph.local");
+		if !path.join("voice-to-tts/main.flowgraph.toml").exists() {
+			eprintln!("skipping: {} が存在しない（開発者環境専用）", path.display());
 			return;
 		}
-		let report = load_file(path, None).expect("voice-to-tts example should load");
+		let report = crate::flowgraph::load_flowgraph_dir(path).expect("local profile should load");
 		assert!(
 			report.diagnostics.iter().all(|d| d.severity != Severity::Error),
 			"unexpected errors: {:?}",
@@ -1754,6 +1867,13 @@ mod tests {
 				&& d.message.contains("missing.payload")
 				&& d.hint.as_deref() == Some("[[types]][0].fields.payload")
 		}));
+		let schema = report
+			.type_schemas
+			.iter()
+			.find(|schema| schema.id == "known.event")
+			.expect("known.event schema");
+		assert_eq!(schema.external_record_refs, vec!["missing.payload".to_string()]);
+		assert_eq!(report.type_schema_graph_summary.external_ref_count, 1);
 		let _ = std::fs::remove_dir_all(path.parent().unwrap());
 	}
 
@@ -1796,6 +1916,12 @@ mod tests {
 		assert_eq!(schema.field_record_refs.get("payload"), Some(&vec!["known.payload".to_string()]));
 		assert_eq!(schema.field_record_refs.get("items"), Some(&vec!["known.item".to_string()]));
 		assert_eq!(schema.record_refs, vec!["known.item".to_string(), "known.payload".to_string()]);
+		let payload = report
+			.type_schemas
+			.iter()
+			.find(|schema| schema.id == "known.payload")
+			.expect("known.payload schema");
+		assert_eq!(payload.referenced_by, vec!["known.event".to_string()]);
 		let _ = std::fs::remove_dir_all(path.parent().unwrap());
 	}
 
@@ -1833,10 +1959,16 @@ mod tests {
 			report.type_schema_dependency_order,
 			vec!["app.user".to_string(), "app.payload".to_string(), "app.event".to_string()]
 		);
+		assert_eq!(report.type_schema_graph_summary.schema_count, 3);
+		assert_eq!(report.type_schema_graph_summary.dependency_edge_count, 2);
+		assert_eq!(report.type_schema_graph_summary.external_ref_count, 0);
+		assert_eq!(report.type_schema_graph_summary.root_schema_count, 1);
+		assert_eq!(report.type_schema_graph_summary.leaf_schema_count, 1);
 		assert_eq!(
 			report.graph_signature.type_schema_dependency_order,
 			report.type_schema_dependency_order
 		);
+		assert_eq!(report.graph_signature.type_schema_graph_summary, report.type_schema_graph_summary);
 		let _ = std::fs::remove_dir_all(path.parent().unwrap());
 	}
 
@@ -2063,6 +2195,25 @@ mod tests {
 		assert_eq!(expr.args[0].name, "string");
 		assert_eq!(expr.args[1].name, "json");
 		let _ = std::fs::remove_dir_all(path.parent().unwrap());
+	}
+
+	#[test]
+	fn source_revision_survives_disk_edits_without_package_declaration() {
+		let source = "[[nodes]]\nid = 'get'\nfeature = 'flowgraph.map.get'\n";
+		let path = write_tmp("revision.flowgraph.toml", source);
+		let root = path.parent().unwrap();
+		let runtime = crate::flowgraph::runtime::FlowgraphRuntime::load(root);
+		assert!(runtime.ok);
+		assert!(runtime.package_manifests.is_empty());
+		let loaded = runtime.source_digests.get("revision").expect("non-package file revision");
+		assert_eq!(loaded, &package_source_digest(source));
+		let changed = format!("{source}\n# saved after loading\n");
+		std::fs::write(&path, &changed).unwrap();
+		assert_ne!(loaded, &package_source_digest(&changed));
+		assert_eq!(runtime.clone().source_digests.get("revision"), Some(loaded));
+		let reloaded = crate::flowgraph::runtime::FlowgraphRuntime::load(root);
+		assert_eq!(reloaded.source_digests.get("revision"), Some(&package_source_digest(&changed)));
+		std::fs::remove_dir_all(root).unwrap();
 	}
 
 	#[test]

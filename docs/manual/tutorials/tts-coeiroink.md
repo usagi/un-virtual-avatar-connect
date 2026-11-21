@@ -2,7 +2,7 @@
 
 CoeiroInk で読み上げる。
 
-> ソース: [`flowgraph.example/tts-coeiroink/main.flowgraph.toml`](../../../flowgraph.example/tts-coeiroink/main.flowgraph.toml) + [`conf.example-tts.toml`](../../../conf.example-tts.toml)
+> ソース: [`flowgraph.example/tts-coeiroink/main.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/tts-coeiroink/main.flowgraph.toml) + [`conf.example-tts.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/conf.example-tts.toml)
 
 ## ねらい
 
@@ -27,7 +27,7 @@ ingress.web_input ─→ tts.speak (engine="coeiroink",
 UUID は以下のいずれかで取得:
 
 - CoeiroInk 本体の GUI で確認
-- CLI: `virtual-avatar-connect --coeiroink-speakers`（VAC が HTTP API を叩いて一覧表示）
+- CoeiroInk Engine の `/v1/speakers` API で確認
 
 ## 実行手順
 
@@ -35,6 +35,27 @@ UUID は以下のいずれかで取得:
 2. `main.flowgraph.toml` の `voice` に `<uuid>:<style_id>` を設定、必要なら `endpoint` も
 3. VAC 再起動 or Reload
 4. <http://127.0.0.1:57000/input> に文字列
+
+## 外部engineの起動管理
+
+COEIROINKはUNVACとは別プロセスのため、`tts.speak`ノードが正常に読み込まれていてもengine停止中の発話は失敗する。常用プロファイルではCOEIROINKをManaged Appへ登録し、必要なRuntime Modeで起動する。
+
+```toml
+run_with = [
+  {
+    id = "coeiroink",
+    label = "COEIROINK",
+    command = "C:/path/to/COEIROINKv2.exe",
+    if_not_running = "COEIROINKv2",
+    start_on_launch = false,
+  },
+]
+
+[modes.streaming.managed_apps]
+start = ["coeiroink"]
+```
+
+`command`と`if_not_running`は実際のインストール先とプロセス名に合わせる。配信前チェックでCOEIROINKの失敗が出た場合は、連携画面で起動状態を確認し、既定endpointの`127.0.0.1:50032`が応答する状態にしてからTTSセルフテストを行う。
 
 ## 応用
 

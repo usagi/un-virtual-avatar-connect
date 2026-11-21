@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "purposes": [
+    {
+      "id": "twitch-notices",
+      "name": "配信イベントを知らせる",
+      "roots": [
+        "features/twitch-notices/main"
+      ]
+    },
+    {
+      "id": "random-clip",
+      "name": "クリップで紹介する",
+      "roots": [
+        "features/random-clip/main"
+      ]
+    }
+  ]
+}

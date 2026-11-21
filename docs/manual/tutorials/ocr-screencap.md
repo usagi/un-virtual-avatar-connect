@@ -2,7 +2,9 @@
 
 Windows のウィンドウをキャプチャして OCR にかけるサンプル。
 
-> ソース: [`flowgraph.example/ocr-screencap/main.flowgraph.toml`](../../../flowgraph.example/ocr-screencap/main.flowgraph.toml)
+OCRノードの責務は画像から文字列を得るところまで。AI、読み上げ、字幕などの後段は必要な場合だけ利用者がFlowgraphで明示的に接続する。
+
+> ソース: [`flowgraph.example/ocr-screencap/main.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/ocr-screencap/main.flowgraph.toml)
 
 ## ねらい
 
@@ -14,6 +16,7 @@ Windows のウィンドウをキャプチャして OCR にかけるサンプル�
 
 - Windows 10/11 のみ（`screenshot.capture` / `ocr.recognize` は `#[cfg(windows)]`）。
 - 日本語 OCR を使う場合は Windows の言語パックに `ja-JP` OCR を追加しておく。
+- PNG以外のJPEG等も入力できる。backend呼出し前に内部で一時PNGへ変換される。
 
 ## グラフ構造
 
@@ -33,7 +36,9 @@ ingress.web_input (trigger) → screenshot.capture (title="メモ帳") → ocr.r
 
 - `screenshot.capture` の `title` を OBS / ゲーム名に差し替え
 - `ocr.recognize` の `lang` を `en-US` など別言語に
-- 後段に [`openai-persona`](./openai-persona.md) を繋いで「画面を読んで AI が喋る」配信補助ツールに
+- `lines = true` で認識行を改行区切り、`false` で空白区切りの1行として取得
+
+画像取得、画像decode、未導入の言語pack、OCR backendの失敗は `on_error` と `result.err` に返る。OCR失敗だけでVAC本体は終了しない。
 
 ## 関連ノード
 

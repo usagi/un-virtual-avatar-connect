@@ -2,7 +2,7 @@
 
 Virtual Avatar Connect の Flowgraph は、Phase ξ で導入された **SI 準拠の単位次元システム**を備えています。数値には単位（`m`, `s`, `kg`, `m/s^2`, `rad` など）を貼り付けられ、単位は **次元**（Length · Mass · Time · Current · Temperature · Amount · Luminous · Angle の 8 成分）を持ちます。加算は次元一致を要求、乗除は次元を自動組み立て、表示は `"{value} {unit}"` 形式 — 要するに F# や Haskell の units-of-measure を Flowgraph の pure + 遅延評価エンジン上で走らせる、と思ってもらえれば大きく外れません。
 
-このドキュメントは **使い方の正本**です。設計の動機や判断理由は [`roadmap/phase-ksi-dimensional-quantity-system.md`](../roadmap/phase-ksi-dimensional-quantity-system.md) にあります。
+このドキュメントは **使い方の正本**です。設計の動機や判断理由は [`roadmap/phase-ksi-dimensional-quantity-system.md`](https://github.com/usagi/virtual-avatar-connect/blob/v2/docs/roadmap/phase-ksi-dimensional-quantity-system.md) にあります。
 
 ---
 
@@ -36,7 +36,7 @@ Flowgraph は pure-functional + lazy 評価なので、単位計算のランタ�
 - **Quantity ポート**は、専用の丸ハンドル色で `float` / `table` と区別されます。次元の先頭記号（`L`, `M`, `T`, …）に応じて **family ごとに色が変わります**（`node-catalog` のポート `default` が `{ value, unit }` で非無次元と復元できる場合のみ、その次元で色付け）。
 - **単位バッジ**: 上記のように default から単位が分かるポートに限り、ラベル横に短縮表示されます。無次元のみのポートにはバッジは出ません。
 - **ツールチップ**: ハンドルにカーソルを置くと、型に加えて次元 canonical（例 `L·T^-2`）や単位全文が分かる場合があります。
-- **配線**: エンジンの [`SocketType::compatible_with`](../roadmap/phase-ksi-dimensional-quantity-system.md) と同じく、`float` ↔ `quantity`、`quantity` → `string` などがキャンバス上で接続可能です。**型が合わないエッジ**は赤の破線で表示されます（保存はユーザー責任: 実行時に engine が拒否する可能性あり）。
+- **配線**: エンジンの [`SocketType::compatible_with`](https://github.com/usagi/virtual-avatar-connect/blob/v2/docs/roadmap/phase-ksi-dimensional-quantity-system.md) と同じく、`float` ↔ `quantity`、`quantity` → `string` などがキャンバス上で接続可能です。**型が合わないエッジ**は赤の破線で表示されます（保存はユーザー責任: 実行時に engine が拒否する可能性あり）。
 - **プロパティの単位文字列**: `flowgraph.unit.assign` の `unit`、`flowgraph.unit.convert` の `target_unit`、`flowgraph.util.format` の `unit_override` は、入力後に Control API の `GET /api/v1/control/flowgraph/parse-unit?text=...` で **サーバと同じパーサ**が検証します。無効ならエディタ直下にエラーが出ます（空の `unit` は無次元として valid）。
 
 ---
@@ -228,7 +228,7 @@ flowgraph.unit.assign (unit="deg") ─▶ flowgraph.unit.convert (target_unit="r
 ### Channel に単位なしで流す（字幕など）
 
 ```
-(quantity) ─▶ flowgraph.util.format (include_unit=false) ─▶ (string) ─▶ flowgraph.channel.emit
+(quantity) ─▶ flowgraph.util.format (include_unit=false) ─▶ (string) ─▶ flowgraph.bos.output
 ```
 
 または、engine の `Quantity → String` 暗黙 coerce に任せて単位付きで流す場合は `format` を省略して直接 `channel.emit` に繋いで OK（`"9.81 m·s^-2"` 形式で出力）。
@@ -279,5 +279,5 @@ Phase ξ では組み込みの SI 基本 + Angle + 主要誘導単位のみ。�
 ## 関連リンク
 
 - [Node Catalog](./node-catalog.md) — 各 `flowgraph.unit.*` / `flowgraph.util.format` ノードの完全な port / property 一覧
-- [Phase ξ 仕様書](../roadmap/phase-ksi-dimensional-quantity-system.md) — 設計判断の一次情報（Angle 疑似次元 / 温度 delta 分離 / strict default の根拠）
-- [roadmap.md](../roadmap.md) — Phase ξ 全体の進捗
+- [Phase ξ 仕様書](https://github.com/usagi/virtual-avatar-connect/blob/v2/docs/roadmap/phase-ksi-dimensional-quantity-system.md) — 設計判断の一次情報（Angle 疑似次元 / 温度 delta 分離 / strict default の根拠）
+- [roadmap.md](https://github.com/usagi/virtual-avatar-connect/blob/v2/docs/roadmap.md) — Phase ξ 全体の進捗

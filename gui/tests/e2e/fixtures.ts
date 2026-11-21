@@ -8,13 +8,19 @@
  *   the specs so any future regression on either path is caught.
  */
 
-export const TOKEN = 'e2e-fixture-token';
+import { expect, type Page } from "@playwright/test";
+
+export const TOKEN = "e2e-fixture-token";
 
 export function authHeader(): Record<string, string> {
- return { Authorization: `Bearer ${TOKEN}` };
+	return { Authorization: `Bearer ${TOKEN}` };
 }
 
 /** Returns `?token=<TOKEN>` (URL-safe) for attaching to a navigation URL. */
 export function tokenQuery(): string {
- return `?token=${encodeURIComponent(TOKEN)}`;
+	return `?token=${encodeURIComponent(TOKEN)}`;
+}
+
+export async function openFlowgraphStudio(page: Page): Promise<void> {
+	await expect(page.getByRole("heading", { name: "Flowgraph Studio" })).toBeVisible({ timeout: 15_000 });
 }

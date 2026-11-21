@@ -2,7 +2,7 @@
 
 Twitch チャットを VAC に取り込んで util.log で確認する最小サンプル。
 
-> ソース: [`flowgraph.example/twitch-echo/main.flowgraph.toml`](../../../flowgraph.example/twitch-echo/main.flowgraph.toml) + [`conf.example-twitch.toml`](../../../conf.example-twitch.toml)
+> ソース: [`flowgraph.example/twitch-echo/main.flowgraph.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/flowgraph.example/twitch-echo/main.flowgraph.toml) + [`conf.example-twitch.toml`](https://github.com/usagi/virtual-avatar-connect/blob/v2/conf.example-twitch.toml)
 
 ## ねらい
 

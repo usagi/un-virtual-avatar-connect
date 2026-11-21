@@ -1,0 +1,14 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "topic-stop-holdout-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": { "max_chars": 120, "max_sentences": 2, "forbid_question_ending": true },
+  "cases": [
+    { "id": "opinion", "content": "ケルシー先生、このゲームの大げさな決め台詞、私は好きなんだけどどう思う？", "allowed_actions": ["respond"], "speech": "required" },
+    { "id": "stop-paraphrase", "content": "その件についてはこれ以上コメントしないで。もう話を打ち切る。", "allowed_actions": ["observe", "close"], "speech": "forbidden" },
+    { "id": "battle-ended-is-not-topic-stop", "content": "やったー！ ボス戦終わり！ すごく嬉しい！ ケルシー先生、一緒に喜んで！", "allowed_actions": ["react", "respond"], "speech": "required" },
+    { "id": "named-stop-paraphrase", "content": "ケルシー先生、今の話へのコメントはこれでおしまい。相づちもいらないからね。", "allowed_actions": ["observe", "close"], "speech": "forbidden" },
+    { "id": "new-request-in-same-turn", "content": "今の話への説明はいらない。別件だけどケルシー先生、この画面は見えている？", "allowed_actions": ["respond"], "speech": "required" }
+  ]
+}

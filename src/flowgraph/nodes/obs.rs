@@ -92,6 +92,7 @@ impl EffectfulNode for ObsRequestNode {
 pub struct ObsSetCurrentProgramSceneNode;
 pub struct ObsGetCurrentProgramSceneNode;
 pub struct ObsSetSceneItemEnabledNode;
+pub struct ObsGetSourceScreenshotNode;
 pub struct ObsStartRecordNode;
 pub struct ObsStopRecordNode;
 pub struct ObsStartStreamNode;
@@ -294,6 +295,72 @@ impl EffectfulNode for ObsSetSceneItemEnabledNode {
 	}
 }
 
+impl NodeDescriptor for ObsGetSourceScreenshotNode {
+	fn describe(&self) -> NodeSpec {
+		let mut inputs = obs_connection_inputs();
+		inputs.extend([
+			PortSpec::input("scene_name", "Scene Name", SocketType::String),
+			PortSpec::input("source_name", "Source Name", SocketType::String),
+			PortSpec::input("image_format", "Image Format", SocketType::String).with_default(SocketValue::String("png".into())),
+			PortSpec::input("width", "Width", SocketType::Int).with_default(SocketValue::Int(1280)),
+			PortSpec::input("height", "Height", SocketType::Int).with_default(SocketValue::Int(720)),
+		]);
+		let mut outputs = obs_common_outputs();
+		outputs.push(PortSpec::output("image_data_url", "Image Data URL", SocketType::String));
+		outputs.push(PortSpec::output("capture_metadata", "Source / capture time", SocketType::Json));
+		NodeSpec {
+			feature: "flowgraph.obs.get_source_screenshot".into(),
+			title: "OBS: Get Explicit Source Screenshot".into(),
+			category: "obs".into(),
+			description: Some(
+				"明示したscene/sourceの所属を確認してから静止画を取得する。Program出力やデスクトップ全体は推定しない。".into(),
+			),
+			inputs,
+			outputs,
+			properties: vec![],
+		}
+	}
+}
+
+#[async_trait]
+impl EffectfulNode for ObsGetSourceScreenshotNode {
+	async fn execute(
+		&self,
+		ctx: &mut ExecCtx,
+		_props: &InputMap,
+		inputs: &InputMap,
+		fired_exec: &ExecFireSet,
+	) -> Result<NodeOutput, NodeExecError> {
+		if !fired_exec.contains("exec_in") {
+			return Ok(NodeOutput::new());
+		}
+		let url = get_optional_string(inputs, "url", "ws://127.0.0.1:4455")?;
+		let password = get_optional_string(inputs, "password", "")?;
+		let scene_name = get_optional_string(inputs, "scene_name", "")?;
+		let source_name = get_optional_string(inputs, "source_name", "")?;
+		let image_format = get_optional_string(inputs, "image_format", "png")?;
+		let width = get_optional_int(inputs, "width", 1280)?;
+		let height = get_optional_int(inputs, "height", 720)?;
+		let timeout_ms = get_optional_int(inputs, "timeout_ms", 3000)?;
+		match get_source_screenshot(&url, &password, &scene_name, &source_name, &image_format, width, height, timeout_ms).await {
+			Ok(screenshot) => {
+				ctx.log(format!("obs.get_source_screenshot: scene={scene_name} source={source_name} ok"));
+				Ok(common_success_output(ObsResponse {
+					status_code: 100,
+					response_data: json!({
+						"sceneName": scene_name,
+						"sourceName": source_name,
+						"imageData": screenshot.image_data_url,
+					}),
+				})
+				.set_data("capture_metadata", SocketValue::Json(json!({"scene_name":scene_name,"source_name":source_name,"request_started_at":screenshot.request_started_at,"response_received_at":screenshot.response_received_at,"request_elapsed_ms":screenshot.request_elapsed_ms})))
+				.set_data("image_data_url", SocketValue::String(screenshot.image_data_url)))
+			}
+			Err(error) => Ok(common_error_output(error).set_data("image_data_url", SocketValue::String(String::new()))),
+		}
+	}
+}
+
 macro_rules! obs_simple_request_node {
 	($name:ident, $feature:literal, $title:literal, $description:literal, $request_type:literal) => {
 		impl NodeDescriptor for $name {
@@ -437,6 +504,75 @@ async fn call_obs_with_timeout(req: ObsRequest) -> Result<ObsResponse, String> {
 		.map_err(|_| format!("timeout after {timeout_ms}ms"))?
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ObsSourceScreenshot {
+	pub image_data_url: String,
+	pub request_started_at: String,
+	pub response_received_at: String,
+	pub request_elapsed_ms: u64,
+}
+
+/// scene/sourceを双方明示させ、scene item所属確認後にだけGetSourceScreenshotを実行する。
+pub(crate) async fn get_source_screenshot(
+	url: &str,
+	password: &str,
+	scene_name: &str,
+	source_name: &str,
+	image_format: &str,
+	width: i64,
+	height: i64,
+	timeout_ms: i64,
+) -> Result<ObsSourceScreenshot, String> {
+	let scene_name = scene_name.trim();
+	let source_name = source_name.trim();
+	if scene_name.is_empty() || source_name.is_empty() {
+		return Err("scene_name and source_name must both be explicitly specified".into());
+	}
+	let format = image_format.trim().to_ascii_lowercase();
+	if !matches!(format.as_str(), "png" | "jpg" | "jpeg") {
+		return Err("image_format must be png, jpg, or jpeg".into());
+	}
+	if !(1..=4096).contains(&width) || !(1..=4096).contains(&height) {
+		return Err("width and height must be in 1..=4096".into());
+	}
+	let membership = ObsRequest {
+		url: url.to_string(),
+		password: password.to_string(),
+		request_type: "GetSceneItemId".into(),
+		request_data: json!({"sceneName": scene_name, "sourceName": source_name}),
+		timeout_ms,
+	};
+	call_obs_with_timeout(membership)
+		.await
+		.map_err(|error| format!("source is not a member of the explicitly selected scene: {error}"))?;
+	// Bounds of our screenshot request, not OBS's pixel acquisition timestamp.
+	let request_started_at = jiff::Timestamp::now().to_string();
+	let request_clock = std::time::Instant::now();
+	let response = call_obs_with_timeout(ObsRequest {
+		url: url.to_string(),
+		password: password.to_string(),
+		request_type: "GetSourceScreenshot".into(),
+		request_data: json!({
+			"sourceName": source_name,
+			"imageFormat": format,
+			"imageWidth": width,
+			"imageHeight": height,
+		}),
+		timeout_ms,
+	})
+	.await?;
+	let response_received_at = jiff::Timestamp::now().to_string();
+	let request_elapsed_ms = u64::try_from(request_clock.elapsed().as_millis()).unwrap_or(u64::MAX);
+	let image_data_url = response
+		.response_data
+		.get("imageData")
+		.and_then(JsonValue::as_str)
+		.filter(|value| value.starts_with("data:image/"))
+		.ok_or_else(|| "OBS response did not contain imageData data URL".to_string())?
+		.to_string();
+	Ok(ObsSourceScreenshot { image_data_url, request_started_at, response_received_at, request_elapsed_ms })
+}
+
 async fn call_obs(req: ObsRequest) -> Result<ObsResponse, String> {
 	if req.request_type.trim().is_empty() {
 		return Err("request_type is empty".into());
@@ -565,6 +701,57 @@ mod tests {
 	use super::*;
 	use tokio::net::TcpListener;
 
+	#[tokio::test]
+	async fn explicit_source_capture_transport_never_falls_back_to_another_source() {
+		for case in ["success", "membership_denied", "missing_image"] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let url = format!("ws://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				let mut requests = Vec::new();
+				let count = if case == "membership_denied" { 1 } else { 2 };
+				for index in 0..count {
+					let (stream, _) = tokio::time::timeout(Duration::from_secs(3), listener.accept()).await.unwrap().unwrap();
+					let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+					send_json_message(&mut ws, &json!({"op":0,"d":{"rpcVersion":1,"authentication":{"salt":"local-salt","challenge":"local-challenge"}}})).await.unwrap();
+					let identify = next_json_message(&mut ws).await.unwrap();
+					assert_eq!(identify["op"], 1);
+					assert_eq!(identify["d"]["authentication"], obs_auth_response("local-test-only", "local-salt", "local-challenge"));
+					send_json_message(&mut ws, &json!({"op":2,"d":{"negotiatedRpcVersion":1}})).await.unwrap();
+					let request = next_json_message(&mut ws).await.unwrap();
+					assert_eq!(request["op"], 6);
+					let expected = if index == 0 {
+						("GetSceneItemId", json!({"sceneName":"selected scene","sourceName":"selected game"}))
+					} else {
+						("GetSourceScreenshot", json!({"sourceName":"selected game","imageFormat":"png","imageWidth":960,"imageHeight":540}))
+					};
+					assert_eq!(request["d"]["requestType"], expected.0);
+					assert_eq!(request["d"]["requestData"], expected.1);
+					let success = case != "membership_denied";
+					if index == 1 { tokio::time::sleep(Duration::from_millis(40)).await; }
+					let response = if index == 0 {json!({"sceneItemId":7})} else if case == "success" {json!({"imageData":"data:image/png;base64,c3ludGhldGlj"})} else {json!({})};
+					send_json_message(&mut ws, &json!({"op":7,"d":{"requestId":request["d"]["requestId"],"requestStatus":{"result":success,"code":if success {100}else{600},"comment":"synthetic membership response"},"responseData":response}})).await.unwrap();
+					requests.push(request);
+				}
+				assert!(tokio::time::timeout(Duration::from_millis(150), listener.accept()).await.is_err(), "unexpected fallback/retry connection");
+				requests.len()
+			});
+			let result = get_source_screenshot(&url, "local-test-only", "selected scene", "selected game", "png", 960, 540, 1000).await;
+			match case {
+				"success" => {
+					let captured = result.unwrap();
+					assert_eq!(captured.image_data_url, "data:image/png;base64,c3ludGhldGlj");
+					let started: jiff::Timestamp = captured.request_started_at.parse().unwrap();
+					let received: jiff::Timestamp = captured.response_received_at.parse().unwrap();
+					assert!(received >= started);
+					assert!(captured.request_elapsed_ms >= 30, "must include server delay");
+				},
+				"membership_denied" => assert!(result.unwrap_err().contains("not a member")),
+				_ => assert!(result.unwrap_err().contains("did not contain imageData")),
+			}
+			assert_eq!(server.await.unwrap(), if case == "membership_denied" {1} else {2});
+		}
+	}
+
 	#[test]
 	fn obs_auth_response_is_stable() {
 		let a = obs_auth_response("password", "salt", "challenge");
@@ -581,6 +768,37 @@ mod tests {
 			.await
 			.unwrap();
 		assert!(out.fired_exec.is_empty());
+	}
+
+	#[tokio::test]
+	async fn explicit_source_screenshot_rejects_implicit_or_unsafe_selection_before_connecting() {
+		let empty = get_source_screenshot("ws://127.0.0.1:1", "", "", "game", "png", 1280, 720, 100).await;
+		assert!(empty.unwrap_err().contains("explicitly specified"));
+		let format = get_source_screenshot("ws://127.0.0.1:1", "", "scene", "game", "gif", 1280, 720, 100).await;
+		assert!(format.unwrap_err().contains("image_format"));
+		let dimensions = get_source_screenshot("ws://127.0.0.1:1", "", "scene", "game", "png", 0, 720, 100).await;
+		assert!(dimensions.unwrap_err().contains("width and height"));
+	}
+
+	#[tokio::test]
+	#[ignore = "実OBS、明示scene/source、VAC_TEST_OBS_PASSWORDが必要"]
+	async fn real_obs_source_screenshot_from_environment() {
+		let password = std::env::var("VAC_TEST_OBS_PASSWORD").expect("VAC_TEST_OBS_PASSWORD");
+		let scene = std::env::var("VAC_TEST_OBS_SCENE").expect("VAC_TEST_OBS_SCENE");
+		let source = std::env::var("VAC_TEST_OBS_SOURCE").expect("VAC_TEST_OBS_SOURCE");
+		let captured = get_source_screenshot("ws://127.0.0.1:4455", &password, &scene, &source, "jpeg", 960, 540, 5_000)
+			.await
+			.expect("OBS source screenshot");
+		let payload = captured
+			.image_data_url
+			.strip_prefix("data:image/jpeg;base64,")
+			.expect("JPEG data URL");
+		let bytes = STANDARD.decode(payload).expect("base64 JPEG");
+		let image = image::load_from_memory(&bytes).expect("decodable JPEG");
+		assert_eq!((image.width(), image.height()), (960, 540));
+		if let Some(path) = std::env::var_os("VAC_TEST_OBS_OUTPUT") {
+			std::fs::write(path, bytes).expect("write VAC_TEST_OBS_OUTPUT");
+		}
 	}
 
 	#[test]

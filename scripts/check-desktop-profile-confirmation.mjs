@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';import ts from '../gui/node_modules/typescript/lib/typescript.js';
+const source=fs.readFileSync(new URL('../gui/src/lib/tabs/DesktopProfileManagerPanel.svelte',import.meta.url),'utf8');assert.ok(!source.includes('window.confirm'));
+const ast=ts.createSourceFile('p.ts',source.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1],ts.ScriptTarget.Latest,true);
+const names=['draftIdentity','mayLeave','beginNameEdit','requestDiscard','requestArchive','confirmOperation'];
+const code=ts.transpileModule(ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&names.includes(n.name?.text)).map(n=>n.getText(ast)).join('\n'),{compilerOptions:{target:ts.ScriptTarget.ESNext}}).outputText;
+function make(){return new Function(`let store={root:'root-a',current_profile_id:'running',profiles:[{id:'a',label:'A',conf_path:'root-a/a',is_active:false}]},busy=false,confirmation=null,error=null,label='',importSource=null,editingProfile=null,editOperation='rename',editLabel='',initialEditLabel='',hasDraft=false,nameDraftChanged=false;let calls=[];async function archiveProfile(id){calls.push(id);}${code};return {requestArchive,requestDiscard,confirmOperation,mayLeave,beginNameEdit,cancel(){confirmation=null;},changeTarget(){store.root='root-b';},makeActive(){store.profiles[0].is_active=true;},draft(){label='draft';hasDraft=true;},change(){label='newer';},nameDraft(){editingProfile='a';editLabel='draft';initialEditLabel='A';nameDraftChanged=true;},lock(){busy=true;},state:()=>({calls,label,editingProfile,editLabel,error,confirmation})};`)();}
+let h=make();h.requestArchive('a','A');assert.deepEqual(h.state().calls,[]);h.cancel();await h.confirmOperation();assert.deepEqual(h.state().calls,[]);
+for(const change of ['changeTarget','makeActive','draft','lock']){h=make();h.requestArchive('a','A');h[change]();await h.confirmOperation();assert.deepEqual(h.state().calls,[]);}
+h=make();h.requestArchive('a','A');await h.confirmOperation();await h.confirmOperation();assert.deepEqual(h.state().calls,['a']);
+h=make();h.draft();assert.equal(h.mayLeave(),false);h.requestDiscard();h.change();await h.confirmOperation();assert.equal(h.state().label,'newer');
+h=make();h.draft();h.requestDiscard();await h.confirmOperation();assert.equal(h.state().label,'');assert.deepEqual(h.state().calls,[]);
+h=make();h.nameDraft();h.beginNameEdit('other','copy','other');assert.equal(h.state().editingProfile,'a');assert.equal(h.state().editLabel,'draft');
+console.log('Managed profile confirmations: no early mutation, cancel, changed root/active state/draft/busy refusal, exact one-shot archive, stale draft retention and name-edit protection passed.');

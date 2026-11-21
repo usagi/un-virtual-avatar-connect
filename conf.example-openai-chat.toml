@@ -13,7 +13,10 @@
 #     `openai_max_output_tokens` が空のときだけ fallback として使われる。
 #   - 新キー `memory_overflow_summary_max_output_tokens` (u32)。legacy
 #     `memory_overflow_summary_max_completion_tokens` (u16) が fallback。
-#   - 新キー `openai_reasoning_effort`（`"low"`/`"medium"`/`"high"`）。gpt-5 系専用。
+#   - `openai_reasoning_effort` はモデルごとの対応範囲で指定する。
+#   - `openai_model_policy` で高負荷な入力だけ別モデルへ昇格できる。
+#   - `openai_tool_policy` で strict schema と channel 別 tool 許可集合を強制できる。
+#   - `openai_prompt_cache_key` で persona ごとの安定した cache routing key を指定できる。
 #   - 新キー `openai_store`（bool、既定 `false`）。OpenAI 側に会話 state を保存するか。
 #     既定で無効化（VAC は client 側で memory window を完全管理しているので不要）。
 #   - 環境変数 `VAC_OPENAI_MAX_OUTPUT_TOKENS` で conf 側より優先的に上書き可能。
@@ -69,26 +72,28 @@ observe.triggers = ["user"]
 # 2. API キー（環境変数推奨）
 # -------------------------------------------------------------------------
 # `api_key = "..."` を直書きも可能だが、リポジトリや配信画面に載らないよう
-# 環境変数 `OPENAI_API_KEY` での指定を推奨。
+# 環境変数 `VAC_OPENAI_API_KEY` での指定を推奨。
 # api_key = "sk-..."
+# desktop managed profileのGUIで保存した場合は、confへ秘密値を書かず次の参照だけを追加する。
+# api_key_file = "credentials/openai-api-key.txt"
 
 
 # -------------------------------------------------------------------------
 # 3. モデル
 # -------------------------------------------------------------------------
 # モデル ID: https://platform.openai.com/docs/models
-model = "gpt-4o-mini"
+model = "gpt-5.6-luna"
+openai_reasoning_effort = "none"
 
 # --- 料金の目安（試算のみ・一切保証しません）---
-# 2026-04-16 時点・OpenAI API Standard 掲載単価に基づく雑な試算。
+# 2026-07-30 時点・OpenAI API Standard 掲載単価に基づく雑な試算。
 # 前提: 1 日あたり 入力 約 192k / 出力 約 9k トークン × 30 日。$1=150 円。
 #
 # | モデル（例）   | 約 USD / 30 日 | 約円（※150 円/ドル） |
 # |----------------|----------------|----------------------|
-# | gpt-4o mini    | 約 $1.0        | 約 150 円            |
-# | GPT-5.4 nano   | 約 $1.5        | 約 220 円            |
-# | GPT-5.4 mini   | 約 $5.5        | 約 830 円            |
-# | GPT-5.4        | 約 $18.4       | 約 2,800 円          |
+# | GPT-5.6 Luna   | 約 $1.5        | 約 220 円            |
+# | GPT-5.6 Terra  | 約 $14.8       | 約 2,220 円          |
+# | GPT-5.6 Sol    | 約 $36.9       | 約 5,540 円          |
 
 
 # -------------------------------------------------------------------------
@@ -147,7 +152,7 @@ model = "gpt-4o-mini"
 #
 # --- あふれ要約（別 API で old turn を要約し long-term memory 先頭に連結）---
 # memory_overflow_summary_enabled = true
-# memory_overflow_summary_model = "gpt-4o-mini"             # 未指定なら上の model と同じ
+# memory_overflow_summary_model = "gpt-5.6-luna"            # 未指定なら上の model と同じ
 # memory_overflow_summary_max_output_tokens = 256           # χ-6 推奨（Responses API `max_output_tokens`）
 # # memory_overflow_summary_max_completion_tokens = 256     # legacy (u16)。上が未指定時のみ fallback
 # memory_overflow_summary_max_input_chars = 16000
@@ -169,8 +174,10 @@ model = "gpt-4o-mini"
 #                                           # 未指定時は env `VAC_OPENAI_MAX_OUTPUT_TOKENS`、
 #                                           # それも無ければ legacy `max_tokens`（u16）へ fallback。
 # # max_tokens = 1024                         # legacy（Chat Completions 時代）。上が指定されていたら無視。
-# openai_reasoning_effort = "medium"        # "low" | "medium" | "high"。gpt-5 系のみ有効。
-#                                           # 非 gpt-5 モデルでは警告ログを出して黙殺する。
+# openai_reasoning_effort = "low"           # none / minimal / low / medium / high / xhigh / max。
+#                                           # 実際の対応範囲はモデルごとに異なる。
+# openai_prompt_cache_key = "unvac-persona:default"
+#                                           # 未指定時は persona id から同形式の値を自動生成。
 # openai_store = false                      # 既定 false（VAC は client 側で会話履歴を完全管理）。
 #                                           # OpenAI Dashboard > Logs で生 Response を見たいときだけ true。
 #                                           # Phase ψ-α 採用後も `store = false` のまま
@@ -190,6 +197,7 @@ model = "gpt-4o-mini"
 # 標準ツール:
 #   vac_ping                   疎通確認（副作用なし）
 #   vac_emit_effect            channel_effect へ ChannelDatum push（演出）
+#   vac_emit_avatar_intent     avatar_intent へ AvatarIntent JSON push（AI アバター身体表現）
 #   vac_twitch_set_category    カテゴリ変更（要 `channel:manage:broadcast`）
 #   vac_twitch_chat_say        Helix POST /chat/messages（モデレーター/ボット口発話）
 #   vac_twitch_ban_user        BAN / timeout（duration_secs 未指定で永久）
@@ -212,8 +220,7 @@ model = "gpt-4o-mini"
 # 旧 Chat Completions 形式（`{"type":"function","function":{...}}`）も
 # `parse_tools_json` が後方互換で受け付けるので、既存 conf を書き換えなくても
 # そのまま動く。新規作成時は Responses 形式を使うのが望ましい。
-# 同梱の `conf.example-openai-tools.json` は旧形式のまま残してあるので、
-# Responses 形式への書き換え例としては上の snippet を参照。
+# 同梱の `conf.example-openai-tools.json` は Responses 形式かつ strict schema。
 #
 # --- hosted tools（Responses API から新規採用可能、χ 時点では optional）---
 #
@@ -230,6 +237,20 @@ model = "gpt-4o-mini"
 # openai_tools_json_path = "C:/path/to/tools.json"
 # openai_tool_choice = "auto"       # none / auto / required / function:<name> / custom:<name>
 # openai_parallel_tool_calls = false
+#
+# # 高負荷な入力だけ別モデルへ昇格する。channel は完全一致、regex は本文へ適用。
+# [ai.personas.openai_model_policy]
+# model = "gpt-5.6-terra"
+# reasoning_effort = "medium"
+# max_output_tokens = 1200
+# trigger_channels = ["runtime.operator_request"]
+# trigger_regex_pattern = "(?i)(事実確認|調査して|verify|investigate)"
+#
+# # strict schema を必須化し、入力 channel ごとの tool 許可集合を固定する。
+# [ai.personas.openai_tool_policy]
+# require_strict = true
+# default_allowed = ["vac_ping", "vac_emit_effect", "vac_emit_avatar_intent"]
+# by_channel = { "twitch.chat" = ["vac_ping", "vac_emit_effect", "vac_emit_avatar_intent", "vac_twitch_chat_say"] }
 
 
 # -------------------------------------------------------------------------

@@ -159,10 +159,10 @@ pub fn register_web_input_routes(cfg: &mut web::ServiceConfig, registry: &Arc<We
 		let path = ep.path.clone();
 		match ep.method {
 			WebInputMethod::Get => {
-				cfg.service(web::resource(&path).route(web::get().to(get_multiplex)));
+				cfg.service(web::resource(&path).guard(actix_web::guard::Get()).route(web::get().to(get_multiplex)));
 			}
 			WebInputMethod::Post => {
-				cfg.service(web::resource(&path).route(web::post().to(post_multiplex)));
+				cfg.service(web::resource(&path).guard(actix_web::guard::Post()).route(web::post().to(post_multiplex)));
 			}
 		}
 	}
@@ -275,4 +275,41 @@ async fn process_command(state: &SharedState, payload: &InputPayload) -> VacResu
 	} else {
 		Ok(WebInputCommandOutcome::Continue)
 	}
+}
+
+#[cfg(test)]
+mod routing_tests {
+    use super::*;
+
+    #[actix_web::test]
+    async fn shared_path_get_and_post_keep_distinct_channels() {
+        use actix_web::{test, App};
+        let root = std::env::temp_dir().join(format!("vac-legacy-web-routing-{}", rand::random::<u64>()));
+        let mut conf: Conf = toml::from_str("").unwrap();
+        conf.runtime_dir = Some(root.clone());
+        let state = crate::State::new(&conf,
+            Arc::new(tokio::sync::Mutex::new(crate::AudioSink::disconnected_for_test())),
+            crate::shutdown::ShutdownBroker::new()).await.unwrap();
+        let registry = Arc::new(WebInputRegistry { endpoints: vec![
+            WebInputEndpoint { path: "/shared".into(), fixed_channel: Some("read".into()), method: WebInputMethod::Get, body_format: WebInputBodyFormat::Json },
+            WebInputEndpoint { path: "/shared".into(), fixed_channel: Some("write".into()), method: WebInputMethod::Post, body_format: WebInputBodyFormat::Json },
+        ]});
+        let app = test::init_service(App::new().app_data(web::Data::new(state.clone()))
+            .app_data(web::Data::new(registry.clone()))
+            .configure(|cfg| register_web_input_routes(cfg, &registry))).await;
+        let get = test::call_service(&app, test::TestRequest::get().uri("/shared?content=first").to_request()).await;
+        assert_eq!(get.status(), 200);
+        let get: InputPayload = test::read_body_json(get).await;
+        assert_eq!(get.channel.as_deref(), Some("read"));
+        assert_eq!(get.content, "first");
+        let post = test::call_service(&app, test::TestRequest::post().uri("/shared")
+            .set_json(serde_json::json!({"content":"second","channel":"ignored","is_final":true})).to_request()).await;
+        assert_eq!(post.status(), 200);
+        let post: InputPayload = test::read_body_json(post).await;
+        assert_eq!(post.channel.as_deref(), Some("write"));
+        assert_eq!(post.content, "second");
+        assert!(post.is_final);
+        drop(app); drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

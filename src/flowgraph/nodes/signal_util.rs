@@ -257,6 +257,11 @@ impl Default for DebounceState {
 }
 
 impl NodeDescriptor for DebounceNode {
+	fn input_is_active(&self, port: &str, fired: &crate::flowgraph::node::ExecFireSet) -> Result<bool, NodeExecError> {
+		// A timer completion uses pending/armed_id; transient upstreams may be gone.
+		Ok(!fired.contains("__resume__") || port == "__pending_id__")
+	}
+
 	fn describe(&self) -> NodeSpec {
 		NodeSpec {
 			feature: "flowgraph.util.debounce".into(),

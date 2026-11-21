@@ -62,9 +62,9 @@ pub async fn fine_tuning(persona_id: Option<&String>, conf: &Conf) -> Result<()>
 
 pub async fn delete_file_all(persona_id: Option<&String>, conf: &Conf) -> Result<()> {
 	// API Key さえ取れれば ペルソナ固有の設定は不要
-	let api_key = if let Ok(p) = utility::get_persona_conf(persona_id, conf) {
+	let api_key = match utility::get_persona_conf(persona_id, conf) { Ok(p) => {
 		utility::get_api_key(p)?
-	} else {
+	} _ => {
 		// 設定にペルソナが無くても、環境変数で渡していれば動かす余地を残す
 		match crate::utility::load_from_env_or_conf(super::ENV_OPENAI_API_KEY, &None) {
 			Some(s) => s,
@@ -72,7 +72,7 @@ pub async fn delete_file_all(persona_id: Option<&String>, conf: &Conf) -> Result
 				anyhow::bail!("AI ペルソナの設定も環境変数 VAC_OPENAI_API_KEY も見つからないため、OpenAI ファイルの全削除ができません。")
 			}
 		}
-	};
+	}};
 	utility::delete_file_all(&api_key).await?;
 	Ok(())
 }

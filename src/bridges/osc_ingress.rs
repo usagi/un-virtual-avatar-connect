@@ -151,6 +151,7 @@ mod tests {
 			feature: "flowgraph.ingress.osc_udp".into(),
 			file: PathBuf::from("t.flowgraph.toml"),
 			position: None,
+			activation_chain: Vec::new(),
 			properties: m,
 		}
 	}

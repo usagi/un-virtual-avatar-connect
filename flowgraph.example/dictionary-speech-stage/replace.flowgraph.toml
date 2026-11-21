@@ -1,0 +1,44 @@
+# 読み上げ直前へ挿入する辞書部品。音声再生や失敗時の方針は呼出側が決める。
+[meta]
+title = "読み上げ前の辞書置換"
+
+[graph]
+kind = "module"
+[[graph.inputs]]
+name = "run"
+type = "exec"
+to = "load:exec_in"
+[[graph.inputs]]
+name = "text"
+type = "string"
+to = "replace:content"
+[[graph.inputs]]
+name = "path"
+type = "string"
+to = "load:path"
+[[graph.outputs]]
+name = "ready"
+type = "exec"
+from = "load:on_success"
+[[graph.outputs]]
+name = "text"
+type = "string"
+from = "replace:result"
+[[graph.outputs]]
+name = "failed"
+type = "exec"
+from = "load:on_error"
+[[graph.outputs]]
+name = "error"
+type = "string"
+from = "load:error"
+
+[[nodes]]
+id = "load"
+feature = "flowgraph.table.load_tsv"
+[[nodes]]
+id = "replace"
+feature = "flowgraph.glossary.replace"
+[[edges]]
+from = "load:table"
+to = "replace:dictionary"

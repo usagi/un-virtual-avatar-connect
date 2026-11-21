@@ -25,6 +25,7 @@ pub struct FixtureLoadOk {
 	pub program: FlowgraphProgram,
 	pub graph_signature: GraphSignature,
 	pub capability_summary: GraphCapabilitySummary,
+	pub execution_context: ExecCtx,
 }
 
 /// ロード失敗、または（要求時）実行失敗。
@@ -483,6 +484,11 @@ struct FixtureExpectedHttpRequest {
 pub fn load_fixture_program(root: &Path) -> Result<FixtureLoadOk, FixtureError> {
 	let report = load_flowgraph_dir(root).map_err(FixtureError::Load)?;
 	Ok(FixtureLoadOk {
+		execution_context: ExecCtx {
+			graph_root: Some(root.canonicalize().map_err(FixtureError::TestIo)?),
+			runtime_provenance: report.composition.runtime_provenance(),
+			..Default::default()
+		},
 		program: report.program,
 		graph_signature: report.graph_signature,
 		capability_summary: report.capability_summary,
@@ -492,8 +498,7 @@ pub fn load_fixture_program(root: &Path) -> Result<FixtureLoadOk, FixtureError> 
 /// ロード後に `execute` を 1 回試行する（headless `ExecCtx`）。
 pub async fn load_and_execute_once(root: &Path) -> Result<ProgramRun, FixtureError> {
 	let mut fixture = load_fixture_program(root)?;
-	let mut ctx = ExecCtx::default();
-	fixture.program.execute(&mut ctx).await.map_err(FixtureError::Execute)
+	fixture.program.execute(&mut fixture.execution_context).await.map_err(FixtureError::Execute)
 }
 
 pub async fn run_fixture_once_report(root: &Path) -> Result<FixtureRunReport, FixtureError> {
@@ -512,7 +517,7 @@ pub async fn run_fixture_once_report(root: &Path) -> Result<FixtureRunReport, Fi
 	} else {
 		FixtureStateRestoreReport::default()
 	};
-	let (run, ctx, mock_summaries, trigger_history) = run_fixture_program(&mut fixture.program, &declared_tests).await?;
+	let (run, ctx, mock_summaries, trigger_history) = run_fixture_program(&mut fixture.program, &declared_tests, fixture.execution_context).await?;
 	let state_snapshot = fixture.program.export_state_snapshot();
 	let mut report = make_report(
 		root,
@@ -575,10 +580,10 @@ pub async fn run_fixture_suite_report(root: &Path) -> Result<FixtureSuiteReport,
 async fn run_fixture_program(
 	program: &mut FlowgraphProgram,
 	declared_tests: &[ParsedFixtureTestFile],
+	mut ctx: ExecCtx,
 ) -> Result<(ProgramRun, ExecCtx, Vec<FixtureMockSummary>, Vec<FixtureTriggerHistory>), FixtureError> {
 	let trigger_events = build_trigger_events(declared_tests)?;
 	let trigger_history = trigger_events.iter().map(|trigger| trigger.history.clone()).collect();
-	let mut ctx = ExecCtx::default();
 	let effect_mocks = build_effect_mocks(declared_tests);
 	let mock_summaries = summarize_effect_mocks(&effect_mocks);
 	if !effect_mocks.is_empty() {
@@ -1522,11 +1527,11 @@ mod tests {
 		let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("flowgraph.example");
 		let report = run_fixture_suite_report(&dir).await.expect("report");
 		assert!(report.ok, "errors: {:?}", report.errors);
-		assert_eq!(report.fixture_count, 14);
+		assert_eq!(report.fixture_count, 23);
 		assert_eq!(report.failed_fixtures, 0);
-		assert_eq!(report.test_count, 14);
+		assert_eq!(report.test_count, 23);
 		assert_eq!(report.failed_tests, 0);
-		assert_eq!(report.trigger_count, 13);
+		assert_eq!(report.trigger_count, 22);
 		assert_eq!(report.effect_count, 8);
 		assert_eq!(report.state_restore_count, 5);
 		assert_eq!(report.state_snapshot_count, 6);
@@ -2481,5 +2486,17 @@ node_count = 1
 		let dir = example_dir("twitch-stream-tools");
 		let ok = load_fixture_program(&dir).expect("load");
 		let _ = ok.program;
+	}
+
+	#[test]
+	fn twitch_event_notices_example_loads() {
+		load_fixture_program(&example_dir("twitch-event-notices")).expect("notice example must typecheck");
+	}
+
+	#[test]
+	#[ignore = "manual staged personal graph validation"]
+	fn staged_event_notices_loads() {
+		let path = std::path::PathBuf::from(std::env::var("UNVAC_NOTICE_GRAPH").unwrap());
+		load_fixture_program(&path).expect("staged graph must typecheck");
 	}
 }

@@ -131,3 +131,31 @@ require_token_for_non_loopback = true
 # label    = "Scene Registry"
 # # role は未指定（generic table 扱い）
 # editable = true
+
+# =========================================================================
+# Quick Effects preset（Live タブ: BGM / 画面効果キュー）
+# =========================================================================
+#
+# 未指定時は組み込み preset（RAID / チャット強調 / 画面効果 / BGM fade）を使う。
+# GUI の「Preset 保存」は現在のプロファイルへ `[[control_api.quick_effect_presets]]`
+# を書き戻す。更新時は .bak-YYYYMMDDHHmmSS バックアップを作成し、Conf として
+# 再パース検証する。
+#
+# `channel` / `content` / `flags` は ChannelDatum として投入され、OBS template や
+# Flowgraph の channel ingress / effect ノード側で自由に解釈できる。
+
+# [[control_api.quick_effect_presets]]
+# id          = "raid"
+# label       = "RAID"
+# channel     = "effect"
+# content     = "RAID incoming"
+# flags       = ["obs.raid"]
+# duration_ms = 8000
+
+# [[control_api.quick_effect_presets]]
+# id          = "stinger"
+# label       = "Stinger"
+# channel     = "effect"
+# content     = "sting"
+# flags       = ["obs.stinger", "audio.hit"]
+# duration_ms = 5000

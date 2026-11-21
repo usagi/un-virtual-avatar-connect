@@ -1,0 +1,41 @@
+{
+  "version": "0.3.45",
+  "distribution": "https://github.com/alphacep/vosk-api/releases/download/v0.3.45/vosk-win64-0.3.45.zip",
+  "license": "https://raw.githubusercontent.com/alphacep/vosk-api/v0.3.45/COPYING",
+  "license_sha256": "bb618af833c817ab01c1564bd3ec75ba4b4f9cf30910a4a2168e30a674ee8cc6",
+  "dll_sha256": {
+    "libgcc_s_seh-1.dll": "201bf8a54ebb490f93ea4beb20740a483bf67036b90b5720f32d0c746a72d1e9",
+    "libstdc++-6.dll": "a1d96a848a567d7657e152cfe92e2fd62da412968cc11ec8bdb04bf20ebc5747",
+    "libvosk.dll": "9331c2f6a32cf77141af27c9750e79532718f51bbc2e3cea3c60f14ca4251e4e",
+    "libwinpthread-1.dll": "92caeb8a4ea281c674003462a233f3b445b685b0a6f93eb11254feda2dda9cde"
+  },
+  "scope": "Vosk project and identified GCC/MinGW runtime notices. This is not a complete transitive dependency notice inventory or a claim of distribution compliance.",
+  "runtime_notices": {
+    "MinGW-w64-8.0.0-COPYING.txt": {
+      "url": "https://api.github.com/repos/mingw-w64/mingw-w64/contents/COPYING?ref=v8.0.0",
+      "sha256": "99a69660981156c21336fdb5661f89341b013c94e4bf9e1c7467b4745718397f"
+    },
+    "MinGW-w64-8.0.0-runtime.txt": {
+      "url": "https://api.github.com/repos/mingw-w64/mingw-w64/contents/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt?ref=v8.0.0",
+      "sha256": "e9b2dc02451ea29092a1f25fa0f3c07207ed421f1807dffb0c4e6dce69dee7bd"
+    },
+    "MinGW-w64-8.0.0-notice.txt": {
+      "url": "https://api.github.com/repos/mingw-w64/mingw-w64/contents/COPYING.MinGW-w64/COPYING.MinGW-w64.txt?ref=v8.0.0",
+      "sha256": "f38e6194bd3bfa1b654f118e5acefe0aead437bbe669eee43957ccc65a7127f1"
+    },
+    "Winpthreads-8.0.0.txt": {
+      "url": "https://api.github.com/repos/mingw-w64/mingw-w64/contents/mingw-w64-libraries/winpthreads/COPYING?ref=v8.0.0",
+      "sha256": "63263614cdd29f2f93cba85e992f041b31f9fc7b4033692f31269489a8a1b177"
+    },
+    "GCC-MinGW-10.2.1-6+24.2-copyright.txt": {
+      "url": "https://ftp.debian.org/debian/pool/main/g/gcc-mingw-w64/gcc-mingw-w64-base_10.2.1-6+24.2_amd64.deb",
+      "member": "./usr/share/doc/gcc-mingw-w64-base/copyright",
+      "sha256": "a481f772f7a53335f13b32c6c54eb1c8577ce97704edd3757ab7ed4287a8e96a",
+      "provenance": "libgcc and libstdc++ byte-match official Debian posix runtime package10.2.1-6+24.2; base copyright inherited verbatim including its gcc-9 references."
+    },
+    "GPL-3.0.txt": {
+      "url": "https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-10.2.0/COPYING3",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    }
+  }
+}

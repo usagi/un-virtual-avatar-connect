@@ -12,18 +12,18 @@ use crate::flowgraph::registry::registry;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-fn normalize_library_use_fq(s: &str) -> String {
-	let mut t = s.trim().replace('\\', "/");
-	while let Some(stripped) = t.strip_prefix("./") {
-		t = stripped.to_string();
+pub(crate) fn normalize_manifest_fq(s: &str) -> String {
+	let mut value = s.trim().replace('\\', "/");
+	while let Some(stripped) = value.strip_prefix("./") {
+		value = stripped.to_string();
 	}
-	if let Some(stripped) = t.strip_suffix(".flowgraph.toml") {
-		t = stripped.to_string();
+	if let Some(stripped) = value.strip_suffix(".flowgraph.toml") {
+		value = stripped.to_string();
 	}
-	t.trim_matches('/').to_string()
+	value.trim_matches('/').to_string()
 }
 
-fn package_id_is_valid(id: &str) -> bool {
+pub(crate) fn package_id_is_valid(id: &str) -> bool {
 	if id != id.trim() {
 		return false;
 	}
@@ -36,7 +36,7 @@ fn package_id_is_valid(id: &str) -> bool {
 			&& chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-')
 	})
 }
-fn package_version_is_valid(version: &str) -> bool {
+pub(crate) fn package_version_is_valid(version: &str) -> bool {
 	if version != version.trim() || version.is_empty() {
 		return false;
 	}
@@ -58,7 +58,7 @@ fn package_version_is_valid(version: &str) -> bool {
 	parts.len() == 3 && parts.iter().all(|part| semver_number_is_valid(part))
 }
 
-fn package_version_requirement_is_valid(requirement: &str) -> bool {
+pub(crate) fn package_version_requirement_is_valid(requirement: &str) -> bool {
 	if requirement != requirement.trim() || requirement.is_empty() {
 		return false;
 	}
@@ -78,112 +78,34 @@ fn semver_identifiers_are_valid(identifiers: &str, allow_numeric_leading_zero: b
 		})
 }
 
-/// `[meta].library_uses` の参照先検証と閉路検出（エラー時はロード失敗）。
-fn library_use_dependency_diagnostics(files: &[(String, PathBuf, FlowgraphFile)], known: &HashSet<String>) -> Vec<Diagnostic> {
-	let mut diagnostics: Vec<Diagnostic> = Vec::new();
-	let mut adj: HashMap<String, Vec<String>> = HashMap::new();
-
-	for (fq, path, file) in files {
-		let Some(meta) = file.meta.as_ref() else {
-			continue;
-		};
-		let Some(uses) = meta.library_uses.as_ref() else {
-			continue;
-		};
-		for raw in uses {
-			let target = normalize_library_use_fq(raw);
-			if target.is_empty() {
-				diagnostics.push(
-					Diagnostic::error(DiagnosticCode::UnknownLibraryRef, "library_uses に空エントリ")
-						.with_file(path.clone())
-						.with_hint(format!("[meta].library_uses / {raw:?}")),
-				);
-				continue;
-			}
-			if !known.contains(&target) {
-				diagnostics.push(
+/// 廃止済み`[meta].library_uses`を黙って受理せず、graph instanceへの移行を要求する。
+fn removed_library_use_diagnostics(files: &[(String, PathBuf, FlowgraphFile)]) -> Vec<Diagnostic> {
+	files
+		.iter()
+		.filter_map(|(_, path, file)| {
+			file.meta
+				.as_ref()
+				.and_then(|meta| meta.library_uses.as_ref())
+				.filter(|uses| !uses.is_empty())
+				.map(|_| {
 					Diagnostic::error(
-						DiagnosticCode::UnknownLibraryRef,
-						format!("library_uses の参照先 '{target}' が flowgraph ルート内に存在しない"),
+						DiagnosticCode::RemovedLanguageFeature,
+						"[meta].library_usesは廃止済み。typed [graph] interfaceと[[instances]]を使う",
 					)
 					.with_file(path.clone())
-					.with_hint(raw.clone()),
-				);
-				continue;
-			}
-			adj.entry(fq.clone()).or_default().push(target);
-		}
-	}
-
-	if adj.is_empty() {
-		return diagnostics;
-	}
-
-	let mut vertices: HashSet<String> = HashSet::new();
-	for (a, bs) in &adj {
-		vertices.insert(a.clone());
-		for b in bs {
-			vertices.insert(b.clone());
-		}
-	}
-
-	let mut path_stack: Vec<String> = Vec::new();
-	let mut in_stack: HashSet<String> = HashSet::new();
-	let mut finished: HashSet<String> = HashSet::new();
-
-	fn dfs_visit(
-		u: &str,
-		adj: &HashMap<String, Vec<String>>,
-		path_stack: &mut Vec<String>,
-		in_stack: &mut HashSet<String>,
-		finished: &mut HashSet<String>,
-	) -> Option<Vec<String>> {
-		if finished.contains(u) {
-			return None;
-		}
-		if in_stack.contains(u) {
-			let idx = path_stack.iter().position(|x| x == u)?;
-			let mut cyc = path_stack[idx..].to_vec();
-			cyc.push(u.to_string());
-			return Some(cyc);
-		}
-		in_stack.insert(u.to_string());
-		path_stack.push(u.to_string());
-		for v in adj.get(u).into_iter().flatten() {
-			if let Some(c) = dfs_visit(v, adj, path_stack, in_stack, finished) {
-				return Some(c);
-			}
-		}
-		path_stack.pop();
-		in_stack.remove(u);
-		finished.insert(u.to_string());
-		None
-	}
-
-	for v in vertices {
-		if finished.contains(&v) {
-			continue;
-		}
-		path_stack.clear();
-		in_stack.clear();
-		if let Some(cyc) = dfs_visit(&v, &adj, &mut path_stack, &mut in_stack, &mut finished) {
-			diagnostics.push(Diagnostic::error(
-				DiagnosticCode::LibraryDependencyCycle,
-				format!("library_uses に閉路: {}", cyc.join(" -> ")),
-			));
-			break;
-		}
-	}
-
-	diagnostics
+					.with_hint("docs/manual/flowgraph-composition.md")
+				})
+		})
+		.collect()
 }
 
 fn package_manifest_diagnostics(files: &[(String, PathBuf, FlowgraphFile)], known: &HashSet<String>) -> Vec<Diagnostic> {
 	let mut diagnostics: Vec<Diagnostic> = Vec::new();
+	let definitions = files.iter().map(|(fq, _, file)| (fq.as_str(), file)).collect::<HashMap<_, _>>();
 	let mut seen_package_ids: HashMap<String, PathBuf> = HashMap::new();
 	let mut package_versions: HashMap<String, Option<String>> = HashMap::new();
 	let mut package_dependencies: HashMap<String, Vec<String>> = HashMap::new();
-	for (_fq, path, file) in files {
+	for (fq, path, file) in files {
 		let Some(package) = file.package.as_ref() else {
 			continue;
 		};
@@ -233,8 +155,9 @@ fn package_manifest_diagnostics(files: &[(String, PathBuf, FlowgraphFile)], know
 		}
 
 		let mut seen_exports: HashSet<String> = HashSet::new();
+		let package_scope = fq.rsplit_once('/').map_or("", |(scope, _)| scope);
 		for export in &package.exports {
-			let target = normalize_library_use_fq(export);
+			let target = normalize_manifest_fq(export);
 			if target.is_empty() {
 				diagnostics.push(
 					Diagnostic::error(DiagnosticCode::InvalidPackageManifest, "[package].exports に空エントリ")
@@ -259,6 +182,31 @@ fn package_manifest_diagnostics(files: &[(String, PathBuf, FlowgraphFile)], know
 					Diagnostic::error(
 						DiagnosticCode::InvalidPackageManifest,
 						format!("[package].exports の参照先 '{target}' が flowgraph ルート内に存在しない"),
+					)
+					.with_file(path.clone())
+					.with_hint(export.clone()),
+				);
+				continue;
+			}
+			if !package_scope.is_empty() && target != package_scope && !target.starts_with(&format!("{package_scope}/")) {
+				diagnostics.push(
+					Diagnostic::error(
+						DiagnosticCode::InvalidPackageManifest,
+						format!("[package].exports の参照先 '{target}' はpackage scope '{package_scope}/' の外にある"),
+					)
+					.with_file(path.clone())
+					.with_hint(export.clone()),
+				);
+				continue;
+			}
+			if definitions
+				.get(target.as_str())
+				.is_some_and(|target_file| target_file.graph.kind != super::file::GraphKind::Module)
+			{
+				diagnostics.push(
+					Diagnostic::error(
+						DiagnosticCode::InvalidPackageManifest,
+						format!("[package].exports の参照先 '{target}' はmodule graphではない"),
 					)
 					.with_file(path.clone())
 					.with_hint(export.clone()),
@@ -496,6 +444,18 @@ pub fn fq_path_of_file(root: &Path, file: &Path) -> Result<String, String> {
 
 /// `flowgraph_root` を走査し、全ファイルを統合した `FlowgraphProgram` を返す。
 pub fn load_flowgraph_dir(root: &Path) -> Result<LoadReport, LoadError> {
+	load_flowgraph_dir_excluding(root, None)
+}
+
+/// Validate a prospective removal without changing files or starting workers.
+pub fn load_flowgraph_dir_excluding(root: &Path, excluded_fq: Option<&str>) -> Result<LoadReport, LoadError> {
+	load_flowgraph_dir_excluding_files(root, &excluded_fq.into_iter().map(str::to_owned).collect())
+}
+
+/// Validate a whole explicitly selected removal set without filesystem mutation.
+pub fn load_flowgraph_dir_excluding_files(root: &Path, excluded_fqs: &HashSet<String>) -> Result<LoadReport, LoadError> {
+	let transaction_generation = crate::flowgraph::source_transaction::generation(root).map_err(|e|source_read_error(root,e))?;
+	crate::flowgraph::source_transaction::ensure_no_pending(root).map_err(|e|source_read_error(root,e))?;
 	if !root.exists() {
 		return Err(LoadError::from_single(
 			Diagnostic::error(DiagnosticCode::Io, format!("flowgraph root が存在しない: '{}'", root.display()))
@@ -503,9 +463,10 @@ pub fn load_flowgraph_dir(root: &Path) -> Result<LoadReport, LoadError> {
 		));
 	}
 
-	let files = walk_flowgraph_dir(root).map_err(|e| {
+	let mut files = walk_flowgraph_dir(root).map_err(|e| {
 		LoadError::from_single(Diagnostic::error(DiagnosticCode::Io, format!("ディレクトリ走査失敗: {e}")).with_file(root.to_path_buf()))
 	})?;
+	files.retain(|path| fq_path_of_file(root, path).map(|fq| !excluded_fqs.contains(&fq)).unwrap_or(true));
 
 	if files.is_empty() {
 		// 空は warning: プログラムは空グラフで構築可能にしておく
@@ -514,7 +475,9 @@ pub fn load_flowgraph_dir(root: &Path) -> Result<LoadReport, LoadError> {
 			source_digests: HashMap::new(),
 			known_file_fqs: HashSet::new(),
 		};
-		return ctx.build(registry());
+		let report=ctx.build(registry())?;
+		verify_loaded_sources(root,excluded_fqs,&report.source_digests,&transaction_generation)?;
+		return Ok(report);
 	}
 
 	let mut parsed: Vec<(String, PathBuf, FlowgraphFile)> = Vec::new();
@@ -558,7 +521,52 @@ pub fn load_flowgraph_dir(root: &Path) -> Result<LoadReport, LoadError> {
 		return Err(LoadError::new(parse_diags));
 	}
 
-	let mut lib_diags = library_use_dependency_diagnostics(&parsed, &known_file_fqs);
+	let report=build_parsed_sources(root, parsed, source_digests, known_file_fqs, parse_diags)?;
+	verify_loaded_sources(root,excluded_fqs,&report.source_digests,&transaction_generation)?;
+	Ok(report)
+}
+
+fn source_read_error(root:&Path,error:impl std::fmt::Display)->LoadError {
+    LoadError::from_single(Diagnostic::error(DiagnosticCode::Io,error.to_string()).with_file(root.to_path_buf()))
+}
+
+fn verify_loaded_sources(root:&Path,excluded:&HashSet<String>,expected:&HashMap<String,String>,generation:&Option<String>)->Result<(),LoadError> {
+    let mut current=HashMap::new();
+    for path in walk_flowgraph_dir(root).map_err(|e|source_read_error(root,e))? {
+        let fq=fq_path_of_file(root,&path).map_err(|e|source_read_error(root,e))?;
+        if excluded.contains(&fq) {continue;}
+        let source=std::fs::read_to_string(path).map_err(|e|source_read_error(root,e))?;
+        current.insert(fq,crate::flowgraph::loader::file::package_source_digest(&source));
+    }
+    crate::flowgraph::source_transaction::ensure_no_pending(root).map_err(|e|source_read_error(root,e))?;
+    let now=crate::flowgraph::source_transaction::generation(root).map_err(|e|source_read_error(root,e))?;
+    if &current!=expected || &now!=generation {return Err(source_read_error(root,"構成が読込中に変更されました。もう一度読み込んでください。"));}
+    Ok(())
+}
+
+/// Validate an exact, already captured source set without writing a temporary
+/// graph or rereading graph files. Package-lock diagnostics still use root.
+pub fn load_flowgraph_source_snapshot(root: &Path, sources: &std::collections::BTreeMap<String,String>) -> Result<LoadReport,LoadError> {
+    let mut parsed=Vec::new();let mut digests=HashMap::new();let mut known=HashSet::new();let mut diagnostics=Vec::new();
+    for (fq,source) in sources {
+        if fq.is_empty() || fq.split('/').any(|part|part.is_empty() || part=="." || part==".." || part.contains(['\\',':'])) {
+            return Err(LoadError::from_single(Diagnostic::error(DiagnosticCode::Io,"invalid source snapshot path")));
+        }
+        let path=root.join(format!("{fq}.flowgraph.toml"));
+        match parse_flowgraph_file(source,Some(&path)) {
+            Ok(file)=>{known.insert(fq.clone());digests.insert(fq.clone(),crate::flowgraph::loader::file::package_source_digest(source));parsed.push((fq.clone(),path,file));},
+            Err(mut error)=>diagnostics.append(&mut error.diagnostics),
+        }
+    }
+    if diagnostics.iter().any(|d|d.severity==Severity::Error) {return Err(LoadError::new(diagnostics));}
+    build_parsed_sources(root,parsed,digests,known,diagnostics)
+}
+
+fn build_parsed_sources(
+    root:&Path, parsed:Vec<(String,PathBuf,FlowgraphFile)>, source_digests:HashMap<String,String>,
+    known_file_fqs:HashSet<String>, mut parse_diags:Vec<Diagnostic>,
+) -> Result<LoadReport,LoadError> {
+	let mut lib_diags = removed_library_use_diagnostics(&parsed);
 	if lib_diags.iter().any(|d| d.severity == Severity::Error) {
 		parse_diags.append(&mut lib_diags);
 		return Err(LoadError::new(parse_diags));
@@ -612,6 +620,44 @@ mod tests {
 	}
 
 	#[test]
+	fn completed_transaction_generation_invalidates_an_older_load() {
+		let root=tmp_root();
+		write(&root.join("main.flowgraph.toml"),"# initial\n");
+		let report=load_flowgraph_dir(&root).unwrap();
+		let previous=crate::flowgraph::source_transaction::generation(&root).unwrap();
+		let changes=std::collections::BTreeMap::from([("main".into(),crate::flowgraph::speech_route_sources::RedirectedSource{original:"# initial\n".into(),proposed:"# changed\n".into(),edge_inputs:0,boundary_inputs:0})]);
+		let guard=crate::flowgraph::write_lock::acquire(&root).unwrap();
+		let id=crate::flowgraph::source_transaction::prepare(&root,&changes).unwrap();
+		crate::flowgraph::source_transaction::publish(&root,&id).unwrap();
+		let current=load_flowgraph_dir(&root).unwrap();
+		// Even with current content digests, a load begun before this complete
+		// transaction must not pass its final generation check.
+		assert!(verify_loaded_sources(&root,&HashSet::new(),&current.source_digests,&previous).is_err());
+		assert_ne!(report.source_digests,current.source_digests);
+		drop(guard);
+		let resolved=root.canonicalize().unwrap();
+		assert!(resolved.starts_with(std::env::temp_dir().canonicalize().unwrap()));
+		assert!(resolved.file_name().unwrap().to_string_lossy().starts_with("vac-fg-dir-"));
+		std::fs::remove_dir_all(resolved).unwrap();
+	}
+
+	#[test]
+	fn removal_preview_preserves_files_and_rejects_missing_module() {
+		let root = tmp_root();
+		write(&root.join("module.flowgraph.toml"), "[graph]\nkind = 'module'\n[[nodes]]\nid = 'count'\nfeature = 'flowgraph.state.int_counter'\n");
+		write(&root.join("main.flowgraph.toml"), "[[instances]]\nid = 'instance'\ngraph = 'module'\n");
+		assert!(load_flowgraph_dir(&root).is_ok());
+		assert!(load_flowgraph_dir_excluding(&root, Some("module")).is_err());
+		assert!(root.join("module.flowgraph.toml").is_file());
+		assert!(load_flowgraph_dir_excluding(&root, Some("main")).is_ok());
+		assert!(root.join("main.flowgraph.toml").is_file());
+        assert!(load_flowgraph_dir_excluding_files(&root, &HashSet::from(["main".into(), "module".into()])).is_ok());
+        assert!(load_flowgraph_dir_excluding_files(&root, &HashSet::from(["module".into()])).is_err());
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2);
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
 	fn walk_includes_only_flowgraph_toml() {
 		let root = tmp_root();
 		write(&root.join("a.flowgraph.toml"), "");
@@ -644,6 +690,180 @@ mod tests {
 	}
 
 	#[test]
+	fn graph_module_multiple_instances_expand_with_separate_namespaces() {
+		let root = tmp_root();
+		write(
+			&root.join("module.flowgraph.toml"),
+			r#"
+[graph]
+kind = "module"
+
+[[graph.inputs]]
+name = "exec_in"
+type = "exec"
+to = "counter:increment"
+
+[[graph.outputs]]
+name = "exec_out"
+type = "exec"
+from = "counter:changed"
+
+[[nodes]]
+id = "counter"
+feature = "flowgraph.state.int_counter"
+"#,
+		);
+		write(
+			&root.join("main.flowgraph.toml"),
+			r#"
+[[nodes]]
+id = "start"
+feature = "flowgraph.ingress.web_input"
+
+[[instances]]
+id = "left"
+graph = "module"
+position = [320.0, 100.0]
+
+[[instances]]
+id = "right"
+graph = "module"
+position = [320.0, 300.0]
+
+[[edges]]
+from = "start:exec_out"
+to = "left:exec_in"
+
+[[edges]]
+from = "start:exec_out"
+to = "right:exec_in"
+"#,
+		);
+
+		let report = load_flowgraph_dir(&root).expect("composition load");
+		let node_ids = report.program.node_ids().cloned().collect::<HashSet<_>>();
+		assert!(node_ids.contains("main::start"));
+		assert!(node_ids.contains("main/@left::counter"));
+		assert!(node_ids.contains("main/@right::counter"));
+		assert_eq!(report.program.state_summary().nodes.len(), 2);
+		assert_eq!(report.composition.instances.len(), 2);
+		assert!(report.composition.portals.iter().any(|portal| portal.to_fq == "main/@left"));
+
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
+	fn graph_module_preserves_parent_and_local_activation_layers() {
+		let root = tmp_root();
+		write(
+			&root.join("module.flowgraph.toml"),
+			r#"
+[meta]
+mode_groups = ["translation"]
+
+[graph]
+kind = "module"
+
+[[nodes]]
+id = "log"
+feature = "flowgraph.util.log"
+"#,
+		);
+		write(
+			&root.join("main.flowgraph.toml"),
+			r#"
+[meta]
+mode_groups = ["conversation"]
+
+[[instances]]
+id = "translate"
+graph = "module"
+"#,
+		);
+
+		let report = load_flowgraph_dir(&root).expect("composition load");
+		let meta = report.node_meta.get("main/@translate::log").expect("expanded module node");
+		assert_eq!(meta.activation_chain.len(), 2);
+		assert_eq!(meta.activation_chain[0].mode_groups, vec!["conversation"]);
+		assert_eq!(meta.activation_chain[1].mode_groups, vec!["translation"]);
+		let summary = report.file_activation.get("main/@translate").expect("expanded activation summary");
+		assert_eq!(summary.mode_groups, vec!["conversation", "translation"]);
+
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
+	fn graph_interface_type_mismatch_is_load_error() {
+		let root = tmp_root();
+		write(
+			&root.join("bad.flowgraph.toml"),
+			r#"
+[graph]
+kind = "module"
+
+[[graph.inputs]]
+name = "value"
+type = "bool"
+to = "log:value"
+
+[[nodes]]
+id = "log"
+feature = "flowgraph.util.log"
+"#,
+		);
+		write(
+			&root.join("main.flowgraph.toml"),
+			r#"
+[[instances]]
+id = "bad"
+graph = "bad"
+"#,
+		);
+		let error = load_flowgraph_dir(&root).expect_err("type mismatch must fail");
+		assert!(error
+			.diagnostics
+			.iter()
+			.any(|diag| diag.code == DiagnosticCode::InvalidGraphInterface));
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
+	fn graph_instance_cycle_is_load_error() {
+		let root = tmp_root();
+		write(
+			&root.join("a.flowgraph.toml"),
+			r#"
+[graph]
+kind = "module"
+[[instances]]
+id = "b"
+graph = "b"
+"#,
+		);
+		write(
+			&root.join("b.flowgraph.toml"),
+			r#"
+[graph]
+kind = "module"
+[[instances]]
+id = "a"
+graph = "a"
+"#,
+		);
+		write(
+			&root.join("main.flowgraph.toml"),
+			r#"
+[[instances]]
+id = "root"
+graph = "a"
+"#,
+		);
+		let error = load_flowgraph_dir(&root).expect_err("cycle must fail");
+		assert!(error.diagnostics.iter().any(|diag| diag.code == DiagnosticCode::GraphInstanceCycle));
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
 	fn load_dir_with_cross_file_edges() {
 		let root = tmp_root();
 		write(
@@ -671,6 +891,8 @@ mod tests {
 		let report = load_flowgraph_dir(&root).expect("should load");
 		assert!(report.node_meta.contains_key("producer::lit"));
 		assert!(report.node_meta.contains_key("consumer::logger"));
+		assert!(load_flowgraph_dir_excluding(&root, Some("producer")).is_err());
+		assert!(load_flowgraph_dir_excluding(&root, Some("consumer")).is_ok());
 		// no errors
 		assert!(report.diagnostics.iter().all(|d| d.severity != Severity::Error));
 		let _ = std::fs::remove_dir_all(&root);
@@ -807,7 +1029,7 @@ mod tests {
 	}
 
 	#[test]
-	fn library_uses_cycle_returns_error() {
+	fn removed_library_uses_returns_migration_error() {
 		let root = tmp_root();
 		write(
 			&root.join("a.flowgraph.toml"),
@@ -823,9 +1045,10 @@ library_uses = ["a"]
 
 "#,
 		);
-		let err = load_flowgraph_dir(&root).expect_err("cycle");
+		let err = load_flowgraph_dir(&root).expect_err("removed declaration");
 		assert!(
-			err.errors().any(|d| d.code == DiagnosticCode::LibraryDependencyCycle),
+			err.errors()
+				.any(|d| d.code == DiagnosticCode::RemovedLanguageFeature && d.message.contains("廃止済み")),
 			"{:#?}",
 			err.diagnostics
 		);
@@ -917,6 +1140,9 @@ id = "example.good"
 version = "0.1.0"
 exports = ["main"]
 
+[graph]
+kind = "module"
+
 [[nodes]]
 id = "lit"
 feature = "flowgraph.literal.string"
@@ -930,18 +1156,183 @@ properties.value = "hi"
 		let _ = std::fs::remove_dir_all(&root);
 	}
 
-	/// 開発者用の `flowgraph.local/`（conf.local.*.toml が `flowgraph_dir` で指す）を
-	/// クリーンチェックアウトでも試せる回帰テスト。
-	/// CI やクリーンチェックアウトでは存在しないので、ファイルが無ければ silently skip する。
 	#[test]
-	fn local_dir_loads_without_errors_when_present() {
-		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("flowgraph.local");
-		if !root.is_dir() {
-			return;
+	fn package_private_module_cannot_be_instantiated_from_workspace() {
+		let root = tmp_root();
+		write(
+			&root.join("main.flowgraph.toml"),
+			r#"[[instances]]
+id = "private"
+graph = "./vendor/private"
+"#,
+		);
+		write(
+			&root.join("vendor/public.flowgraph.toml"),
+			r#"[package]
+id = "example.vendor"
+version = "0.1.0"
+exports = ["vendor/public"]
+
+[graph]
+kind = "module"
+"#,
+		);
+		write(
+			&root.join("vendor/private.flowgraph.toml"),
+			r#"[graph]
+kind = "module"
+"#,
+		);
+
+		let err = load_flowgraph_dir(&root).expect_err("private package module must stay encapsulated");
+		assert!(err.diagnostics.iter().any(|diag| diag.code == DiagnosticCode::GraphEncapsulation));
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
+	fn package_exported_module_can_be_instantiated_from_workspace() {
+		let root = tmp_root();
+		write(
+			&root.join("main.flowgraph.toml"),
+			r#"[[instances]]
+id = "public"
+graph = "./vendor/public"
+"#,
+		);
+		write(
+			&root.join("vendor/public.flowgraph.toml"),
+			r#"[package]
+id = "example.vendor"
+version = "0.1.0"
+exports = ["vendor/public"]
+
+[graph]
+kind = "module"
+"#,
+		);
+
+		let report = load_flowgraph_dir(&root).expect("exported package module");
+		assert_eq!(report.composition.instances[0].graph_fq, "vendor/public");
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
+	fn package_cross_reference_requires_declared_dependency() {
+		let root = tmp_root();
+		write(
+			&root.join("app/main.flowgraph.toml"),
+			r#"[package]
+id = "example.app"
+version = "0.1.0"
+
+[[instances]]
+id = "vendor"
+graph = "../vendor/public"
+"#,
+		);
+		write(
+			&root.join("vendor/public.flowgraph.toml"),
+			r#"[package]
+id = "example.vendor"
+version = "0.1.0"
+exports = ["vendor/public"]
+
+[graph]
+kind = "module"
+"#,
+		);
+
+		let err = load_flowgraph_dir(&root).expect_err("cross-package reference needs dependency");
+		assert!(err
+			.diagnostics
+			.iter()
+			.any(|diag| { diag.code == DiagnosticCode::InvalidPackageManifest && diag.message.contains("dependencies") }));
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
+	fn multiple_instances_of_autonomous_source_module_warn() {
+		let root = tmp_root();
+		write(
+			&root.join("main.flowgraph.toml"),
+			r#"[[instances]]
+id = "first"
+graph = "./source"
+
+[[instances]]
+id = "second"
+graph = "./source"
+"#,
+		);
+		write(
+			&root.join("source.flowgraph.toml"),
+			r#"[graph]
+kind = "module"
+
+[[nodes]]
+id = "input"
+feature = "flowgraph.ingress.web_input"
+"#,
+		);
+
+		let report = load_flowgraph_dir(&root).expect("warning does not reject load");
+		assert!(report
+			.diagnostics
+			.iter()
+			.any(|diag| diag.code == DiagnosticCode::MultipleAutonomousSourceInstances && diag.severity == Severity::Warning));
+		let _ = std::fs::remove_dir_all(&root);
+	}
+
+	#[test]
+	fn state_snapshot_reload_keeps_instance_namespaces_separate() {
+		let root = tmp_root();
+		write(
+			&root.join("main.flowgraph.toml"),
+			r#"[[instances]]
+id = "left"
+graph = "./counter"
+
+[[instances]]
+id = "right"
+graph = "./counter"
+"#,
+		);
+		write(
+			&root.join("counter.flowgraph.toml"),
+			r#"[graph]
+kind = "module"
+
+[[nodes]]
+id = "value"
+feature = "flowgraph.state.int_counter"
+"#,
+		);
+
+		let report = load_flowgraph_dir(&root).expect("initial load");
+		let mut snapshot = report.program.export_state_snapshot();
+		assert_eq!(snapshot.nodes.len(), 2);
+		assert!(snapshot.nodes.iter().any(|node| node.node == "main/@left::value"));
+		assert!(snapshot.nodes.iter().any(|node| node.node == "main/@right::value"));
+		for node in &mut snapshot.nodes {
+			node.value = if node.node.contains("@left") {
+				serde_json::json!({ "value": 11 })
+			} else {
+				serde_json::json!({ "value": 29 })
+			};
 		}
-		let report =
-			load_flowgraph_dir(&root).unwrap_or_else(|e| panic!("flowgraph.local の load に失敗: diagnostics={:#?}", e.diagnostics));
-		let errors: Vec<_> = report.diagnostics.iter().filter(|d| d.severity == Severity::Error).collect();
-		assert!(errors.is_empty(), "flowgraph.local に error 診断が含まれる: {:#?}", errors);
+
+		let mut reloaded = load_flowgraph_dir(&root).expect("reload").program;
+		let restored = reloaded.restore_state_snapshot(&snapshot).expect("restore by runtime node id");
+		assert_eq!(restored.restored_node_count, 2);
+		let after = reloaded.export_state_snapshot();
+		assert_eq!(
+			after.nodes.iter().find(|node| node.node == "main/@left::value").unwrap().value,
+			serde_json::json!({ "value": 11 })
+		);
+		assert_eq!(
+			after.nodes.iter().find(|node| node.node == "main/@right::value").unwrap().value,
+			serde_json::json!({ "value": 29 })
+		);
+		let _ = std::fs::remove_dir_all(&root);
 	}
 }

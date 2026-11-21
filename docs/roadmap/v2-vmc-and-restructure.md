@@ -1,12 +1,14 @@
-# VAC v2 再構造化 + VMC 対応 計画書（改訂版）
+# VAC v2 再構造化 + Motion / VMC 互換計画書（改訂版）
 
 ## 0. 方針
 
 * VAC を **常駐型のデータフローエンジン** とし、まず **VMC（UDP）のモーショントラッキング** を扱えるようにする。その最初の機能として **並列パススルー**（マルチキャスト的転送）を可能にする。
+* 2026-05 時点の上位方針として、UNVAC の内部 motion core は VMC ではなく **UNMF** とする。姿勢・表情制御の送受信・保存・外部連携は **UNMF/Z** を中核にし、VMC は `VMC -> UNMF` / `UNMF -> VMC` の互換 adapter として扱う。
+* UNA / UNM など U.N. シリーズアプリの discovery / status / command / capability 交渉は、UNMF/Z とは別層の **UN App API over Zenoh (UNAA/Z)** で扱う。UNAA/Z のプロトコル正本は [`../manual/un-app-api-over-zenoh.md`](../manual/un-app-api-over-zenoh.md)、計画は [`un-app-api-zenoh-roadmap.md`](un-app-api-zenoh-roadmap.md)。
 * Flowgraph を **実行記述（プログラム）としての位置づけ** を文書・実装の両面で明確にする。
 * **crate 分離**は段階的に進め、責務と保守性を整理する。
 
-**記法**: 本書の **`Phase M0`〜`M5`** は VMC / Motion 作業用のラベルであり、[`roadmap.md`](../roadmap.md) の **δ / φ …** などギリシャ文字フェーズとは別系統（同ファイル **Phase M** 節で進捗管理）。Rust 型・モジュール名は `` `Snake_case` `` / `` `PascalCase` ``、HTTP は `ALL CAPS` パス表記。
+**記法**: 本書の **`Phase M0`〜`M7`** は Motion / VMC 互換 / UNMF 作業用のラベルであり、[`roadmap.md`](../roadmap.md) の **δ / φ …** などギリシャ文字フェーズとは別系統（同ファイル **Phase M** 節で進捗管理）。Rust 型・モジュール名は `` `Snake_case` `` / `` `PascalCase` ``、HTTP は `ALL CAPS` パス表記。
 
 **M0 詳細設計（実装・`conf.toml` スキーマの正本）**: [`phase-mu-vmc-motion-m0.md`](phase-mu-vmc-motion-m0.md)
 
@@ -210,7 +212,7 @@ POST /api/v1/control/vmc/{id}/forward/remove
 
 #### 目的
 
-VMC を **意味のある構造**（中間表現）へ昇格させる。
+VMC 受信データを **意味のある構造**へ変換する。初期実装では `MotionFrame` が OSC message collection であり、VMC に近い wire-level 表現を保持する。後続の M-6 / M-7 では、この役割を UNMF 中心に整理し、VMC は import/export adapter へ降格する。
 
 #### 型（概念）
 
@@ -233,6 +235,8 @@ flowgraph.motion.map
 
 実装メモ（2026-04 時点）: 上記ノードのデータ経路は **`motion_frame`** ソケット（Rust の `MotionFrame` = `src/motion/frame.rs` の `byte_len` + `osc_messages`）と `json` との **coerce 往復**で統一。本節で概念化している `head_pose` / `bone_transforms` / `blendshapes` などの **意味付き IR** は未分解（M5 以降の拡張余地）。
 
+方針更新（2026-05）: 意味付き IR の正本は **UNMF** とし、送受信・保存・外部連携は **UNMF/Z** を優先する。既存 `motion_frame` は互換維持しつつ、M-6 以降で UNMF schema / UNMF/Z encode-decode / VMC import-export の境界を固定する。
+
 ---
 
 ### Phase M5: Flowgraph の用途拡張
@@ -243,6 +247,71 @@ flowgraph.motion.map
 * ジェスチャ検出 — first slice: pose 抽出ノードが `found/bone/px/py/pz/rx/ry/rz/rw` を出すため、既存の vec / math / compare / edge 系へ直結可能
 * AI 入力 — first slice: `flowgraph.channel.emit` で AI ペルソナの `observe.triggers` 対象チャンネルへ motion event を投入する。例: `flowgraph.example/vmc-ai-mode-control`
 * 配信制御 — first slice: motion trigger から `flowgraph.mode.transit` で Runtime Mode を切り替え、`flowgraph.obs.set_current_program_scene` で OBS scene を切り替える。例: `flowgraph.example/vmc-ai-mode-control` / `flowgraph.example/vmc-obs-scene-control`
+
+---
+
+### Phase M6: UNMF / UNMF/Z core migration design
+
+#### 目的
+
+UNVAC の姿勢・表情制御の内部コアを **UNMF**、送受信・保存・外部連携の data plane を **UNMF/Z** として正式化する。VMC は互換入力・互換出力として維持するが、内部表現の中心には置かない。
+
+実装メモ（2026-05 first slice）: `crates/vac-motion/src/unmf.rs` を追加し、`un-motion-frame = 1.1.0` と `un-motion-frame-zenoh = 1.0.0`（`default-features = false`）を正本として参照する。`MotionFrame` は従来通り VMC / OSC wire collection として残し、`vac_motion::unmf` が `MotionFrame -> UNMotionFrame` / `UNMotionFrame -> MotionFrame` / UNMF/Z MessagePack encode-decode を担当する。これにより VMC は内部コアではなく adapter になった。
+
+#### 設計対象
+
+* [x] un-avatar / un-motion / un-motion-frame の実装を参照し、UNMF schema と UNMF/Z transport の最小境界を UNVAC 側へ取り込む。
+* [x] 既存 `MotionFrame` / `motion_frame` socket の互換方針を決める。置換ではなく、少なくとも v2 では VMC OSC collection としての既存動作を壊さない。
+* [x] `flowgraph.motion.vmc_parse` は `VMC -> MotionFrame` から `VMC -> UNMF` への migration path を持つ。
+* [x] 新規 example は `VMC -> UNMF -> Flowgraph processing -> UNMF/Z or VMC` を標準形にする。
+
+実装メモ（2026-05 example fixture）: `flowgraph.example/unmf-vmc-adapter` を追加し、VMC OSC payload を `flowgraph.motion.vmc_parse` で互換入力として読み、`flowgraph.unmf.from_vmc` 以降を UNMF 処理の本線にした。fixture は `flowgraph.unmf.filter` / `flowgraph.unmf.map`、UNMF/Z dry-run publish、`flowgraph.unmf.to_vmc` による VMC adapter 出力を一括で検証する。
+
+#### 非目標
+
+* VMC passthrough の低遅延経路を壊さない。
+* UNAA/Z control plane を UNMF/Z data plane に混ぜない。
+* UNA / UNM の全機能制御を M6 に含めない。
+
+---
+
+### Phase M7: UNMF/Z Flowgraph nodes and VMC adapters
+
+#### 目的
+
+Flowgraph から UNMF / UNMF/Z を直接扱える first slice を実装し、VMC 互換ノードを adapter として整理する。
+
+#### first slice 実装済み
+
+```text
+flowgraph.unmf.from_vmc
+flowgraph.unmf.to_vmc
+flowgraph.unmfz.decode
+flowgraph.unmfz.encode
+flowgraph.unmfz.resolve_endpoint
+flowgraph.unmfz.publish
+flowgraph.unmfz.subscribe
+flowgraph.unmf.extract_bone
+flowgraph.unmf.extract_blendshape
+flowgraph.unmf.map
+flowgraph.unmf.filter
+```
+
+#### 後続候補
+
+```text
+GUI endpoint candidate picker from UNAA/Z discovery metadata
+```
+
+#### 連携
+
+実装メモ（2026-05 first slice）: FlowGraph 境界では UNMF を専用 `unmf` socket type として扱う。`flowgraph.unmf.from_vmc` が既存 `motion_frame` を `UNMotionFrame` に変換し、`flowgraph.unmf.to_vmc` が既存 VMC sender/extractor 系に戻す。`flowgraph.unmfz.encode` / `decode` は UNMF/Z の MessagePack payload を `bytes` として扱う。`flowgraph.unmf.filter` / `map` は schema-aware UNMF helper として、bone/expression の絞り込み、translation scale、expression scale / clamp を担当する。`json <-> unmf` coerce を持つため、デバッグ・保存・外部 JSON 境界とは既存 JSON ノードで接続できる。
+
+UNMF/Z endpoint discovery は **UNAA/Z** から得られる app endpoint metadata と接続できるようにする。M7 first slice では `flowgraph.unmfz.resolve_endpoint` が metadata から `base_key_expr` / `topic_mode` / `schema_major` を取り出し、`flowgraph.unmfz.publish` / `subscribe` が同じ strategy で Zenoh key expression を組み立てる。GUI は diagnostics に載る `unaa_z_endpoint_candidates` / `unaa_z.endpoints` 等を読んで endpoint 候補を表示し、publish は `literal.json` / `literal.string` / resolver / publish のサブグラフ、受信は `flowgraph.ingress.unmfz` の常時入口を生成できる。Control API は `unaa_z` discovery snapshot schema と flattened endpoint candidate surface を正式に返し、timeout-bounded Zenoh JSON reader で `un/app/**/snapshot` / `unaa_z/**/snapshot` を query し、`un/app/**/announce` / `unaa_z/**/announce` も読む。Managed App と UNAA/Z identity の明示 binding も first slice で完了済み。
+
+実装メモ（2026-05 long-lived ingress）: `flowgraph.ingress.unmfz` と `bridges::unmfz_ingress` を追加し、UNMF/Z Zenoh topic を常時購読して受信 frame ごとに `unmf` / `content_bytes` / `key_expr` を FlowGraph trigger として投入できるようにした。`flowgraph.unmfz.subscribe` は exec ごとの一回受信、`flowgraph.ingress.unmfz` は常時 stream 入口として使い分ける。例: `flowgraph.example/unmfz-ingress`。
+
+実装メモ（2026-05 GUI generation）: FlowGraph palette / command palette の UNMF/Z endpoint 候補で、受信側ボタンは `Subscribe` ではなく `Ingress` として `flowgraph.ingress.unmfz` を生成する。これにより UNA / UNM などの motion output endpoint から常時 stream を受ける標準形になる。生成 group には従来通り `unaa_z_provenance` を保存する。
 
 ---
 

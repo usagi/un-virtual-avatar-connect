@@ -1,0 +1,34 @@
+[meta]
+title = "Composition module"
+
+[graph]
+kind = "module"
+
+[[graph.inputs]]
+name = "exec_in"
+type = "exec"
+to = "gate:exec_in"
+
+[[graph.inputs]]
+name = "text"
+type = "string"
+to = "log:value"
+
+[[graph.outputs]]
+name = "exec_out"
+type = "exec"
+from = "log:exec_out"
+
+[[nodes]]
+id = "gate"
+feature = "flowgraph.flow.gate"
+position = [80.0, 180.0]
+
+[[nodes]]
+id = "log"
+feature = "flowgraph.util.log"
+position = [280.0, 180.0]
+
+[[edges]]
+from = "gate:exec_out"
+to = "log:exec_in"

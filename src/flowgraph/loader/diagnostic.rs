@@ -56,10 +56,8 @@ pub enum DiagnosticCode {
 	DuplicateEnumId,
 	/// Phase λ: `[[enums]]` エントリが不正（空 id / 空 variants 等）。
 	InvalidEnumDefinition,
-	/// Phase λ: `library_uses` が参照する fq が walk 集合に存在しない。
-	UnknownLibraryRef,
-	/// Phase λ: `library_uses` の依存グラフに閉路がある。
-	LibraryDependencyCycle,
+	/// 廃止済みの公開言語要素を検出した。
+	RemovedLanguageFeature,
 	/// LF-4: `[package]` manifest が不正（空 id / 不明 export fq 等）。
 	InvalidPackageManifest,
 	/// LF-4: `flowgraph.lock.json` が stale または不正。
@@ -72,6 +70,18 @@ pub enum DiagnosticCode {
 	OrphanModeGroup,
 	/// LF-7: load-time state snapshot restore failed.
 	StateRestore,
+	/// v2 composition: graph interface 宣言またはmappingが不正。
+	InvalidGraphInterface,
+	/// v2 composition: instance宣言または参照先が不正。
+	InvalidGraphInstance,
+	/// v2 composition: graph instance依存に閉路がある。
+	GraphInstanceCycle,
+	/// v2 composition: module内部をinterface外から参照した。
+	GraphEncapsulation,
+	/// v2 composition: 自律sourceを含むmoduleが複数instance化された。
+	MultipleAutonomousSourceInstances,
+	/// v2 composition: edge/portalの両端でactivation状態が異なる。
+	ActivationBoundary,
 }
 
 /// 単一診断メッセージ。
@@ -191,6 +201,8 @@ pub struct LoadReport {
 	pub graph_signature: GraphSignature,
 	/// LF-4: `[package]` manifest を file ごとに集約した read-only package catalog。
 	pub package_manifests: Vec<PackageManifestSummary>,
+	/// Source bytes observed during loading, including files without package declarations.
+	pub source_digests: std::collections::HashMap<String, String>,
 	/// LF-4: local package dependency DAG の dependency-first order。
 	pub package_dependency_order: Vec<String>,
 	/// LF-4: lockfile 生成前に diagnostics API から観測できる read-only package lock preview。
@@ -199,12 +211,16 @@ pub struct LoadReport {
 	pub type_schemas: Vec<TypeSchemaSummary>,
 	/// LF-5: record schema dependency graph の dependency-first order。
 	pub type_schema_dependency_order: Vec<String>,
+	/// LF-5: record schema dependency graph の集計。
+	pub type_schema_graph_summary: TypeSchemaGraphSummary,
 	/// LF-4: package lock preview 全体の stable digest。空 preview では `None`。
 	pub package_lock_preview_digest: Option<String>,
 	/// LF-2: graph 全体が要求する capability の集計。policy enforcement ではなく read-only metadata。
 	pub capability_summary: GraphCapabilitySummary,
 	/// RM-3: 各 `.flowgraph.toml` の fq → `[meta]` の mode 系メタ（省略時は既定）。
 	pub file_activation: std::collections::HashMap<String, FlowgraphFileActivationMeta>,
+	/// v2 composition: graph定義、展開instance、Studio portalのread model。
+	pub composition: crate::flowgraph::loader::GraphCompositionSummary,
 }
 
 impl std::fmt::Debug for LoadReport {
@@ -217,9 +233,11 @@ impl std::fmt::Debug for LoadReport {
 			.field("package_lock_preview", &self.package_lock_preview)
 			.field("type_schemas", &self.type_schemas)
 			.field("type_schema_dependency_order", &self.type_schema_dependency_order)
+			.field("type_schema_graph_summary", &self.type_schema_graph_summary)
 			.field("package_lock_preview_digest", &self.package_lock_preview_digest)
 			.field("capability_summary", &self.capability_summary)
 			.field("file_activation", &self.file_activation.keys().collect::<Vec<_>>())
+			.field("composition", &self.composition)
 			.field("diagnostics", &self.diagnostics)
 			.finish()
 	}
@@ -269,6 +287,29 @@ pub struct TypeSchemaSummary {
 	pub field_record_refs: BTreeMap<String, Vec<String>>,
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub record_refs: Vec<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub external_record_refs: Vec<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub referenced_by: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TypeSchemaGraphSummary {
+	pub schema_count: usize,
+	pub dependency_edge_count: usize,
+	pub external_ref_count: usize,
+	pub root_schema_count: usize,
+	pub leaf_schema_count: usize,
+}
+
+impl TypeSchemaGraphSummary {
+	pub fn is_empty(&self) -> bool {
+		self.schema_count == 0
+			&& self.dependency_edge_count == 0
+			&& self.external_ref_count == 0
+			&& self.root_schema_count == 0
+			&& self.leaf_schema_count == 0
+	}
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -288,6 +329,8 @@ pub struct GraphSignature {
 	pub type_schemas: Vec<TypeSchemaSummary>,
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub type_schema_dependency_order: Vec<String>,
+	#[serde(default, skip_serializing_if = "TypeSchemaGraphSummary::is_empty")]
+	pub type_schema_graph_summary: TypeSchemaGraphSummary,
 	pub external_triggers: Vec<GraphSignatureTrigger>,
 	pub boundary_inputs: Vec<GraphSignaturePort>,
 	pub boundary_outputs: Vec<GraphSignaturePort>,
@@ -470,6 +513,10 @@ pub struct LoadedNodeMeta {
 	pub file: PathBuf,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub position: Option<[f64; 2]>,
+	/// composition の entry -> nested module で継承する activation 制約。
+	/// 各層を個別評価して AND するため、group の単純結合では代用しない。
+	#[serde(default, skip_serializing, skip_deserializing)]
+	pub activation_chain: Vec<FlowgraphFileActivationMeta>,
 	/// δ-9: 解決済み properties（`PropertySpec` ベースの型変換済）。ブリッジ層が
 	/// `path` / `engine` などを読むのに使う。`Serialize` には不要なので skip。
 	#[serde(default, skip_serializing, skip_deserializing)]

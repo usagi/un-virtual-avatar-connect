@@ -1,0 +1,58 @@
+[meta]
+title = "Twitch channel points observer"
+description = "Receive custom reward redemptions and emit a non-AI observation channel"
+tags = ["example", "twitch", "eventsub", "channel-points"]
+
+[[nodes]]
+id = "eventsub"
+feature = "flowgraph.ingress.twitch_eventsub"
+position = [80, 120]
+properties.token_key = "broadcaster"
+properties.event_types = ["channel.channel_points_custom_reward_redemption.add"]
+properties.channel_points_reward_id = ""
+
+[[nodes]]
+id = "reward_title_path"
+feature = "flowgraph.literal.string"
+position = [80, 360]
+properties.value = "reward.title"
+
+[[nodes]]
+id = "reward_title"
+feature = "flowgraph.json.get"
+position = [360, 240]
+
+[[nodes]]
+id = "channel"
+feature = "flowgraph.literal.string"
+position = [360, 420]
+properties.value = "channel-points"
+
+[[nodes]]
+id = "emit"
+feature = "flowgraph.bos.output"
+position = [660, 120]
+
+[[edges]]
+from = "eventsub:exec_out"
+to = "emit:exec_in"
+
+[[edges]]
+from = "eventsub:payload"
+to = "reward_title:value"
+
+[[edges]]
+from = "reward_title_path:value"
+to = "reward_title:path"
+
+[[edges]]
+from = "reward_title:string"
+to = "emit:content"
+
+[[edges]]
+from = "eventsub:actor_name"
+to = "emit:source_actor"
+
+[[edges]]
+from = "channel:value"
+to = "emit:destination"

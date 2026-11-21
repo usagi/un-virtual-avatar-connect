@@ -1,0 +1,61 @@
+# Phase M7: UNMF/Z を motion data plane の常時入口として受ける最小例。
+#
+# `flowgraph.ingress.unmfz` は Zenoh の UNMF/Z topic を常時購読し、
+# 受信 frame ごとに `unmf` を Flowgraph へ投入する。VMC は必要な場合だけ
+# `flowgraph.unmf.to_vmc` で互換出力へ戻す。
+
+[meta]
+title = "unmfz ingress demo"
+description = "UNMF/Z Zenoh ingress -> UNMF expression extraction -> log"
+tags = ["example", "unmf", "unmfz", "ingress", "motion"]
+
+[[nodes]]
+id = "unmfz_in"
+feature = "flowgraph.ingress.unmfz"
+position = [80, 120]
+properties.base_key_expr = "un-motion/frame"
+properties.topic_mode = "frame"
+properties.schema_major = 1
+properties.poll_ms = 10
+properties.fixed_channel = ""
+
+[[nodes]]
+id = "joy_name"
+feature = "flowgraph.literal.string"
+position = [320, 300]
+properties.value = "Joy"
+
+[[nodes]]
+id = "extract_joy"
+feature = "flowgraph.unmf.extract_blendshape"
+position = [320, 120]
+
+[[nodes]]
+id = "joy_text"
+feature = "flowgraph.convert.float_to_string"
+position = [560, 120]
+
+[[nodes]]
+id = "log_joy"
+feature = "flowgraph.util.log"
+position = [800, 120]
+
+[[edges]]
+from = "unmfz_in:exec_out"
+to = "log_joy:exec_in"
+
+[[edges]]
+from = "unmfz_in:unmf"
+to = "extract_joy:unmf"
+
+[[edges]]
+from = "joy_name:value"
+to = "extract_joy:name"
+
+[[edges]]
+from = "extract_joy:value"
+to = "joy_text:value"
+
+[[edges]]
+from = "joy_text:result"
+to = "log_joy:value"

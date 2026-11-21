@@ -2,12 +2,10 @@
 //!
 //! δ-8c-3 で `docs/manual/node-catalog.md` を NodeRegistry から生成するためのモジュール。
 //! テスト（`docs_tests::node_catalog_md_up_to_date`）が on-disk の Markdown と一致を
-//! 保証する。更新したい場合は repository-local script でテストを走らせると自動で書き戻す。
+//! 保証する。更新したい場合は repository-local xtask command でテストを走らせると自動で書き戻す。
 //!
-//! ```powershell
-//! ./scripts/bless-node-catalog.ps1
-//! # or:
-//! $env:BLESS_NODE_CATALOG="1"; cargo test --lib node_catalog_md_up_to_date
+//! ```console
+//! cargo xtask docs bless-node-catalog
 //! ```
 
 use crate::flowgraph::node::{NodeSpec, PortDirection, PortSpec, PropertySpec};
@@ -33,10 +31,8 @@ pub fn render_node_catalog_md(registry: &NodeRegistry) -> String {
 	out.push_str("# Flowgraph Node Catalog\n\n");
 	out.push_str("VAC v2 Flowgraph の組み込みノード一覧。**本ファイルは自動生成**されるので、手で編集せずノード定義側を更新してからテストで再生成してください。\n\n");
 	out.push_str("再生成:\n\n");
-	out.push_str("```powershell\n");
-	out.push_str("./scripts/bless-node-catalog.ps1\n");
-	out.push_str("# or:\n");
-	out.push_str("$env:BLESS_NODE_CATALOG=\"1\"; cargo test --lib node_catalog_md_up_to_date\n");
+	out.push_str("```console\n");
+	out.push_str("cargo xtask docs bless-node-catalog\n");
 	out.push_str("```\n\n");
 	out.push_str(&format!("> 型の表記: {}\n\n", type_labels(&by_category)));
 	out.push_str("## Reading This Catalog\n\n");
@@ -69,6 +65,9 @@ pub fn render_node_catalog_md(registry: &NodeRegistry) -> String {
 		}
 	}
 
+	while out.ends_with("\n\n") {
+		out.pop();
+	}
 	out
 }
 
@@ -465,14 +464,13 @@ mod docs_tests {
 		let actual = std::fs::read_to_string(&path).unwrap_or_else(|e| {
 			panic!(
 				"docs/manual/node-catalog.md の読み込みに失敗: {e}\n\
-				 初回生成するには `./scripts/bless-node-catalog.ps1` を実行してください。\n\
-				 （fallback: `$env:BLESS_NODE_CATALOG=\"1\"; cargo test --lib node_catalog_md_up_to_date`）"
+				 初回生成するには `cargo xtask docs bless-node-catalog` を実行してください。"
 			);
 		});
 		let actual_norm = actual.replace("\r\n", "\n");
 
 		if actual_norm != expected_norm {
-			let diff_hint = "./scripts/bless-node-catalog.ps1 で再生成してください。";
+			let diff_hint = "cargo xtask docs bless-node-catalog で再生成してください。";
 			panic!("docs/manual/node-catalog.md が registry と不一致。{diff_hint}");
 		}
 	}
@@ -513,6 +511,10 @@ mod docs_tests {
 		let rendered = render_node_catalog_md(&default_registry());
 		assert!(!rendered.contains('\r'), "generated node catalog should be LF-only");
 		assert!(rendered.ends_with('\n'), "generated node catalog should end with a newline");
+		assert!(
+			!rendered.ends_with("\n\n"),
+			"generated node catalog should not end with a blank line"
+		);
 	}
 
 	fn markdown_table_delimiter_count(line: &str) -> usize {

@@ -1,0 +1,7 @@
+[meta]
+title = "Cross-file target"
+
+[[nodes]]
+id = "sink"
+feature = "flowgraph.util.log"
+position = [360.0, 220.0]

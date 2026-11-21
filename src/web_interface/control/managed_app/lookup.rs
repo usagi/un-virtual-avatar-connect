@@ -22,18 +22,25 @@ pub(super) async fn lookup_entry(state: &SharedState, id: &str) -> Result<(crate
 	let r = registry.read().await;
 	let spec = r
 		.find_spec(id)
+		.cloned()
 		.ok_or_else(|| HttpResponse::NotFound().json(serde_json::json!({"error": "not_found", "id": id})))?;
-	let status = r.statuses.get(id).cloned().unwrap_or_else(|| ManagedAppStatus::unknown(id));
+	drop(r);
+	// Actions must not trust the periodic UI-monitor cache after start/stop.
+	let status = crate::managed_app::probe_all(std::slice::from_ref(&spec))
+		.remove(id).unwrap_or_else(|| ManagedAppStatus::unknown(id));
 
 	// spec から run_with 再構成。shutdown は `start_entry` では使われないので None で良い。
 	let run_with = crate::conf::RunWith::CommandIfProcessIsNotRunning {
 		command: spec.command.clone(),
 		if_not_running: spec.process_marker.clone(),
+		start_on_launch: Some(spec.start_on_launch),
 		run_as_admin: Some(spec.run_as_admin),
 		working_dir: spec.working_dir.clone(),
 		minimized: Some(spec.minimized),
 		id: Some(spec.id.clone()),
 		label: Some(spec.label.clone()),
+		unaa_z_app_id: spec.unaa_z_app_id.clone(),
+		unaa_z_instance_id: spec.unaa_z_instance_id.clone(),
 		shutdown: None,
 	};
 	Ok((run_with, status))
@@ -46,6 +53,9 @@ pub(super) async fn lookup_spec_status(state: &SharedState, id: &str) -> Result<
 		.find_spec(id)
 		.cloned()
 		.ok_or_else(|| HttpResponse::NotFound().json(serde_json::json!({"error": "not_found", "id": id})))?;
-	let status = r.statuses.get(id).cloned().unwrap_or_else(|| ManagedAppStatus::unknown(id));
+	drop(r);
+	// Actions must not trust the periodic UI-monitor cache after start/stop.
+	let status = crate::managed_app::probe_all(std::slice::from_ref(&spec))
+		.remove(id).unwrap_or_else(|| ManagedAppStatus::unknown(id));
 	Ok((spec, status))
 }

@@ -39,7 +39,7 @@ use async_trait::async_trait;
 // ============================================================================
 
 macro_rules! int_binop_node {
-	($name:ident, $feature:literal, $title:literal, $fn:expr) => {
+	($name:ident, $feature:literal, $title:literal, $fn:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -101,7 +101,7 @@ int_binop_node!(IntMaxNode, "flowgraph.math.int_max", "Int max", |a, b| Ok(a.max
 // ============================================================================
 
 macro_rules! int_unary_node {
-	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr) => {
+	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -201,7 +201,7 @@ impl PureNode for IntClampNode {
 /// temperature misuse, and division-by-zero are propagated as
 /// `NodeExecError::Generic`.
 macro_rules! float_binop_node {
-	($name:ident, $feature:literal, $title:literal, $desc:literal, $op:expr) => {
+	($name:ident, $feature:literal, $title:literal, $desc:literal, $op:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -280,7 +280,7 @@ float_binop_node!(
 // ============================================================================
 
 macro_rules! float_unary_pass_node {
-	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr) => {
+	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -377,7 +377,7 @@ fn require_dimensionless(q: &Quantity, node: &str, port: &str) -> Result<f64, No
 }
 
 macro_rules! float_unary_dimless_node {
-	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr) => {
+	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -549,7 +549,7 @@ fn resolve_same_dim_pair<'a>(a: &'a Quantity, b: &'a Quantity, node: &str) -> Re
 }
 
 macro_rules! float_same_dim_binop_node {
-	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr) => {
+	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -685,7 +685,7 @@ fn quantity_to_radians(q: &Quantity, node: &str, port: &str) -> Result<f64, Node
 }
 
 macro_rules! float_trig_node {
-	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr) => {
+	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -746,7 +746,7 @@ float_trig_node!(
 // ============================================================================
 
 macro_rules! float_arctrig_node {
-	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr) => {
+	($name:ident, $feature:literal, $title:literal, $desc:literal, $fn:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {
@@ -1228,7 +1228,7 @@ fn angle_to_unit(q: &Quantity, target: Unit, node: &str) -> Result<(f64, bool), 
 }
 
 macro_rules! normalize_angle_node {
-	($name:ident, $feature:literal, $title:literal, $desc:literal, $unit_fn:expr, $normalize:expr) => {
+	($name:ident, $feature:literal, $title:literal, $desc:literal, $unit_fn:expr_2021, $normalize:expr_2021) => {
 		pub struct $name;
 		impl NodeDescriptor for $name {
 			fn describe(&self) -> NodeSpec {

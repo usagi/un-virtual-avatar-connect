@@ -1,0 +1,124 @@
+/* Generated from un-common/design/system/un-theme.css; use sync-theme.py. */
+/* UN common visual system. Approved C foundation, 2026-10-19. Product identity is independent from visual style.
+   Never use the product accent for error/success state semantics. */
+html:root[data-un-design][data-un-product]:not([data-un-design=baseline]) {
+ --un-bg:#11151d;
+ --un-panel:#1b212c;
+ --un-panel-raised:#252e3d;
+ --un-border:#42516a;
+ --un-text:#edf2fa;
+ --un-muted:#b7c2d3;
+ --un-radius:10px;
+ --un-font:'Segoe UI Variable Text','Yu Gothic UI',sans-serif;
+ --un-accent:#8dd9cd;
+ --un-accent-ink:#112a27;
+ --un-canvas:#0e1623;
+ --un-canvas-grid:#36485f;
+ --un-edge:#8caccf;
+ color-scheme:dark;
+ font-family:var(--un-font);
+}
+html:root:is([data-un-design=companion],[data-un-design=hybrid])[data-un-product]:not([data-un-design=baseline]) {
+ --un-bg:#191924;
+ --un-panel:#252534;
+ --un-panel-raised:#333347;
+ --un-border:#55556d;
+ --un-radius:18px;
+ --un-canvas:#171a29;
+ --un-canvas-grid:#414762;
+ --un-edge:#b1b9e6;
+}
+html:root[data-un-design][data-un-product=avatar]:not([data-un-design=baseline]) {--un-accent:#ffc28d;--un-accent-ink:#392313}
+html:root[data-un-design][data-un-product=motion]:not([data-un-design=baseline]) {--un-accent:#93c9ff;--un-accent-ink:#15283c}
+/* Respect the product's resolved light/dark setting; never write its preference. */
+html:root[data-un-design][data-un-product]:not([data-un-design=baseline]):is([data-theme=light],[data-vac-theme=light-silver]) {
+ color-scheme:light;
+ --un-bg:#f5f7fa;--un-panel:#ffffff;--un-panel-raised:#e8edf3;
+ --un-text:#202b3b;--un-muted:#526174;--un-border:#8996a7;
+ --un-accent:#17675d;--un-accent-ink:#ffffff;
+ --un-canvas:#f0f3f7;--un-canvas-grid:#b9c4d1;--un-edge:#54677e;
+}
+html:root:is([data-un-design=companion],[data-un-design=hybrid])[data-un-product]:not([data-un-design=baseline]):is([data-theme=light],[data-vac-theme=light-silver]) {
+ --un-bg:#f5f3f9;--un-panel:#ffffff;--un-panel-raised:#ebe7f2;
+ --un-text:#302b40;--un-muted:#625a72;--un-border:#958ba5;
+ --un-canvas:#f2eef7;--un-canvas-grid:#c6bdd3;--un-edge:#706080;
+}
+html:root[data-un-design][data-un-product=avatar]:not([data-un-design=baseline]):is([data-theme=light],[data-vac-theme=light-silver]) {--un-accent:#985015;--un-accent-ink:#ffffff}
+html:root[data-un-design][data-un-product=motion]:not([data-un-design=baseline]):is([data-theme=light],[data-vac-theme=light-silver]) {--un-accent:#225e9b;--un-accent-ink:#ffffff}
+html:root[data-un-design][data-un-product]:not([data-un-design=baseline]) {
+ /* Both existing applications and VAC keep their real components. */
+ --bg:var(--un-bg);--panel:var(--un-panel);--panel-subtle:var(--un-panel-raised);
+ --text:var(--un-text);--muted:var(--un-muted);--border:var(--un-border);
+ --accent-cool:var(--un-accent);
+ --accent:var(--un-accent);--accent-strong:var(--un-accent);
+ --accent-soft:color-mix(in srgb,var(--un-accent) 14%,transparent);
+ --color-surface-50-950:var(--un-bg);--color-surface-100-900:var(--un-panel);
+ --color-surface-200-800:var(--un-panel-raised);--color-surface-300-700:var(--un-border);
+ --color-surface-500:var(--un-muted);--color-surface-600-400:var(--un-muted);
+ --color-surface-700-300:var(--un-text);--color-surface-800-200:var(--un-text);
+ --color-surface-900-100:var(--un-text);--color-surface-950-50:var(--un-text);
+ --color-primary-500:var(--un-accent);--color-primary-600:var(--un-accent);
+ --color-primary-600-400:var(--un-accent);--color-primary-700-300:var(--un-accent);
+ --vac-theme-accent:var(--un-accent);--vac-chrome-border:var(--un-border);
+ --vac-theme-panel-tint:color-mix(in srgb,var(--un-accent) 4%,transparent);
+ --vac-panel-radius:var(--un-radius);--vac-focus-ring:var(--un-accent);
+}
+html[data-un-design]:not([data-un-design=baseline]) :is(.vac-panel,.vac-stat-card,.panel) {border-radius:var(--un-radius)}
+html[data-un-design]:not([data-un-design=baseline]) :is(.vac-side-rail,.side-rail) {font-family:var(--un-font)}
+html[data-un-design]:not([data-un-design=baseline]) :is(button,input,select,textarea):focus-visible {outline:2px solid var(--un-accent);outline-offset:3px}
+html[data-un-design]:not([data-un-design=baseline]) button.bg-primary-500 {color:var(--un-accent-ink)}
+html:root[data-un-design][data-un-product]:not([data-un-design=baseline]) .vac-app-header {background:linear-gradient(105deg,var(--un-panel-raised),var(--un-bg) 72%)}
+html:root[data-un-design][data-un-product]:not([data-un-design=baseline]) .svelte-flow {
+ --xy-background-color-default:var(--un-canvas);
+ --xy-background-pattern-dots-color-default:var(--un-canvas-grid);
+ --xy-edge-stroke-default:var(--un-edge);
+ --xy-controls-button-background-color-default:var(--un-panel);
+ --xy-controls-button-color-default:var(--un-text);
+ --xy-controls-button-border-color-default:var(--un-border);
+ --xy-minimap-background-color-default:var(--un-panel-raised);
+}
+/* Follow the resolved application theme; preserve port geometry and runtime activity. */
+html:root[data-un-design][data-un-product=vac]:not([data-un-design=baseline]) .flowgraph-node {
+ background:var(--un-panel);
+ color:var(--un-text);
+ border-color:var(--un-border);
+}
+html:root[data-un-design][data-un-product=vac]:not([data-un-design=baseline]) .flowgraph-node.selected {
+ border-color:var(--un-accent);
+ outline:2px solid var(--un-accent);
+ outline-offset:2px;
+}
+html:root[data-un-design][data-un-product=vac]:not([data-un-design=baseline]) .flowgraph-node.selected:not(.runtime-activity) {
+ box-shadow:0 2px 8px #0003;
+}
+
+/* Approved C: Companion surfaces, stronger target selection.
+   Product accent denotes selection; existing warning/error semantics stay intact. */
+html:root[data-un-design=hybrid][data-un-product] {
+ --accent-soft:color-mix(in srgb,var(--un-accent) 20%,var(--un-panel));
+}
+html[data-un-design=hybrid] :is(.setting-list button.selected,.side-rail>button.active,.feature-outline li button.selected,.feature-outline .section-link[aria-current=page],.preview-avatar-feature-index button[aria-current=location],.profile-section-nav button.active) {
+ background:var(--accent-soft);
+ border-color:var(--un-accent);
+ box-shadow:inset 3px 0 0 var(--un-accent);
+ color:var(--un-text);
+}
+html[data-un-design=hybrid] :is(.profile-review-targets select,.preview-feature-index .target) {
+ border-inline-start:3px solid var(--un-accent);
+ padding-inline-start:10px;
+}
+
+/* Existing VAC palette choices remain distinct after adopting the common surfaces. */
+html:root[data-un-design=hybrid][data-un-product=vac][data-vac-theme=dark-crimson] {
+ --un-accent:oklch(0.62 0.22 28);--un-accent-ink:#ffffff;
+}
+html:root[data-un-design=hybrid][data-un-product=vac][data-vac-theme=soft-cute] {
+ --un-accent:oklch(0.72 0.14 348);--un-accent-ink:#302b40;
+}
+html:root[data-un-design=hybrid][data-un-product=vac][data-vac-theme=light-silver]:not([data-un-design=baseline]) {
+ --un-accent:oklch(0.56 0.16 248);--un-accent-ink:#ffffff;
+}
+html:root[data-un-design=hybrid] .topbar {
+ background:linear-gradient(105deg,var(--un-panel),var(--un-bg));
+ border-bottom:1px solid var(--un-border);
+}

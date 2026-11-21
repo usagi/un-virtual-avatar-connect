@@ -1,0 +1,54 @@
+{
+  "schema": "unvac.ai_turn_eval.fixture.v1",
+  "name": "shared-stress-synthetic-ja",
+  "persona_id": "kaltsit",
+  "channel": "user",
+  "speech_policy": {
+    "max_chars": 100,
+    "max_sentences": 2,
+    "forbid_question_ending": true
+  },
+  "cases": [
+    {
+      "id": "stress-is-not-diagnosis-request",
+      "content": "うわ、また床が落ちる！ チェックポイントもなくて、ずっとこれ続くの嫌だー！",
+      "allowed_actions": ["react", "observe"],
+      "speech": "any",
+      "speech_forbids": ["判断できない", "原因を決め", "検証", "まずは", "操作が遅"]
+    },
+    {
+      "id": "invite-shared-frustration",
+      "content": "ケルシー先生、この落ちる床が延々続くの、ひやひやしすぎてしんどいよね！",
+      "allowed_actions": ["react", "respond"],
+      "speech": "required",
+      "speech_forbids": ["判断できない", "原因を決め", "検証", "まずは", "操作が遅"]
+    },
+    {
+      "id": "small-course-correction",
+      "content": "あ、もうちょっと右だった。戻って、次。",
+      "allowed_actions": ["observe"],
+      "speech": "forbidden"
+    },
+    {
+      "id": "shared-relief",
+      "content": "うわあ、やっと抜けた！ 助かったー、今のめちゃくちゃ怖かった！",
+      "allowed_actions": ["react"],
+      "speech": "required",
+      "speech_forbids": ["判断できない", "検証", "まずは"]
+    },
+    {
+      "id": "explicit-causal-question-without-evidence",
+      "content": "ここからは相談。二段ジャンプが失敗したのは、私の入力が遅かったからと断定できる？ 入力時刻の記録も映像も今は渡していない。",
+      "allowed_actions": ["respond"],
+      "speech": "required",
+      "speech_forbids": ["入力が遅かったのが原因だ", "映像を見る限り", "今の画面では", "確実に入力遅延"]
+    },
+    {
+      "id": "return-to-play-after-consultation",
+      "content": "原因の話はここまで。いまはゲームの続き。うわっ、落ちる、怖い怖い！",
+      "allowed_actions": ["react", "observe"],
+      "speech": "any",
+      "speech_forbids": ["判断できない", "原因を決め", "検証", "入力時刻", "まずは"]
+    }
+  ]
+}

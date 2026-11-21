@@ -14,6 +14,14 @@ use crate::SharedState;
 pub struct ModesListResponse {
 	/// `conf.modes` のキー（昇順）。
 	pub mode_ids: Vec<String>,
+	/// GUI が架空の定義を補わずに表示するための、設定由来の最小情報。
+	pub modes: Vec<RuntimeModeSummary>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RuntimeModeSummary {
+	pub id: String,
+	pub display_name: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -117,7 +125,14 @@ pub async fn get_modes_list(state: Data<SharedState>) -> impl Responder {
 	};
 	let mut mode_ids: Vec<String> = conf.modes.keys().cloned().collect();
 	mode_ids.sort();
-	HttpResponse::Ok().json(ModesListResponse { mode_ids })
+	let modes = mode_ids
+		.iter()
+		.map(|id| RuntimeModeSummary {
+			id: id.clone(),
+			display_name: conf.modes.get(id).and_then(|mode| mode.display_name.clone()),
+		})
+		.collect();
+	HttpResponse::Ok().json(ModesListResponse { mode_ids, modes })
 }
 
 #[get("/modes/current")]

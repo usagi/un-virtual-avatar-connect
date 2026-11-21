@@ -18,6 +18,7 @@
 //! パス検証・バックアップ名は [`util`]。
 
 mod util;
+mod backups;
 
 use actix_web::web::{self, Data, Json};
 use actix_web::{delete, get, post, put, HttpResponse, Responder};
@@ -47,10 +48,13 @@ pub struct RenameRequest {
 pub struct PutContentRequest {
 	/// 新しいファイル全体の内容（UTF-8 TOML）。サーバ側で `Conf` としてパースして通らなければ 400。
 	pub content: String,
+	#[serde(default)]
+	pub expected_revision: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ProfileContentResponse {
+	pub revision: String,
 	pub filename: String,
 	pub path: String,
 	pub size: u64,
@@ -95,6 +99,7 @@ pub async fn get_profile_content(state: Data<SharedState>, filename: web::Path<S
 	};
 	let size = std::fs::metadata(&path).ok().map(|m| m.len()).unwrap_or(0);
 	HttpResponse::Ok().json(ProfileContentResponse {
+		revision: blake3::hash(content.as_bytes()).to_hex().to_string(),
 		filename,
 		path: path.display().to_string(),
 		size,
@@ -124,18 +129,32 @@ pub async fn put_profile_content(state: Data<SharedState>, filename: web::Path<S
 		);
 	}
 
+	let _operation = match crate::profile_store::lifecycle::lock_config_write(&path) {
+		Ok(lock) => lock,
+		Err(error) => return err_response(actix_web::http::StatusCode::CONFLICT, "profile_busy", error),
+	};
+	if let Some(expected) = &body.expected_revision {
+		let original = match std::fs::read(&path) {
+			Ok(bytes) => bytes,
+			Err(e) => return err_response(actix_web::http::StatusCode::CONFLICT, "revision_unavailable", e),
+		};
+		if blake3::hash(&original).to_hex().as_str() != expected {
+			return err_response(actix_web::http::StatusCode::CONFLICT, "revision_conflict",
+				"別の画面でファイルが変更されています。入力内容を控え、最新の内容を読み直してください。");
+		}
+	}
 	// 既存ファイルのバックアップ（新規作成でなければ）
 	let backup = if path.exists() {
 		let bak = backup_path(&path);
 		if let Err(e) = std::fs::copy(&path, &bak) {
-			log::warn!("《ProfileOps》 バックアップに失敗: {} → {}: {e}", path.display(), bak.display());
+			return err_response(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "backup_failed", e);
 		}
 		Some(bak)
 	} else {
 		None
 	};
 
-	if let Err(e) = std::fs::write(&path, body.content.as_bytes()) {
+	if let Err(e) = crate::profile_store::write_config_transaction(&path, body.content.as_bytes()) {
 		return err_response(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "write_failed", e);
 	}
 
@@ -167,6 +186,10 @@ pub async fn post_clone(state: Data<SharedState>, body: Json<CloneRequest>) -> i
 	let dst = match safe_basename(&dir, &body.new_filename) {
 		Ok(p) => p,
 		Err(r) => return r,
+	};
+	let _operation = match crate::profile_store::lifecycle::lock_config_write(&src) {
+		Ok(lock) => lock,
+		Err(error) => return err_response(actix_web::http::StatusCode::CONFLICT, "profile_busy", error),
 	};
 	if !src.exists() {
 		return err_response(
@@ -208,6 +231,10 @@ pub async fn post_rename(state: Data<SharedState>, filename: web::Path<String>, 
 	let dst = match safe_basename(&dir, &body.new_filename) {
 		Ok(p) => p,
 		Err(r) => return r,
+	};
+	let _operation = match crate::profile_store::lifecycle::lock_config_write(&src) {
+		Ok(lock) => lock,
+		Err(error) => return err_response(actix_web::http::StatusCode::CONFLICT, "profile_busy", error),
 	};
 	if !src.exists() {
 		return err_response(
@@ -253,6 +280,10 @@ pub async fn delete_profile(state: Data<SharedState>, filename: web::Path<String
 		Ok(p) => p,
 		Err(r) => return r,
 	};
+	let _operation = match crate::profile_store::lifecycle::lock_config_write(&path) {
+		Ok(lock) => lock,
+		Err(error) => return err_response(actix_web::http::StatusCode::CONFLICT, "profile_busy", error),
+	};
 	if !path.exists() {
 		return err_response(
 			actix_web::http::StatusCode::NOT_FOUND,
@@ -286,9 +317,78 @@ pub async fn delete_profile(state: Data<SharedState>, filename: web::Path<String
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-	cfg.service(get_profile_content)
+	cfg.service(backups::list)
+		.service(backups::restore)
+		.service(get_profile_content)
 		.service(put_profile_content)
 		.service(post_clone)
 		.service(post_rename)
 		.service(delete_profile);
+}
+
+#[cfg(test)]
+mod management_tests {
+    use super::*;
+
+    #[actix_web::test]
+    #[ignore = "opens an idle audio output device; timed user approval required"]
+    async fn file_management_conflict_then_recovery() {
+        use actix_web::{test as http, App, http::{Method, StatusCode}};
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("vac-file-management-{}-{nonce}",std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
+        let _cleanup = Cleanup(root.clone());
+        let current = root.join("conf.toml");
+        let original = "workers = 1\n# active retained\n";
+        let alternate = "workers = 2\n# alternate retained\n";
+        std::fs::write(&current,original).unwrap();
+        std::fs::write(root.join("other.toml"),alternate).unwrap();
+        let mut conf: crate::Conf = toml::from_str("").unwrap();
+        conf.source_path=Some(current.clone());
+        conf.runtime_dir=Some(root.join("runtime"));
+        let audio=std::sync::Arc::new(tokio::sync::Mutex::new(crate::AudioSink::open_default().unwrap()));
+        let state=crate::State::new(&conf,audio,crate::shutdown::ShutdownBroker::new()).await.unwrap();
+        let app=http::init_service(App::new().app_data(Data::new(state.clone())).configure(configure)).await;
+        let guard=crate::profile_store::lifecycle::lock_config_write(&current).unwrap();
+        for (method,path,body) in [
+            (Method::POST,"/profiles/clone",serde_json::json!({"source":"other.toml","new_filename":"copy.toml"})),
+            (Method::POST,"/profiles/other.toml/rename",serde_json::json!({"new_filename":"renamed.toml"})),
+            (Method::DELETE,"/profiles/other.toml",serde_json::json!({})),
+        ] {
+            let response=http::call_service(&app,http::TestRequest::default().method(method).uri(path).set_json(body).to_request()).await;
+            assert_eq!(response.status(),StatusCode::CONFLICT,"{path}");
+            let body:serde_json::Value=http::read_body_json(response).await;
+            assert_eq!(body["error"],"profile_busy");
+            assert_eq!(std::fs::read_to_string(root.join("other.toml")).unwrap(),alternate);
+            assert!(!root.join("copy.toml").exists());
+            assert!(!root.join("renamed.toml").exists());
+        }
+        drop(guard);
+        for (path,body) in [
+            ("/profiles/clone",serde_json::json!({"source":"other.toml","new_filename":"copy.toml"})),
+            ("/profiles/copy.toml/rename",serde_json::json!({"new_filename":"renamed.toml"})),
+        ] {
+            let response=http::call_service(&app,http::TestRequest::post().uri(path).set_json(body).to_request()).await;
+            assert_eq!(response.status(),StatusCode::OK,"{path}");
+        }
+        let response=http::call_service(&app,http::TestRequest::delete().uri("/profiles/renamed.toml").to_request()).await;
+        assert_eq!(response.status(),StatusCode::OK);
+        let deleted:serde_json::Value=http::read_body_json(response).await;
+        assert!(!root.join("renamed.toml").exists());
+        let response=http::call_service(&app,http::TestRequest::post().uri("/profile-backups/restore").set_json(serde_json::json!({"backup":deleted["backup"],"filename":"restored.toml"})).to_request()).await;
+        assert_eq!(response.status(),StatusCode::OK);
+        assert_eq!(std::fs::read_to_string(root.join("restored.toml")).unwrap(),alternate);
+        for (method,path,body) in [
+            (Method::DELETE,"/profiles/conf.toml",serde_json::json!({})),
+            (Method::POST,"/profiles/conf.toml/rename",serde_json::json!({"new_filename":"forbidden.toml"})),
+        ] {
+            let response=http::call_service(&app,http::TestRequest::default().method(method).uri(path).set_json(body).to_request()).await;
+            assert_eq!(response.status(),StatusCode::CONFLICT);
+        }
+        assert_eq!(std::fs::read_to_string(&current).unwrap(),original);
+        assert_eq!(std::fs::read_to_string(root.join("other.toml")).unwrap(),alternate);
+        drop(app);drop(state);
+    }
 }

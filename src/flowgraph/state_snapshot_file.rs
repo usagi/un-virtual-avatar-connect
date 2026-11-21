@@ -70,10 +70,11 @@ impl ProgramStateSnapshotFile {
 
 pub fn write_state_snapshot_file(path: impl AsRef<Path>, file: &ProgramStateSnapshotFile) -> Result<(), StateSnapshotFileError> {
 	let path = path.as_ref();
+	let content = file.to_json_pretty()?;
 	if let Some(parent) = path.parent() {
 		std::fs::create_dir_all(parent)?;
 	}
-	std::fs::write(path, file.to_json_pretty()?)?;
+	crate::file_publish::replace(path, content.as_bytes())?;
 	Ok(())
 }
 
@@ -219,6 +220,28 @@ mod tests {
 		let decoded = read_state_snapshot_file(&path).expect("read");
 		assert_eq!(decoded, file);
 		let _ = std::fs::remove_dir_all(path.parent().unwrap());
+	}
+
+	#[test]
+	fn snapshot_file_replacement_keeps_previous_on_validation_or_publish_failure() {
+		let path = temp_path("replacement.snapshot.json");
+		let original = ProgramStateSnapshotFile::with_created_at_unix_ms(snapshot(), 1);
+		write_state_snapshot_file(&path, &original).unwrap();
+		let bytes = std::fs::read(&path).unwrap();
+		let mut invalid = original.clone();
+		invalid.schema_version = 99;
+		assert!(write_state_snapshot_file(&path, &invalid).is_err());
+		assert_eq!(std::fs::read(&path).unwrap(), bytes);
+		let replacement = ProgramStateSnapshotFile::with_created_at_unix_ms(snapshot(), 2);
+		write_state_snapshot_file(&path, &replacement).unwrap();
+		assert_eq!(read_state_snapshot_file(&path).unwrap(), replacement);
+		let directory = path.parent().unwrap().join("occupied");
+		std::fs::create_dir(&directory).unwrap();
+		std::fs::write(directory.join("retained"), b"original").unwrap();
+		assert!(write_state_snapshot_file(&directory, &replacement).is_err());
+		assert_eq!(std::fs::read(directory.join("retained")).unwrap(), b"original");
+		assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 2, "failed publication leaves no staging file");
+		std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 	}
 
 	#[test]

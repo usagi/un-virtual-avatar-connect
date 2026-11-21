@@ -1,0 +1,48 @@
+[[triggers]]
+node = "main::in"
+
+[[triggers.overrides]]
+port = "__content__"
+ty = "string"
+value = "open_hands"
+
+[[tests]]
+name = "saved avatar pose asset releases through neutral baseline"
+
+[tests.expect]
+node_count = 17
+trigger_count = 1
+trace_count = 3
+trace = [
+  "avatar pose asset playback: un-motion/frame/kaltsit-ai/v1 samples=49 attack_ms=250 hold_ms=1000 release_ms=200 owned_bones=7 dry_run=true",
+  "log: un-motion/frame/kaltsit-ai/v1",
+  "log: 49",
+]
+
+[[tests.expect.exec_count]]
+node = "main::read_catalog"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::read_pose"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::read_release"
+count = 1
+
+[[tests.expect.exec_count]]
+node = "main::play_pose"
+count = 1
+
+[[tests.expect.stored_values]]
+node = "main::play_pose"
+port = "frames_sent"
+ty = "int"
+value = 49
+
+[[tests.expect.stored_values]]
+node = "main::play_pose"
+port = "key_expr"
+ty = "string"
+value = "un-motion/frame/kaltsit-ai/v1"
