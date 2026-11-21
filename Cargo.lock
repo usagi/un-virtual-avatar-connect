@@ -8832,7 +8832,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 [[package]]
 name = "tts"
 version = "0.23.0"
-source = "git+https://github.com/Bear-03/tts-rs?branch=synthesize#4f4ab5325255f73c54306328da82be51455fc6c8"
+source = "git+https://github.com/usagi/tts-rs?rev=4f4ab5325255f73c54306328da82be51455fc6c8#4f4ab5325255f73c54306328da82be51455fc6c8"
 dependencies = [
  "cocoa-foundation",
  "core-foundation 0.9.4",

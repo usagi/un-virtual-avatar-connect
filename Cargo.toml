@@ -84,7 +84,7 @@ actix-files = "0.6.10"
 urlencoding = "2.1.3"
 # https://github.com/usagi/virtual-avatar-connect/issues/13
 # tts = "0.25.6"
-tts = { git = "https://github.com/Bear-03/tts-rs", branch = "synthesize" }
+tts = { git = "https://github.com/usagi/tts-rs", rev = "4f4ab5325255f73c54306328da82be51455fc6c8" }
 async-trait = "0.1.89"
 ron = "0.12.1"
 regex = "1.12.3"
