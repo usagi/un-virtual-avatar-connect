@@ -28,3 +28,7 @@ UNVAC v2 の開発と検証で使う基本ルール。
 ```console
 cargo xtask docs bless-node-catalog
 ```
+
+## Rust ビルド環境
+
+ビルドには **Rust 1.100.0** を使用します。`rust-toolchain.toml` に従って rustup が選択します（最低対応バージョン: 1.100、プロジェクト内コードの Edition: 2024）。依存関係は `Cargo.lock` を維持し、検証時は `cargo check --locked` / `cargo test --locked` を使用してください。 Cargoの中間生成先 `build-dir` を実行ファイルの出力先と分離する場合は、`UN_BUILD_PROFILE_DIR` に実行ファイルを配置するディレクトリの絶対パスを指定してください。

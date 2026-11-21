@@ -1,6 +1,6 @@
 # U.N. Virtual Avatar Connect 2.0
 
-VACは、Twitchの通知やクリップ紹介、字幕、読み上げ、AI共演者を組み合わせて使えるWindows向けの配信支援アプリです。使いたい用途から始めて、必要な機能をFlowgraph Studioで追加できます。
+VACは、声を字幕にして翻訳したり、チャネポ交換でアバターをズームしたり、ゲーム画面を見て話すAIを共演者にしたりできる、Windows向けの統合配信支援アプリです。使いたい用途から始めて、必要な機能をFlowgraph Studioで追加できます。
 
 [公式サイト](https://usagi.github.io/un-virtual-avatar-connect/) · [Windows x64版のダウンロード](https://github.com/usagi/un-virtual-avatar-connect/releases/latest) · [使い始める](docs/manual/quickstart.md)
 
@@ -10,7 +10,7 @@ VACは、Twitchの通知やクリップ紹介、字幕、読み上げ、AI共演
 
 ## 開発・不具合の報告
 
-ビルドには **Rust 1.100.0** を使用します。`rust-toolchain.toml` に従って rustup が選択します（最低対応バージョン: 1.100、プロジェクト内コードの Edition: 2024）。依存関係は `Cargo.lock` を維持し、検証時は `cargo check --locked` / `cargo test --locked` を使用してください。 Cargoの中間生成先 `build-dir` を実行ファイルの出力先と分離する場合は、`UN_BUILD_PROFILE_DIR` に実行ファイルを配置するディレクトリの絶対パスを指定してください。
+ソースからビルドする方は[開発ガイド](docs/development-guidelines.md)へ。
 
 不具合やご要望は [Issues] へどうぞ。動作環境と再現手順、期待した動作を添えてください。設定やスクリーンショットを共有する際は認証情報を伏せてください。
 
