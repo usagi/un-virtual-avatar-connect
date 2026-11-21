@@ -149,3 +149,51 @@ footer { border-top: 1px solid var(--rule); background: #0e0d14; }
   .hero-copy h1 { font-size: 2.8rem; }
   .event-select span { padding-inline: .52rem; }
 }
+
+.constellation {
+  isolation: isolate;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: end;
+  gap: 0 1rem;
+  padding: 15rem 1.4rem 1rem;
+  background: radial-gradient(ellipse at 50% 32%, #744ba34a, transparent 62%);
+}
+.constellation::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 2.3rem 10% auto;
+  height: 9rem;
+  border: 1px solid #a88ad45e;
+  border-radius: 50%;
+  transform: rotate(-15deg);
+}
+.constellation img {
+  position: absolute;
+  width: 13rem;
+  top: .4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 8px 22px #070616a6);
+}
+.constellation a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  gap: .25rem;
+  padding: .45rem .15rem;
+  border-top: 1px solid #76678880;
+  font-weight: 600;
+  text-decoration: none;
+}
+.constellation a::after { content: "↘"; color: var(--accent); }
+.constellation a:hover { color: var(--accent); }
+.notification-example { margin-top: 1rem; }
+.notification-example .demo { margin-top: .65rem; box-shadow: none; }
+@media (max-width: 850px) {
+  .constellation { padding-inline: 0; gap: 0 .65rem; }
+  .constellation a { font-size: .88rem; }
+}

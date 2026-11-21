@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#17151e">
-  <meta name="description" content="Virtual Avatar Connect は Windows の配信支援アプリ。Twitch通知・クリップ紹介、字幕、AI共演者、OBSやアバターとの連携を、用途に合わせて組み立てられます。">
+  <meta name="description" content="音声認識・字幕・翻訳、Twitch、OBS、アバター、AI共演者をFlowgraphでつなぐ、Windows用の統合配信支援アプリ。">
   <link rel="canonical" href="https://usagi.github.io/un-virtual-avatar-connect/">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://usagi.github.io/un-virtual-avatar-connect/">
   <meta property="og:title" content="Virtual Avatar Connect 2.0 | U.N. Apps">
-  <meta property="og:description" content="Twitch通知からAI共演まで。使いたい配信機能を選んで始められるWindowsアプリ。">
+  <meta property="og:description" content="音声認識・字幕・翻訳、Twitch、OBS、アバター、AI共演者をFlowgraphでつなぐ、Windows用の統合配信支援アプリ。">
   <meta property="og:image" content="https://usagi.github.io/un-virtual-avatar-connect/assets/vac/first-start.png">
   <title>Virtual Avatar Connect 2.0 | U.N. Apps</title>
   <link rel="icon" href="assets/vac/un-logo.png">
@@ -26,7 +26,7 @@
     </a>
     <nav class="product-tabs" aria-label="U.N. Apps">
       <a href="https://usagi.github.io/un-avatar/" style="--tab:#ff8a64"><span>Avatar</span><small>Renderer</small></a>
-      <a href="https://github.com/usagi/un-motion" style="--tab:#4f8dff"><span>Motion</span><small>Tracking</small></a>
+      <a href="https://usagi.network/software/un-motion/" style="--tab:#4f8dff"><span>Motion</span><small>Tracking</small></a>
       <a href="./" aria-current="page" style="--tab:#bc9bff"><span>Connect</span><small>Hub</small></a>
       <a href="https://usagi.github.io/un-vrc-perfectsync/" style="--tab:#67d9b3"><span>PerfectSync</span><small>Unity Tool</small></a>
     </nav>
@@ -38,17 +38,31 @@
   <section class="hero" aria-labelledby="title">
     <div class="shell hero-grid">
       <div class="hero-copy">
-        <p class="platform">Windows x64 <span>／</span> 配信支援アプリ</p>
+        <p class="platform">Windows x64 <span>／</span> 統合配信支援アプリ</p>
         <h1 id="title" lang="en">Virtual Avatar<br><em>Connect</em></h1>
-        <p class="lead">Twitch通知から、AI共演まで。</p>
-        <p>フォローやチャネポ交換に合わせて、チャットにひとこと、配信画面に演出を。ゲーム画面を見ながら、一緒にしゃべる共演者も作れます。</p>
+        <p class="lead">声も、画面も、アバターも。</p>
+        <p>話した言葉を字幕にして翻訳する。チャネポ交換でアバターを動かす。ゲーム画面を見た共演者が、声と表情で応える。VACでは、入力から配信に現れる反応までをFlowgraphで組み立てられます。</p>
         <div class="actions">
           <a class="button primary" href="https://github.com/usagi/un-virtual-avatar-connect/releases/download/2.0.0/UN-VAC-2.0.0-windows-x64.zip">Windows版をダウンロード <small>2.0.0 · ZIP</small></a>
           <a class="button" href="#start">はじめかた <span aria-hidden="true">↓</span></a>
         </div>
         <a class="release-link" href="https://github.com/usagi/un-virtual-avatar-connect/releases/tag/2.0.0">リリースノートを見る</a>
       </div>
-      <div class="demo" aria-labelledby="demo-title">
+      <nav class="constellation" aria-label="機能から探す">
+        <img src="assets/vac/connect.webp" width="512" height="512" alt="">
+        <a href="#voice">音声認識・字幕</a><a href="#languages">翻訳・読み上げ</a>
+        <a href="#twitch">Twitch・OBS</a><a href="#avatar">アバター制御</a>
+        <a href="#partner">AI共演者</a><a href="#flowgraph">Flowgraph Studio</a>
+      </nav>
+    </div>
+  </section>
+  <nav class="shell in-page" aria-label="このページの目次">
+    <a href="#features">できること</a><a href="#start">初回起動</a><a href="#flowgraph">Flowgraph</a><a href="#guide">マニュアル</a>
+  </nav>
+  <section class="shell section" id="features" aria-labelledby="features-title">
+    <h2 id="features-title">配信で何をしたい？</h2>
+    <div class="feature-grid">
+      <article id="twitch"><h3>Twitchの反応を届ける</h3><p>フォロー、サブスク、ギフト、Raid、チャネポ交換をチャットやOBSに表示。配信者とモデレーターは <code>!rc ユーザー名</code> で相手のチャンネルのクリップを紹介できます。</p><a href="#start">「Twitch配信支援（AIなし）」から始める</a><details class="notification-example"><summary>通知の表示例を見る</summary>      <div class="demo" aria-labelledby="demo-title">
         <div class="demo-heading"><h2 id="demo-title">配信通知のプレビュー</h2><span aria-hidden="true">VAC</span></div>
         <fieldset class="event-select" hidden>
           <legend>試すイベント</legend>
@@ -66,18 +80,11 @@
           </div>
           <div class="chat"><span class="destination">Twitchチャット</span><p><strong>配信BOT</strong> <span id="chat-message">ゲストさんがフォローしました。</span></p></div>
         </div>
-      </div>
-    </div>
-  </section>
-  <nav class="shell in-page" aria-label="このページの目次">
-    <a href="#features">できること</a><a href="#start">初回起動</a><a href="#flowgraph">Flowgraph</a><a href="#guide">マニュアル</a>
-  </nav>
-  <section class="shell section" id="features" aria-labelledby="features-title">
-    <h2 id="features-title">配信で何をしたい？</h2>
-    <div class="feature-grid">
-      <article><h3>Twitchの反応を届ける</h3><p>フォロー、サブスク、ギフト、Raid、チャネポ交換をチャットやOBSに表示。配信者とモデレーターは <code>!rc ユーザー名</code> で相手のチャンネルのクリップを紹介できます。</p><a href="#start">「Twitch配信支援（AIなし）」から始める</a></article>
-      <article><h3>声を字幕や読み上げに</h3><p>マイクの音声を認識してOBSに字幕を表示。チャットの読み上げや発音辞書、翻訳も、使いたい経路だけ追加できます。</p><a href="https://github.com/usagi/un-virtual-avatar-connect/blob/2.0.0/docs/manual/tutorials/voice-input.md">マイクと音声認識の設定</a></article>
-      <article><h3>AIと一緒に遊ぶ</h3><p>話し方や声を設定し、OBSのどのゲーム画面を見せるかを選びます。U.N. Avatarと組み合わせれば、表情や動きも会話に添えられます。</p><a href="https://github.com/usagi/un-virtual-avatar-connect/blob/2.0.0/docs/manual/ai-stream-perception.md">AIにゲーム画面を見せる</a></article>
+      </div></details></article>
+      <article id="voice"><h3>話した声を配信の字幕に</h3><p>マイクから認識した言葉を、OBSのブラウザソースに字幕として表示できます。</p><a href="https://github.com/usagi/un-virtual-avatar-connect/blob/2.0.0/docs/manual/tutorials/voice-input.md">マイクと音声認識の設定</a></article>
+      <article id="languages"><h3>翻訳と読み上げを組み合わせる</h3><p>認識した言葉を別の言語に訳して字幕にしたり、チャットの文章を音声で届けたり。翻訳エンジンや読み上げ音声を用途に合わせて選べます。</p><a href="https://github.com/usagi/un-virtual-avatar-connect/blob/2.0.0/docs/manual/tutorials/translate-multilang.md">翻訳の構成例</a> · <a href="https://github.com/usagi/un-virtual-avatar-connect/blob/2.0.0/docs/manual/tutorials/tts-voicevox.md">読み上げの構成例</a></article>
+      <article id="avatar"><h3>アバターに表情と動きを渡す</h3><p>チャットのコマンドで表情を変えたり、共演者のひとことに頷きやポーズを添えたり。UNMF/Z経由でU.N. Avatarに動きを送れます。</p><a href="https://github.com/usagi/un-virtual-avatar-connect/blob/2.0.0/docs/manual/tutorials/avatar-ai-control.md">表情・ポーズの制御例</a></article>
+      <article id="partner"><h3>AIと一緒に遊ぶ</h3><p>話し方や声を設定し、OBSのどのゲーム画面を見せるかを選びます。U.N. Avatarと組み合わせれば、表情や動きも会話に添えられます。</p><a href="https://github.com/usagi/un-virtual-avatar-connect/blob/2.0.0/docs/manual/ai-stream-perception.md">AIにゲーム画面を見せる</a></article>
       <article><h3>配信の支度をまとめる</h3><p>配信モードに切り替えたらOBS・U.N. Avatar・U.N. Motionを起動。モードごとに連携アプリの起動・終了を登録できます。</p><a href="https://github.com/usagi/un-virtual-avatar-connect/blob/2.0.0/docs/manual/quickstart.md#3-使いたい機能を追加する">モードと連携アプリの使い方</a></article>
     </div>
   </section>
