@@ -44,12 +44,11 @@ code { font: .91em/1.5 Consolas, "Cascadia Mono", monospace; overflow-wrap: anyw
 .tools a { padding: .35rem .75rem; border: 1px solid var(--rule); border-radius: 999px; font-size: .82rem; color: var(--muted); text-decoration: none; }
 .hero { background: radial-gradient(65% 115% at 93% 2%,#4d3d6d55,transparent 75%), linear-gradient(170deg,#23212d 0%,#171721 57%,var(--bg) 100%); }
 .hero-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); align-items: center; gap: clamp(2rem,5vw,5rem); padding-block: clamp(3.4rem,6vw,6rem); }
-.platform { font-size: .82rem; letter-spacing: .05em; font-weight: 700; color: var(--accent); }
-.platform span { margin-inline: .25em; color: var(--dim); }
-h1 { margin-block: 1rem; font: 710 clamp(3.1rem,5.3vw,5.2rem)/.98 "Segoe UI",system-ui,sans-serif; letter-spacing: -.065em; }
-h1 em { color: var(--accent); font-style: normal; }
-.lead { font-size: clamp(1.22rem,2vw,1.63rem); font-weight: 750; color: var(--text); margin-block: 1.65rem .6rem; }
-.hero-copy p:not(.lead,.platform) { max-width: 34rem; }
+.product-version { margin: 0 0 1.1rem; color: var(--accent); font-size: .85rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+.hero-copy h1 { margin: 0 0 1.45rem; font: 800 clamp(2.6rem,4.8vw,4.6rem)/1.13 "Yu Gothic UI",system-ui,sans-serif; letter-spacing: -.045em; }
+.hero-copy h1 span { display: block; }
+.lead { margin-bottom: .55rem; color: var(--text); font-size: clamp(1.22rem,2.15vw,1.85rem); font-weight: 750; }
+.hero-copy p:not(.lead,.product-version) { max-width: 34rem; }
 .actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1.6rem; }
 .button { display: inline-flex; gap: .6rem; align-items: center; justify-content: center; min-height: 46px; padding: .65rem 1rem; border-radius: .6rem; border: 1px solid #655e74; font-size: .93rem; font-weight: 700; text-decoration: none; }
 .button:hover { background: #332f41; }
@@ -140,13 +139,13 @@ footer { border-top: 1px solid var(--rule); background: #0e0d14; }
   .product-tabs span { font-size: .84rem; }
   .hero-grid, .start-grid, .studio, .guide-links, .feature-grid { grid-template-columns: 1fr; }
   .hero-grid { padding-block: 2.6rem; gap: 1.8rem; }
-  .lead { margin-top: 1.2rem; }
+
   .start-grid { gap: 1.6rem; }
   .footer { align-items: flex-start; }
 }
 @media (max-width: 380px) {
   .shell { width: calc(100% - 28px); }
-  .hero-copy h1 { font-size: 2.8rem; }
+  .hero-copy h1 { font-size: clamp(2rem,8.4vw,3.4rem); }
   .event-select span { padding-inline: .52rem; }
 }
 
